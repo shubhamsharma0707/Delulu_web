@@ -14,7 +14,7 @@ const PORT = process.env.PORT || 3000;
 
 // Session middleware
 const sessionMiddleware = session({
-  secret: 'aura-secret-key-change-in-production',
+  secret: 'delulu-secret-key-change-in-production',
   resave: false,
   saveUninitialized: true,
   cookie: { maxAge: 24 * 60 * 60 * 1000 }
@@ -310,7 +310,7 @@ getDB();
 seedDemoUsers();
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`✨ Aura Dating App running at http://localhost:${PORT}`);
+  console.log(`✨ Delulu Dating App running at http://localhost:${PORT}`);
   console.log(`📱 Open your browser to http://localhost:${PORT}`);
   console.log('');
   console.log('📝 Demo users with female profiles:');
