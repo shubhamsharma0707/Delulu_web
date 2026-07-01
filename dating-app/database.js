@@ -1,6 +1,7 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
+const bcrypt = require('bcrypt');
 
 const DB_PATH = path.join(__dirname, 'data', 'delulu.db');
 
@@ -28,6 +29,7 @@ function initDB() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT UNIQUE NOT NULL,
       gender TEXT NOT NULL CHECK(gender IN ('male', 'female', 'other')),
+      passcode_hash TEXT NOT NULL DEFAULT '',
       bio TEXT DEFAULT '',
       hobbies TEXT DEFAULT '[]',
       profile_pic TEXT DEFAULT '',
@@ -38,10 +40,11 @@ function initDB() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       from_user_id INTEGER NOT NULL,
       to_user_id INTEGER NOT NULL,
-      status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'accepted', 'rejected', 'expired')),
+      status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'accepted', 'rejected', 'expired', 'revealed')),
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       chat_started_at DATETIME,
       vibe_available_at DATETIME,
+      reveal_available_at DATETIME,
       from_vibe INTEGER DEFAULT 0 CHECK(from_vibe IN (0, 1, 2)),
       to_vibe INTEGER DEFAULT 0 CHECK(to_vibe IN (0, 1, 2)),
       reveal_from INTEGER DEFAULT 0 CHECK(reveal_from IN (0, 1)),
@@ -58,12 +61,24 @@ function initDB() {
       FOREIGN KEY (connection_id) REFERENCES connections(id) ON DELETE CASCADE,
       FOREIGN KEY (sender_id) REFERENCES users(id)
     );
+    
+    CREATE TABLE IF NOT EXISTS blocked_users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      from_user_id INTEGER NOT NULL,
+      to_user_id INTEGER NOT NULL,
+      reason TEXT DEFAULT '',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(from_user_id, to_user_id)
+    );
 
     CREATE INDEX IF NOT EXISTS idx_connections_from ON connections(from_user_id);
     CREATE INDEX IF NOT EXISTS idx_connections_to ON connections(to_user_id);
     CREATE INDEX IF NOT EXISTS idx_connections_status ON connections(status);
     CREATE INDEX IF NOT EXISTS idx_messages_connection ON messages(connection_id);
   `);
+
+  try { db.exec("ALTER TABLE users ADD COLUMN passcode_hash TEXT NOT NULL DEFAULT '';"); } catch (e) {}
+  try { db.exec("ALTER TABLE connections ADD COLUMN reveal_available_at DATETIME;"); } catch (e) {}
 }
 
 // Seed some demo users if none exist
@@ -71,12 +86,14 @@ function seedDemoUsers() {
   const count = db.prepare('SELECT COUNT(*) as count FROM users').get();
   if (count.count > 0) return;
 
+  const defaultHash = bcrypt.hashSync('123456', 10);
+
   const demos = [
     { username: 'wanderlust_amy', gender: 'female', bio: 'Dog mom, amateur pasta maker, and weekend hiker. Love finding obscure coffee shops.', hobbies: JSON.stringify(['hiking', 'photography', 'coffee', 'cooking', 'travel']), profile_pic: '' },
     { username: 'art_vibes', gender: 'female', bio: 'Art enthusiast and gallery hopper. Always on the lookout for the next great exhibition.', hobbies: JSON.stringify(['art', 'photography', 'reading', 'music']), profile_pic: '' },
     { username: 'stellar_jay', gender: 'male', bio: 'Astronomy nerd and weekend astronomer. Love stargazing and deep conversations.', hobbies: JSON.stringify(['photography', 'hiking', 'reading', 'movies', 'camping']), profile_pic: '' },
     { username: 'coffee_leo', gender: 'male', bio: 'Barista by day, musician by night. Looking for someone to share a latte and a laugh.', hobbies: JSON.stringify(['coffee', 'music', 'cooking', 'baking', 'writing']), profile_pic: '' },
-    { username: 'trailblazer', gender: 'female', bio: 'Trail runner and outdoor enthusiast. Summited 12 peaks last year! Let\'s explore together.', hobbies: JSON.stringify(['hiking', 'running', 'yoga', 'travel', 'camping']), profile_pic: '' },
+    { username: 'trailblazer', gender: 'female', bio: 'Trail runner and outdoor enthusiast. Summited 12 peaks last year! Let\\'s explore together.', hobbies: JSON.stringify(['hiking', 'running', 'yoga', 'travel', 'camping']), profile_pic: '' },
     { username: 'pixel_wanderer', gender: 'male', bio: 'Digital nomad and travel photographer. Capturing moments one frame at a time.', hobbies: JSON.stringify(['photography', 'travel', 'hiking', 'coffee', 'writing']), profile_pic: '' },
     { username: 'bookish_bee', gender: 'female', bio: 'Bookworm with an indie soul. Bibliophile, poet, and curator of cozy corners.', hobbies: JSON.stringify(['reading', 'writing', 'coffee', 'music', 'gardening']), profile_pic: '' },
     { username: 'green_mind', gender: 'male', bio: 'Plant dad and sustainability advocate. Growing my own food and building a better world.', hobbies: JSON.stringify(['gardening', 'cooking', 'yoga', 'reading', 'cycling']), profile_pic: '' },
@@ -86,9 +103,12 @@ function seedDemoUsers() {
     { username: 'zen_master', gender: 'male', bio: 'Yoga instructor and mindfulness coach. Finding balance in a chaotic world.', hobbies: JSON.stringify(['yoga', 'meditation', 'hiking', 'reading', 'gardening']), profile_pic: '' },
   ];
 
-  const insert = db.prepare(`INSERT INTO users (username, gender, bio, hobbies, profile_pic) VALUES (@username, @gender, @bio, @hobbies, @profile_pic)`);
+  const insert = db.prepare(`INSERT INTO users (username, gender, passcode_hash, bio, hobbies, profile_pic) VALUES (@username, @gender, @passcode_hash, @bio, @hobbies, @profile_pic)`);
   const insertMany = db.transaction((users) => {
-    for (const u of users) insert.run(u);
+    for (const u of users) {
+      u.passcode_hash = defaultHash;
+      insert.run(u);
+    }
   });
   insertMany(demos);
   console.log(`Seeded ${demos.length} demo users`);
@@ -96,14 +116,18 @@ function seedDemoUsers() {
 
 // User operations
 const userOps = {
-  create(username, gender, bio, hobbies, profilePic) {
-    const stmt = getDB().prepare(`INSERT INTO users (username, gender, bio, hobbies, profile_pic) VALUES (?, ?, ?, ?, ?)`);
-    const result = stmt.run(username, gender, bio || '', JSON.stringify(hobbies || []), profilePic || '');
+  create(username, gender, passcodeHash, bio, hobbies, profilePic) {
+    const stmt = getDB().prepare(`INSERT INTO users (username, gender, passcode_hash, bio, hobbies, profile_pic) VALUES (?, ?, ?, ?, ?, ?)`);
+    const result = stmt.run(username, gender, passcodeHash, bio || '', JSON.stringify(hobbies || []), profilePic || '');
     return result.lastInsertRowid;
   },
 
   getById(id) {
     return getDB().prepare('SELECT * FROM users WHERE id = ?').get(id);
+  },
+  
+  getByUsername(username) {
+    return getDB().prepare('SELECT * FROM users WHERE username = ?').get(username);
   },
 
   update(id, fields) {
@@ -123,6 +147,11 @@ const userOps = {
 
   // Get discoverable profiles: opposite gender (or all for 'other'), not already connected
   getDiscoverable(userId, gender, excludeIds = []) {
+    // We need to fetch blocked_users as well
+    const blocked = getDB().prepare('SELECT to_user_id as blocked_id FROM blocked_users WHERE from_user_id = ? UNION SELECT from_user_id as blocked_id FROM blocked_users WHERE to_user_id = ?').all(userId, userId);
+    const blockedIds = blocked.map(b => b.blocked_id);
+    const allExclude = [...new Set([...excludeIds, ...blockedIds])];
+    
     let genderFilter;
     if (gender === 'male') {
       genderFilter = 'female';
@@ -132,7 +161,7 @@ const userOps = {
       // 'other' can see both genders, excluding their own
       genderFilter = null;
     }
-    const placeholders = excludeIds.length > 0 ? excludeIds.map(() => '?').join(',') : '0';
+    const placeholders = allExclude.length > 0 ? allExclude.map(() => '?').join(',') : '0';
     let sql;
     let params;
     if (genderFilter) {
@@ -143,7 +172,7 @@ const userOps = {
           AND u.id NOT IN (${placeholders})
         ORDER BY RANDOM()
       `;
-      params = [genderFilter, userId, ...excludeIds];
+      params = [genderFilter, userId, ...allExclude];
     } else {
       sql = `
         SELECT u.id, u.username, u.bio, u.hobbies, u.profile_pic, u.gender
@@ -152,7 +181,7 @@ const userOps = {
           AND u.id NOT IN (${placeholders})
         ORDER BY RANDOM()
       `;
-      params = [userId, ...excludeIds];
+      params = [userId, ...allExclude];
     }
     return getDB().prepare(sql).all(...params);
   }
@@ -220,7 +249,7 @@ const connectionOps = {
       FROM connections c
       JOIN users u1 ON c.from_user_id = u1.id
       JOIN users u2 ON c.to_user_id = u2.id
-      WHERE (c.from_user_id = ? OR c.to_user_id = ?) AND c.status = 'accepted'
+      WHERE (c.from_user_id = ? OR c.to_user_id = ?) AND c.status IN ('accepted', 'revealed')
       ORDER BY c.chat_started_at DESC
     `).all(userId, userId, userId, userId, userId, userId, userId);
   },
@@ -248,6 +277,13 @@ const connectionOps = {
     if (conn.status !== 'accepted') return { error: 'Connection not active' };
 
     const isFrom = conn.from_user_id === userId;
+    
+    // If either person selects Not Vibe at any point -> chat ends immediately
+    if (vibe === 2) {
+      getDB().prepare('UPDATE connections SET status = ? WHERE id = ?').run('rejected', connectionId);
+      return { success: true, match: false, bothVibe: false };
+    }
+
     if (isFrom && conn.from_vibe !== 0) return { error: 'Already voted' };
     if (!isFrom && conn.to_vibe !== 0) return { error: 'Already voted' };
 
@@ -262,9 +298,10 @@ const connectionOps = {
       const bothVibe = updated.from_vibe === 1 && updated.to_vibe === 1;
       if (bothVibe) {
         const revealDate = new Date(Date.now() + 4 * 24 * 60 * 60 * 1000).toISOString();
-        getDB().prepare('UPDATE connections SET reveal_from = 0, reveal_to = 0 WHERE id = ?').run(connectionId);
+        getDB().prepare('UPDATE connections SET reveal_from = 0, reveal_to = 0, reveal_available_at = ? WHERE id = ?').run(revealDate, connectionId);
         return { success: true, match: true, bothVibe: true, reveal_available_at: revealDate };
       } else {
+        // Technically this branch shouldn't hit if we reject instantly on vibe=2, but keeping for safety
         getDB().prepare('UPDATE connections SET status = ? WHERE id = ?').run('expired', connectionId);
         return { success: true, match: false, bothVibe: false };
       }
@@ -288,10 +325,46 @@ const connectionOps = {
       const otherUser = isFrom 
         ? getDB().prepare('SELECT id, username, profile_pic FROM users WHERE id = ?').get(conn.to_user_id)
         : getDB().prepare('SELECT id, username, profile_pic FROM users WHERE id = ?').get(conn.from_user_id);
-      getDB().prepare('UPDATE connections SET status = ? WHERE id = ?').run('expired', connectionId);
+      getDB().prepare('UPDATE connections SET status = ? WHERE id = ?').run('revealed', connectionId);
       return { success: true, bothRevealed: true, otherUser };
     }
     return { success: true, bothRevealed: false };
+  },
+  
+  blockUser(fromId, toId, reason = '') {
+    try {
+      getDB().prepare('INSERT INTO blocked_users (from_user_id, to_user_id, reason) VALUES (?, ?, ?)').run(fromId, toId, reason);
+      // Immediately reject any active connection
+      getDB().prepare('UPDATE connections SET status = "rejected" WHERE (from_user_id = ? AND to_user_id = ?) OR (from_user_id = ? AND to_user_id = ?)').run(fromId, toId, toId, fromId);
+      return { success: true };
+    } catch(err) {
+      return { error: 'Already blocked or error occurred' };
+    }
+  },
+  
+  sweepExpired() {
+    const now = new Date().toISOString();
+    
+    // Expire pending vibe checks where vibe_available_at has passed and someone hasn't voted
+    // We treat missing vote as auto Not Vibe (rejected)
+    const expiredVibes = getDB().prepare(`
+      UPDATE connections 
+      SET status = 'rejected' 
+      WHERE status = 'accepted' 
+        AND vibe_available_at < ? 
+        AND (from_vibe = 0 OR to_vibe = 0)
+    `).run(now);
+
+    // Expire reveals where reveal_available_at has passed and someone hasn't revealed
+    const expiredReveals = getDB().prepare(`
+      UPDATE connections 
+      SET status = 'expired' 
+      WHERE status = 'accepted' 
+        AND reveal_available_at < ? 
+        AND (reveal_from = 0 OR reveal_to = 0)
+    `).run(now);
+
+    return { vibeExpired: expiredVibes.changes, revealsExpired: expiredReveals.changes };
   },
 
   getConnectionById(connectionId) {
