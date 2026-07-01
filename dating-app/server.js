@@ -343,17 +343,29 @@ app.get('/api/messages/:connectionId', requireAuth, (req, res) => {
 
 // ===== PAGE ROUTES =====
 
-// Serve main app - handle routing on client side
+// Serve static HTML files for MPA
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  res.sendFile(path.join(__dirname, 'public', 'login.html'));
 });
 
-// Fallback for SPA routes (not API)
-app.use((req, res, next) => {
-  if (!req.path.startsWith('/api/')) {
-    return res.sendFile(path.join(__dirname, 'public', 'index.html'));
-  }
-  next();
+app.get('/discover', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'discover.html'));
+});
+
+app.get('/requests', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'requests.html'));
+});
+
+app.get('/messages', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'messages.html'));
+});
+
+app.get('/chat', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'chat.html'));
+});
+
+app.get('/profile', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'profile.html'));
 });
 
 // Initialize database and start server
