@@ -3,7 +3,7 @@ const session = require('express-session');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
-const bcrypt = require('crypto');
+const bcrypt = require('bcrypt'); // Changed from 'crypto'
 const { getDB, seedDemoUsers, userOps, connectionOps, messageOps } = require('./database');
 
 const app = express();
@@ -14,7 +14,7 @@ const PORT = process.env.PORT || 3000;
 
 // Session middleware
 const sessionMiddleware = session({
-  secret: 'delulu-secret-key-change-in-production',
+  secret: process.env.SESSION_SECRET || 'delulu-secret-key-change-in-production',
   resave: false,
   saveUninitialized: true,
   cookie: { maxAge: 24 * 60 * 60 * 1000 }
@@ -83,55 +83,87 @@ function requireAuth(req, res, next) {
   next();
 }
 
+// Mock Image Moderation
+async function moderateImage(imageUrl) {
+  // Simulate API delay
+  await new Promise(r => setTimeout(r, 300));
+  if (!imageUrl) return { safe: true };
+  if (imageUrl.toLowerCase().includes('nsfw') || imageUrl.toLowerCase().includes('inappropriate')) {
+    return { safe: false, reason: 'Image flagged by moderation system.' };
+  }
+  return { safe: true };
+}
+
 // Check if user is logged in
 app.get('/api/session', (req, res) => {
   if (req.session.userId) {
     const user = userOps.getById(req.session.userId);
     if (user) {
-      return res.json({ authenticated: true, user });
+      const { passcode_hash, ...safeUser } = user; // don't send hash
+      return res.json({ authenticated: true, user: safeUser });
     }
   }
   res.json({ authenticated: false });
 });
 
 // Create profile (signup)
-app.post('/api/users/create', (req, res) => {
+app.post('/api/users/create', async (req, res) => {
   try {
-    const { username, gender, bio, hobbies, profile_pic } = req.body;
+    const { username, gender, passcode, bio, hobbies, profile_pic } = req.body;
     
-    if (!username || !gender) {
-      return res.status(400).json({ error: 'Username and gender are required' });
+    if (!username || !gender || !passcode) {
+      return res.status(400).json({ error: 'Username, gender, and passcode are required' });
     }
     if (!['male', 'female', 'other'].includes(gender)) {
       return res.status(400).json({ error: 'Invalid gender' });
     }
+    if (passcode.length < 6) {
+      return res.status(400).json({ error: 'Passcode must be at least 6 characters' });
+    }
+
+    // Check moderation
+    if (profile_pic) {
+      const modResult = await moderateImage(profile_pic);
+      if (!modResult.safe) {
+        return res.status(400).json({ error: modResult.reason });
+      }
+    }
 
     // Check username availability
-    const existing = getDB().prepare('SELECT id FROM users WHERE username = ?').get(username);
+    const existing = userOps.getByUsername(username);
     if (existing) {
       return res.status(400).json({ error: 'Username already taken' });
     }
 
-    const userId = userOps.create(username, gender, bio, hobbies, profile_pic);
+    const passcodeHash = await bcrypt.hash(passcode, 10);
+    const userId = userOps.create(username, gender, passcodeHash, bio, hobbies, profile_pic);
     req.session.userId = Number(userId);
+    
     const user = userOps.getById(userId);
-    res.json({ success: true, user });
+    const { passcode_hash, ...safeUser } = user;
+    res.json({ success: true, user: safeUser });
   } catch (err) {
     console.error('Create user error:', err);
     res.status(500).json({ error: 'Failed to create profile' });
   }
 });
 
-// Login (by username — anonymous)
-app.post('/api/users/login', (req, res) => {
-  const { username } = req.body;
-  if (!username) return res.status(400).json({ error: 'Username required' });
+// Login
+app.post('/api/users/login', async (req, res) => {
+  const { username, passcode } = req.body;
+  if (!username || !passcode) {
+    return res.status(400).json({ error: 'Username and passcode required' });
+  }
   
-  const user = getDB().prepare('SELECT * FROM users WHERE username = ?').get(username);
+  const user = userOps.getByUsername(username);
   if (!user) return res.status(404).json({ error: 'User not found' });
   
+  const match = await bcrypt.compare(passcode, user.passcode_hash);
+  if (!match) return res.status(401).json({ error: 'Incorrect passcode' });
+
   req.session.userId = user.id;
-  res.json({ success: true, user });
+  const { passcode_hash, ...safeUser } = user;
+  res.json({ success: true, user: safeUser });
 });
 
 // Logout
@@ -144,15 +176,25 @@ app.post('/api/users/logout', (req, res) => {
 app.get('/api/users/me', requireAuth, (req, res) => {
   const user = userOps.getById(req.session.userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
-  res.json(user);
+  const { passcode_hash, ...safeUser } = user;
+  res.json(safeUser);
 });
 
 // Update profile
-app.put('/api/users/me', requireAuth, (req, res) => {
+app.put('/api/users/me', requireAuth, async (req, res) => {
   const { bio, hobbies, profile_pic } = req.body;
+  
+  if (profile_pic) {
+    const modResult = await moderateImage(profile_pic);
+    if (!modResult.safe) {
+      return res.status(400).json({ error: modResult.reason });
+    }
+  }
+
   userOps.update(req.session.userId, { bio, hobbies, profile_pic });
   const user = userOps.getById(req.session.userId);
-  res.json({ success: true, user });
+  const { passcode_hash, ...safeUser } = user;
+  res.json({ success: true, user: safeUser });
 });
 
 // Discover profiles
@@ -166,7 +208,7 @@ app.get('/api/discover', requireAuth, (req, res) => {
       CASE WHEN from_user_id = ? THEN to_user_id ELSE from_user_id END as connected_user_id
     FROM connections 
     WHERE (from_user_id = ? OR to_user_id = ?)
-      AND status IN ('pending', 'accepted', 'rejected', 'expired')
+      AND status IN ('pending', 'accepted', 'rejected', 'expired', 'revealed')
   `).all(req.session.userId, req.session.userId, req.session.userId);
   
   const excludeIds = connected.map(c => c.connected_user_id);
@@ -281,6 +323,15 @@ app.post('/api/connections/reveal', requireAuth, (req, res) => {
   res.json(result);
 });
 
+// Block a user
+app.post('/api/connections/block', requireAuth, (req, res) => {
+  const { target_user_id, reason } = req.body;
+  if (!target_user_id) return res.status(400).json({ error: 'Missing target user id' });
+  const result = connectionOps.blockUser(req.session.userId, target_user_id, reason || 'User reported');
+  if (result.error) return res.status(400).json(result);
+  res.json(result);
+});
+
 // Get messages for a connection
 app.get('/api/messages/:connectionId', requireAuth, (req, res) => {
   const conn = connectionOps.getConnection(req.params.connectionId, req.session.userId);
@@ -309,12 +360,24 @@ app.use((req, res, next) => {
 getDB();
 seedDemoUsers();
 
+// Scheduled Sweep for Expired Connections (every 1 minute)
+setInterval(() => {
+  try {
+    const sweepResult = connectionOps.sweepExpired();
+    if (sweepResult.vibeExpired > 0 || sweepResult.revealsExpired > 0) {
+      console.log(`[Sweep] Expired ${sweepResult.vibeExpired} vibes and ${sweepResult.revealsExpired} reveals.`);
+    }
+  } catch (err) {
+    console.error('[Sweep Error]', err);
+  }
+}, 60 * 1000);
+
+
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Delulu Dating App running at http://localhost:${PORT}`);
   console.log(`Open your browser to http://localhost:${PORT}`);
   console.log('');
-  console.log('Demo users with female profiles:');
-  console.log('  wanderlust_amy, art_vibes, trailblazer, bookish_bee, melody_maker, spice_queen');
-  console.log('Demo users with male profiles:');
-  console.log('  stellar_jay, coffee_leo, pixel_wanderer, green_mind, ocean_soul, zen_master');
+  console.log('Demo users (passcode for all is 123456):');
+  console.log('  Female: wanderlust_amy, art_vibes, trailblazer, bookish_bee, melody_maker, spice_queen');
+  console.log('  Male:   stellar_jay, coffee_leo, pixel_wanderer, green_mind, ocean_soul, zen_master');
 });
