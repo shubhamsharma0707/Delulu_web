@@ -1,0 +1,1248 @@
+<!DOCTYPE html>
+<html class="light" lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Aura - Anonymous Dating</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
+<script>
+tailwind.config = {
+  darkMode: "class",
+  theme: {
+    extend: {
+      colors: {
+        "on-secondary-fixed": "#2b160a",
+        "outline-variant": "#dec0ba",
+        "on-surface": "#1b1c1c",
+        "on-tertiary": "#ffffff",
+        "tertiary-fixed-dim": "#cbc5c2",
+        "surface-bright": "#fbf9f8",
+        "on-tertiary-fixed-variant": "#494644",
+        "primary": "#a53b29",
+        "surface-dim": "#dcd9d9",
+        "on-primary-fixed-variant": "#842415",
+        "tertiary-fixed": "#e7e1de",
+        "error": "#ba1a1a",
+        "error-container": "#ffdad6",
+        "inverse-surface": "#303030",
+        "on-surface-variant": "#57423e",
+        "on-secondary-container": "#795a4a",
+        "primary-fixed": "#ffdad4",
+        "surface": "#fbf9f8",
+        "outline": "#8b716d",
+        "tertiary-container": "#a8a3a0",
+        "on-primary-container": "#731709",
+        "secondary-container": "#fdd4c0",
+        "surface-container-low": "#f5f3f2",
+        "surface-container": "#f0eded",
+        "surface-tint": "#a53b29",
+        "surface-container-highest": "#e4e2e1",
+        "secondary-fixed-dim": "#e6beab",
+        "on-background": "#1b1c1c",
+        "on-error": "#ffffff",
+        "secondary": "#765848",
+        "on-primary-fixed": "#3f0300",
+        "surface-container-high": "#eae8e7",
+        "surface-container-lowest": "#ffffff",
+        "background": "#fbf9f8",
+        "inverse-primary": "#ffb4a6",
+        "on-error-container": "#93000a",
+        "on-tertiary-fixed": "#1d1b19",
+        "on-secondary": "#ffffff",
+        "inverse-on-surface": "#f3f0f0",
+        "secondary-fixed": "#ffdbca",
+        "primary-container": "#ff7e67",
+        "on-primary": "#ffffff",
+        "on-tertiary-container": "#3c3a37",
+        "on-secondary-fixed-variant": "#5c4132",
+        "surface-variant": "#e4e2e1",
+        "primary-fixed-dim": "#ffb4a6",
+        "tertiary": "#615e5b"
+      },
+      borderRadius: { DEFAULT: "1rem", lg: "2rem", xl: "3rem", full: "9999px" },
+      spacing: { "container-max": "1200px", unit: "8px", "margin-mobile": "20px", "margin-desktop": "64px", gutter: "24px" },
+      fontFamily: { sans: ["Plus Jakarta Sans", "sans-serif"] },
+      fontSize: {
+        "hlg-m": ["28px", { lineHeight: "36px", fontWeight: "700" }],
+        "lsm": ["12px", { lineHeight: "16px", letterSpacing: "0.05em", fontWeight: "600" }],
+        "blg": ["18px", { lineHeight: "28px", fontWeight: "400" }],
+        "bmd": ["16px", { lineHeight: "24px", fontWeight: "400" }],
+        "hxl": ["48px", { lineHeight: "56px", letterSpacing: "-0.02em", fontWeight: "700" }],
+        "hlg": ["32px", { lineHeight: "40px", letterSpacing: "-0.01em", fontWeight: "700" }],
+        "lmd": ["14px", { lineHeight: "20px", letterSpacing: "0.01em", fontWeight: "600" }]
+      }
+    }
+  }
+};
+</script>
+<style>
+body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #fbf9f8; color: #1b1c1c; }
+.material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+.material-fill { font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+.ambient-shadow { box-shadow: 0 12px 40px -8px rgba(255, 126, 103, 0.15); }
+.glass-card { background: rgba(255, 255, 255, 0.6); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, 0.4); }
+.glass-panel { background: rgba(255, 255, 255, 0.7); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, 0.5); }
+.page { display: none; }
+.page.active { display: block; }
+.hidden-page { display: none !important; }
+.hobby-chip { transition: all 0.2s ease; }
+.hobby-chip:hover { transform: scale(1.05); }
+.card-stack { perspective: 1000px; }
+.fade-in { animation: fadeIn 0.3s ease-out; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+.slide-up { animation: slideUp 0.4s ease-out; }
+@keyframes slideUp { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
+.pulse-heart { animation: pulseHeart 1.5s ease-in-out infinite; }
+@keyframes pulseHeart { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.15); } }
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(165, 59, 41, 0.2); border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(165, 59, 41, 0.4); }
+input[type="range"] { -webkit-appearance: none; appearance: none; height: 8px; background: #e4e2e1; border-radius: 4px; outline: none; }
+input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 20px; height: 20px; border-radius: 50%; background: #a53b29; cursor: pointer; box-shadow: 0 2px 6px rgba(165, 59, 41, 0.3); }
+</style>
+</head>
+<body class="antialiased selection:bg-primary-container selection:text-on-primary-container">
+
+<!-- ===== ONBOARDING / SIGNUP PAGE ===== -->
+<div id="page-onboarding" class="page active">
+  <div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-surface-bright to-secondary-container/20 p-4">
+    <div class="w-full max-w-lg bg-surface-container-lowest rounded-[2rem] ambient-shadow border border-outline-variant/20 p-8 md:p-10 slide-up">
+      <div class="text-center mb-8">
+        <h1 class="font-bold text-hxl text-primary mb-2">Aura</h1>
+        <p class="text-bmd text-on-surface-variant">Your anonymous journey to meaningful connections begins here</p>
+      </div>
+
+      <!-- Step 1: Username & Gender -->
+      <div id="signup-step-1">
+        <div class="mb-6">
+          <label class="block font-lmd text-lmd text-on-surface mb-2">Choose a Username</label>
+          <div class="relative">
+            <span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-outline">person</span>
+            <input id="signup-username" type="text" placeholder="e.g. cosmic_wanderer" maxlength="30"
+              class="w-full pl-12 pr-4 py-4 bg-surface-container-low border border-outline-variant/30 rounded-2xl text-bmd focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all outline-none" />
+          </div>
+          <p class="text-lsm text-on-surface-variant mt-2">This is how others will see you. Keep it anonymous!</p>
+          <p id="username-error" class="text-sm text-error font-medium mt-1 hidden"></p>
+        </div>
+        <div class="mb-8">
+          <label class="block font-lmd text-lmd text-on-surface mb-3">I am a...</label>
+          <div class="flex gap-3">
+            <button onclick="selectGender('male')" id="gender-male"
+              class="flex-1 py-4 px-4 rounded-2xl border-2 border-outline-variant/30 bg-surface-container-low hover:border-primary/50 transition-all text-center">
+              <span class="material-symbols-outlined block text-3xl mb-1 text-on-surface-variant">male</span>
+              <span class="font-lmd text-lmd text-on-surface">Male</span>
+            </button>
+            <button onclick="selectGender('female')" id="gender-female"
+              class="flex-1 py-4 px-4 rounded-2xl border-2 border-outline-variant/30 bg-surface-container-low hover:border-primary/50 transition-all text-center">
+              <span class="material-symbols-outlined block text-3xl mb-1 text-on-surface-variant">female</span>
+              <span class="font-lmd text-lmd text-on-surface">Female</span>
+            </button>
+          </div>
+        </div>
+        <button onclick="goToStep2()" class="w-full py-4 bg-gradient-to-r from-primary to-primary-container text-white font-lmd text-lmd rounded-full shadow-lg shadow-primary/20 hover:shadow-primary/40 transition-all active:scale-95">
+          Continue →
+        </button>
+      </div>
+
+      <!-- Step 2: Bio, Profile Pic, Hobbies -->
+      <div id="signup-step-2" class="hidden-page">
+        <div class="mb-6">
+          <label class="block font-lmd text-lmd text-on-surface mb-2">Upload Profile Picture</label>
+          <div class="flex items-center gap-4">
+            <div id="profile-pic-preview" class="w-20 h-20 rounded-full bg-surface-container-highest flex items-center justify-center overflow-hidden border-2 border-dashed border-outline-variant/40">
+              <span class="material-symbols-outlined text-3xl text-outline">add_a_photo</span>
+            </div>
+            <input id="signup-pic" type="file" accept="image/*" class="hidden" onchange="previewProfilePic(event)" />
+            <button onclick="document.getElementById('signup-pic').click()" class="px-6 py-3 border-2 border-outline-variant/30 rounded-full font-lmd text-lmd text-on-surface hover:bg-surface-container-low transition-all">
+              Choose Photo
+            </button>
+          </div>
+        </div>
+        <div class="mb-6">
+          <label class="block font-lmd text-lmd text-on-surface mb-2">Your Bio</label>
+          <textarea id="signup-bio" placeholder="Tell others a bit about yourself..." maxlength="500"
+            class="w-full px-5 py-4 bg-surface-container-low border border-outline-variant/30 rounded-2xl text-bmd focus:ring-2 focus:ring-primary/30 transition-all outline-none resize-none h-28"></textarea>
+          <p class="text-lsm text-on-surface-variant mt-1 text-right"><span id="bio-count">0</span>/500</p>
+        </div>
+        <div class="mb-8">
+          <label class="block font-lmd text-lmd text-on-surface mb-3">Select Your Hobbies & Interests</label>
+          <p class="text-lsm text-on-surface-variant mb-3">Pick at least 3 — the more you pick, the better your matches!</p>
+          <div id="hobbies-grid" class="flex flex-wrap gap-2"></div>
+        </div>
+        <div class="flex gap-3">
+          <button onclick="goToStep1()" class="flex-1 py-4 border-2 border-outline-variant/30 text-on-surface font-lmd text-lmd rounded-full hover:bg-surface-container-low transition-all">Back</button>
+          <button onclick="submitSignup()" id="signup-btn" class="flex-[2] py-4 bg-gradient-to-r from-primary to-primary-container text-white font-lmd text-lmd rounded-full shadow-lg shadow-primary/20 hover:shadow-primary/40 transition-all active:scale-95">
+            Create Profile ✨
+          </button>
+        </div>
+      </div>
+
+      <div class="mt-6 text-center">
+        <p class="text-lmd text-on-surface-variant">Already have a profile?</p>
+        <button onclick="showLogin()" class="text-primary font-lmd text-lmd hover:underline">Login here</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== LOGIN PAGE ===== -->
+<div id="page-login" class="page">
+  <div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-surface-bright to-secondary-container/20 p-4">
+    <div class="w-full max-w-md bg-surface-container-lowest rounded-[2rem] ambient-shadow border border-outline-variant/20 p-8 md:p-10 slide-up">
+      <div class="text-center mb-8">
+        <h1 class="font-bold text-hxl text-primary mb-2">Welcome Back</h1>
+        <p class="text-bmd text-on-surface-variant">Enter your anonymous username to continue</p>
+      </div>
+      <div class="mb-6">
+        <label class="block font-lmd text-lmd text-on-surface mb-2">Username</label>
+        <input id="login-username" type="text" placeholder="e.g. cosmic_wanderer"
+          class="w-full px-5 py-4 bg-surface-container-low border border-outline-variant/30 rounded-2xl text-bmd focus:ring-2 focus:ring-primary/30 transition-all outline-none" />
+        <p id="login-error" class="text-sm text-error font-medium mt-2 hidden"></p>
+      </div>
+      <button onclick="submitLogin()" class="w-full py-4 bg-gradient-to-r from-primary to-primary-container text-white font-lmd text-lmd rounded-full shadow-lg shadow-primary/20 hover:shadow-primary/40 transition-all active:scale-95 mb-4">Login</button>
+      <p class="text-center text-lmd text-on-surface-variant">Don't have a profile?
+        <button onclick="showPage('page-onboarding')" class="text-primary font-lmd hover:underline">Create one</button>
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MAIN APP ===== -->
+<div id="page-app" class="page">
+  
+  <!-- Desktop TopNav -->
+  <header id="desktop-nav" class="hidden md:flex fixed top-0 left-0 w-full z-50 justify-between items-center px-margin-desktop py-4 max-w-container-max mx-auto bg-surface/80 backdrop-blur-xl shadow-sm shadow-primary/10" style="left:50%;transform:translateX(-50%);">
+    <div class="font-bold text-hlg text-primary">Aura</div>
+    <nav class="flex gap-8 items-center font-lmd text-lmd">
+      <a onclick="showAppPage('dashboard')" id="nav-discover" class="text-primary border-b-2 border-primary pb-1 px-3 py-2 hover:bg-primary/5 transition-colors cursor-pointer">Discover</a>
+      <a onclick="showAppPage('requests')" id="nav-requests" class="text-on-surface-variant hover:text-primary px-3 py-2 hover:bg-primary/5 transition-colors cursor-pointer">Requests</a>
+      <a onclick="showAppPage('messages')" id="nav-messages" class="text-on-surface-variant hover:text-primary px-3 py-2 hover:bg-primary/5 transition-colors cursor-pointer">Messages</a>
+      <a onclick="showAppPage('profile')" id="nav-profile" class="text-on-surface-variant hover:text-primary px-3 py-2 hover:bg-primary/5 transition-colors cursor-pointer">My Profile</a>
+    </nav>
+    <div class="flex items-center gap-4 text-primary">
+      <button onclick="logout()" class="hover:bg-primary/5 p-2 rounded-full transition-colors" title="Logout">
+        <span class="material-symbols-outlined">logout</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ===== DASHBOARD PAGE ===== -->
+  <div id="app-dashboard" class="app-page fade-in">
+    <main class="flex-grow flex flex-col md:flex-row max-w-container-max mx-auto w-full px-margin-mobile md:px-margin-desktop gap-gutter min-h-screen pt-24 pb-24 md:pb-0">
+      <!-- Sidebar Filters Desktop -->
+      <aside class="hidden md:flex flex-col w-72 flex-shrink-0 bg-surface-container-low rounded-xl p-6 h-fit shadow-[0_4px_24px_rgba(165,59,41,0.05)] border border-outline-variant/30 sticky top-24">
+        <h2 class="font-bold text-hlg-m text-on-surface mb-6">Filters</h2>
+        <div class="mb-6">
+          <label class="font-lmd text-lmd text-on-surface-variant block mb-2">Interests</label>
+          <div id="filter-hobbies" class="flex flex-wrap gap-2"></div>
+        </div>
+        <button onclick="loadDiscover()" class="w-full py-3 bg-gradient-to-r from-primary to-primary-container text-white font-lmd text-lmd rounded-full shadow-sm hover:shadow-md transition-all">Apply Filters</button>
+      </aside>
+      <!-- Feed -->
+      <section class="flex-1 flex flex-col items-center justify-start pt-6">
+        <div id="discover-loading" class="flex flex-col items-center gap-4 py-20">
+          <div class="w-12 h-12 border-4 border-primary/30 border-t-primary rounded-full animate-spin"></div>
+          <p class="text-on-surface-variant">Finding profiles...</p>
+        </div>
+        <div id="discover-empty" class="hidden flex flex-col items-center gap-4 py-20 text-center">
+          <span class="material-symbols-outlined text-6xl text-outline">search_off</span>
+          <h3 class="font-bold text-hlg-m text-on-surface">No More Profiles</h3>
+          <p class="text-bmd text-on-surface-variant">You've seen everyone available. Check back later for new people!</p>
+        </div>
+        <div id="discover-cards" class="hidden w-full max-w-md mx-auto"></div>
+      </section>
+    </main>
+  </div>
+
+  <!-- ===== REQUESTS PAGE ===== -->
+  <div id="app-requests" class="app-page hidden-page fade-in">
+    <main class="max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop min-h-screen pt-24 pb-24 md:pb-0">
+      <h2 class="font-bold text-hlg text-on-surface mb-6 mt-4">Requests</h2>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+        <div>
+          <h3 class="font-lmd text-lmd text-on-surface-variant mb-4 flex items-center gap-2">
+            <span class="material-symbols-outlined">inbox</span> Incoming Requests
+          </h3>
+          <div id="incoming-requests" class="flex flex-col gap-3"></div>
+          <p id="incoming-empty" class="text-bmd text-on-surface-variant py-8 text-center hidden">No pending requests</p>
+        </div>
+        <div>
+          <h3 class="font-lmd text-lmd text-on-surface-variant mb-4 flex items-center gap-2">
+            <span class="material-symbols-outlined">outbox</span> Sent Requests
+          </h3>
+          <div id="sent-requests" class="flex flex-col gap-3"></div>
+          <p id="sent-empty" class="text-bmd text-on-surface-variant py-8 text-center hidden">No sent requests</p>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- ===== MESSAGES PAGE ===== -->
+  <div id="app-messages" class="app-page hidden-page fade-in">
+    <main class="max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop min-h-screen pt-24 pb-24 md:pb-0">
+      <h2 class="font-bold text-hlg text-on-surface mb-6 mt-4">Connections</h2>
+      <div id="connections-list" class="flex flex-col gap-3 max-w-2xl"></div>
+      <p id="connections-empty" class="text-bmd text-on-surface-variant py-12 text-center hidden">
+        No active connections yet. Start exploring profiles!
+      </p>
+    </main>
+  </div>
+
+  <!-- ===== CHAT PAGE ===== -->
+  <div id="app-chat" class="app-page hidden-page fade-in">
+    <main class="flex flex-col max-w-container-max mx-auto w-full px-margin-mobile md:px-margin-desktop min-h-[100dvh] pt-20 pb-20">
+      <div class="flex-1 flex flex-col bg-surface-container-lowest rounded-[2rem] shadow-[0_8px_32px_rgba(165,59,41,0.05)] border border-outline-variant/20 overflow-hidden max-w-4xl mx-auto w-full mt-4">
+        <!-- Chat Header -->
+        <div class="flex items-center justify-between p-4 border-b border-outline-variant/10 bg-surface/80 backdrop-blur-xl">
+          <div class="flex items-center gap-4">
+            <button onclick="leaveChat(); showAppPage('messages')" class="p-2 text-on-surface-variant hover:text-primary transition-colors">
+              <span class="material-symbols-outlined">arrow_back</span>
+            </button>
+            <div>
+              <h2 id="chat-username" class="font-bold text-lmd text-on-surface">Username</h2>
+              <p id="chat-timer" class="text-lsm text-on-surface-variant"></p>
+            </div>
+          </div>
+        </div>
+        <!-- Messages -->
+        <div id="chat-messages" class="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 bg-gradient-to-b from-surface-bright to-surface" style="min-height: 400px; max-height: 60vh;"></div>
+        <!-- Vibe Status -->
+        <div id="vibe-status" class="hidden px-6 py-3 bg-secondary-container/30 border-t border-outline-variant/10 text-center">
+          <p id="vibe-status-text" class="font-lmd text-lmd text-on-surface"></p>
+        </div>
+        <!-- Input -->
+        <div class="p-4 bg-surface-container-lowest border-t border-outline-variant/10">
+          <div class="flex items-center gap-3 bg-surface-container-low rounded-full p-2 pr-4">
+            <input id="chat-input" type="text" placeholder="Type a message..."
+              class="flex-1 bg-transparent border-none text-bmd focus:ring-0 placeholder-outline py-2 px-4 outline-none" />
+            <button onclick="sendChatMessage()" class="w-10 h-10 flex items-center justify-center bg-primary text-on-primary rounded-full hover:bg-primary/90 transition-colors shadow-sm">
+              <span class="material-symbols-outlined material-fill text-sm">send</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- ===== VIBE DECISION PAGE ===== -->
+  <div id="app-vibe" class="app-page hidden-page fade-in">
+    <main class="flex items-center justify-center min-h-screen px-4 bg-gradient-to-br from-primary/5 via-surface-bright to-secondary-container/20">
+      <div class="w-full max-w-md bg-surface-container-lowest rounded-[2rem] ambient-shadow border border-outline-variant/20 p-8 text-center slide-up">
+        <span class="material-symbols-outlined text-6xl text-primary mb-4" style="font-variation-settings:'FILL'1">psychology</span>
+        <h2 class="font-bold text-hlg text-on-surface mb-2">Time to Decide</h2>
+        <p id="vibe-question" class="text-bmd text-on-surface-variant mb-8">Did you feel a connection with this person?</p>
+        <div class="flex gap-4 justify-center">
+          <button onclick="submitVibe(2)" class="px-8 py-4 bg-surface-container-highest text-on-surface rounded-full font-lmd text-lmd hover:bg-surface-dim transition-all active:scale-95 flex items-center gap-2">
+            <span class="material-symbols-outlined">close</span> Not My Vibe
+          </button>
+          <button onclick="submitVibe(1)" class="px-8 py-4 bg-gradient-to-r from-primary to-primary-container text-white rounded-full font-lmd text-lmd shadow-lg hover:shadow-xl transition-all active:scale-95 flex items-center gap-2">
+            <span class="material-symbols-outlined material-fill">favorite</span> It's a Vibe!
+          </button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- ===== REVEAL IDENTITY PAGE ===== -->
+  <div id="app-reveal" class="app-page hidden-page fade-in">
+    <main class="flex items-center justify-center min-h-screen px-4 bg-gradient-to-br from-primary/5 via-surface-bright to-secondary-container/20">
+      <div class="w-full max-w-md bg-surface-container-lowest rounded-[2rem] ambient-shadow border border-outline-variant/20 p-8 text-center slide-up">
+        <div id="reveal-before">
+          <span class="material-symbols-outlined text-6xl text-primary mb-4 pulse-heart" style="font-variation-settings:'FILL'1">lock</span>
+          <h2 class="font-bold text-hlg text-on-surface mb-2">Reveal Identities?</h2>
+          <p class="text-bmd text-on-surface-variant mb-4">You both chose "Vibe"! Now you can choose to reveal your identities to each other.</p>
+          <p class="text-lmd text-on-surface-variant mb-8">This is optional — if only one chooses to reveal, no identities are shown.</p>
+          <div class="flex gap-4 justify-center">
+            <button onclick="skipReveal()" class="px-8 py-4 bg-surface-container-highest text-on-surface rounded-full font-lmd text-lmd hover:bg-surface-dim transition-all active:scale-95">Skip</button>
+            <button onclick="submitReveal()" class="px-8 py-4 bg-gradient-to-r from-primary to-primary-container text-white rounded-full font-lmd text-lmd shadow-lg hover:shadow-xl transition-all active:scale-95 flex items-center gap-2">
+              <span class="material-symbols-outlined">lock_open</span> Reveal My Identity
+            </button>
+          </div>
+        </div>
+        <div id="reveal-after" class="hidden-page">
+          <span class="material-symbols-outlined text-6xl text-primary mb-4" style="font-variation-settings:'FILL'1">celebration</span>
+          <h2 class="font-bold text-hlg text-on-surface mb-2">Identity Revealed! 🎉</h2>
+          <p class="text-bmd text-on-surface-variant mb-6">You both chose to reveal! Here's who you've been talking to:</p>
+          <div id="revealed-profile" class="flex flex-col items-center gap-3 p-6 bg-surface-container-low rounded-2xl mb-6">
+            <div class="w-24 h-24 rounded-full bg-surface-container-highest flex items-center justify-center overflow-hidden">
+              <span class="material-symbols-outlined text-4xl text-outline">person</span>
+            </div>
+            <p id="revealed-username" class="font-bold text-hlg-m text-on-surface"></p>
+          </div>
+          <button onclick="backToDashboard()" class="w-full py-4 bg-gradient-to-r from-primary to-primary-container text-white font-lmd text-lmd rounded-full shadow-lg transition-all active:scale-95">
+            Back to Dashboard
+          </button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- ===== MY PROFILE PAGE ===== -->
+  <div id="app-profile" class="app-page hidden-page fade-in">
+    <main class="max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop min-h-screen pt-24 pb-24 md:pb-0">
+      <div class="max-w-2xl mx-auto mt-6 space-y-6">
+        <div class="bg-surface-container-lowest p-8 rounded-[2rem] ambient-shadow border border-outline-variant/20">
+          <div class="flex items-center gap-6 mb-6">
+            <div id="profile-avatar" class="w-20 h-20 rounded-full bg-surface-container-highest flex items-center justify-center overflow-hidden border-2 border-primary/20">
+              <span class="material-symbols-outlined text-4xl text-outline">person</span>
+            </div>
+            <div>
+              <h2 id="profile-username-display" class="font-bold text-hlg text-on-surface"></h2>
+              <p id="profile-gender-display" class="text-lmd text-on-surface-variant"></p>
+            </div>
+          </div>
+          <div class="mb-6">
+            <label class="block font-lmd text-lmd text-on-surface mb-2">Bio</label>
+            <textarea id="profile-bio" class="w-full px-5 py-4 bg-surface-container-low border border-outline-variant/30 rounded-2xl text-bmd focus:ring-2 focus:ring-primary/30 transition-all outline-none resize-none h-24"></textarea>
+          </div>
+          <div class="mb-6">
+            <label class="block font-lmd text-lmd text-on-surface mb-2">Hobbies</label>
+            <div id="profile-hobbies" class="flex flex-wrap gap-2"></div>
+          </div>
+          <button onclick="updateProfile()" class="w-full py-4 bg-gradient-to-r from-primary to-primary-container text-white font-lmd text-lmd rounded-full shadow-lg hover:shadow-xl transition-all active:scale-95">
+            Save Profile
+          </button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Mobile Bottom Nav -->
+  <nav id="mobile-nav" class="md:hidden fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 py-3 bg-surface/80 backdrop-blur-xl shadow-[0_-4px_24px_rgba(165,59,41,0.08)] rounded-t-lg">
+    <a onclick="showAppPage('dashboard')" id="mnav-discover" class="flex flex-col items-center text-on-surface-variant px-4 py-2 hover:bg-secondary-container/50 transition-all cursor-pointer">
+      <span class="material-symbols-outlined mb-1">explore</span>
+      <span class="font-lsm text-lsm">Discover</span>
+    </a>
+    <a onclick="showAppPage('requests')" id="mnav-requests" class="flex flex-col items-center text-on-surface-variant px-4 py-2 hover:bg-secondary-container/50 transition-all cursor-pointer">
+      <span class="material-symbols-outlined mb-1">person_add</span>
+      <span class="font-lsm text-lsm">Requests</span>
+    </a>
+    <a onclick="showAppPage('messages')" id="mnav-messages" class="flex flex-col items-center text-on-surface-variant px-4 py-2 hover:bg-secondary-container/50 transition-all cursor-pointer">
+      <span class="material-symbols-outlined mb-1">chat_bubble</span>
+      <span class="font-lsm text-lsm">Messages</span>
+    </a>
+    <a onclick="showAppPage('profile')" id="mnav-profile" class="flex flex-col items-center text-on-surface-variant px-4 py-2 hover:bg-secondary-container/50 transition-all cursor-pointer">
+      <span class="material-symbols-outlined mb-1">person</span>
+      <span class="font-lsm text-lsm">Profile</span>
+    </a>
+  </nav>
+</div>
+
+<script>
+// ===== STATE =====
+let currentUser = null;
+let socket = null;
+let currentChatConnectionId = null;
+let selectedGender = null;
+let selectedHobbies = [];
+const HOBBY_LIST = [
+  { id: 'hiking', icon: 'hiking', label: 'Hiking' },
+  { id: 'photography', icon: 'camera', label: 'Photography' },
+  { id: 'coffee', icon: 'coffee', label: 'Coffee' },
+  { id: 'cooking', icon: 'restaurant', label: 'Cooking' },
+  { id: 'music', icon: 'music_note', label: 'Music' },
+  { id: 'reading', icon: 'book', label: 'Reading' },
+  { id: 'travel', icon: 'flight', label: 'Travel' },
+  { id: 'art', icon: 'palette', label: 'Art' },
+  { id: 'yoga', icon: 'self_improvement', label: 'Yoga' },
+  { id: 'gaming', icon: 'sports_esports', label: 'Gaming' },
+  { id: 'dancing', icon: 'music_video', label: 'Dancing' },
+  { id: 'writing', icon: 'edit_note', label: 'Writing' },
+  { id: 'gardening', icon: 'yard', label: 'Gardening' },
+  { id: 'movies', icon: 'movie', label: 'Movies' },
+  { id: 'baking', icon: 'cake', label: 'Baking' },
+  { id: 'cycling', icon: 'pedal_bike', label: 'Cycling' },
+  { id: 'running', icon: 'directions_run', label: 'Running' },
+  { id: 'swimming', icon: 'pool', label: 'Swimming' },
+  { id: 'camping', icon: 'camping', label: 'Camping' },
+  { id: 'volunteering', icon: 'volunteer_activism', label: 'Volunteering' }
+];
+
+// ===== INIT =====
+document.addEventListener('DOMContentLoaded', init);
+
+async function init() {
+  renderHobbies();
+  try {
+    const res = await fetch('/api/session');
+    const data = await res.json();
+    if (data.authenticated) {
+      currentUser = data.user;
+      selectedHobbies = JSON.parse(currentUser.hobbies || '[]');
+      showPage('page-app');
+      showAppPage('dashboard');
+      connectSocket();
+    }
+  } catch(e) {
+    console.error('Init error:', e);
+  }
+}
+
+// ===== NAVIGATION =====
+function showPage(pageId) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById(pageId).classList.add('active');
+}
+
+function showAppPage(page) {
+  document.querySelectorAll('.app-page').forEach(p => {
+    p.classList.add('hidden-page');
+    p.classList.remove('active');
+  });
+  document.getElementById(`app-${page}`).classList.remove('hidden-page');
+  document.getElementById(`app-${page}`).classList.add('active');
+
+  // Update nav active states
+  ['discover', 'requests', 'messages', 'profile'].forEach(p => {
+    const desktop = document.getElementById(`nav-${p}`);
+    const mobile = document.getElementById(`mnav-${p}`);
+    if (desktop) {
+      desktop.className = p === page
+        ? 'text-primary border-b-2 border-primary pb-1 px-3 py-2 cursor-pointer'
+        : 'text-on-surface-variant hover:text-primary px-3 py-2 hover:bg-primary/5 transition-colors cursor-pointer';
+    }
+    if (mobile) {
+      mobile.className = p === page
+        ? 'flex flex-col items-center text-primary px-4 py-2 cursor-pointer'
+        : 'flex flex-col items-center text-on-surface-variant px-4 py-2 hover:bg-secondary-container/50 transition-all cursor-pointer';
+    }
+  });
+
+  // Load content
+  if (page === 'dashboard') loadDiscover();
+  if (page === 'requests') loadRequests();
+  if (page === 'messages') loadConnections();
+  if (page === 'profile') loadProfile();
+}
+
+// ===== SOCKET.IO =====
+function connectSocket() {
+  socket = io();
+  socket.on('connect', () => {
+    console.log('Socket connected');
+    // Rejoin chat room if currently in one
+    if (currentChatConnectionId) {
+      socket.emit('join-chat', currentChatConnectionId);
+    }
+  });
+  socket.on('new-message', (msg) => {
+    if (msg.sender_id !== currentUser.id) {
+      appendChatMessage(msg);
+    }
+  });
+}
+
+// ===== SIGNUP FLOW =====
+function selectGender(gender) {
+  selectedGender = gender;
+  document.querySelectorAll('[id^="gender-"]').forEach(b => {
+    b.className = 'flex-1 py-4 px-4 rounded-2xl border-2 border-outline-variant/30 bg-surface-container-low hover:border-primary/50 transition-all text-center';
+  });
+  const btn = document.getElementById(`gender-${gender}`);
+  btn.className = 'flex-1 py-4 px-4 rounded-2xl border-2 border-primary bg-primary/5 text-center';
+}
+
+function renderHobbies() {
+  const containers = ['hobbies-grid', 'profile-hobbies', 'filter-hobbies'];
+  containers.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.innerHTML = HOBBY_LIST.map(h => `
+      <button onclick="toggleHobby('${id}', '${h.id}')" id="hobby-${id}-${h.id}"
+        class="px-4 py-2 rounded-full font-lsm text-lsm border flex items-center gap-1.5 transition-all hobby-chip
+        ${(id === 'hobbies-grid' && selectedHobbies.includes(h.id)) || (id === 'profile-hobbies' && selectedHobbies.includes(h.id))
+          ? 'bg-primary-container text-on-primary-container border-primary/30'
+          : 'bg-surface-variant text-on-surface-variant border-transparent hover:bg-secondary-container'}"
+        style="${id === 'filter-hobbies' ? 'font-size:12px;padding:6px 12px;' : ''}">
+        ${h.icon ? `<span class="material-symbols-outlined" style="font-size:16px">${h.icon}</span>` : ''}
+        ${h.label}
+      </button>
+    `).join('');
+  });
+}
+
+function toggleHobby(container, hobbyId) {
+  const idx = selectedHobbies.indexOf(hobbyId);
+  if (idx > -1) {
+    selectedHobbies.splice(idx, 1);
+  } else {
+    selectedHobbies.push(hobbyId);
+  }
+  // Re-render all hobby areas
+  renderHobbies();
+}
+
+function goToStep1() {
+  document.getElementById('signup-step-1').classList.remove('hidden-page');
+  document.getElementById('signup-step-2').classList.add('hidden-page');
+}
+
+function goToStep2() {
+  const username = document.getElementById('signup-username').value.trim();
+  const errEl = document.getElementById('username-error');
+  
+  if (!username) {
+    errEl.textContent = 'Please choose a username';
+    errEl.classList.remove('hidden');
+    return;
+  }
+  if (username.length < 3) {
+    errEl.textContent = 'Username must be at least 3 characters';
+    errEl.classList.remove('hidden');
+    return;
+  }
+  if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+    errEl.textContent = 'Only letters, numbers, and underscores';
+    errEl.classList.remove('hidden');
+    return;
+  }
+  if (!selectedGender) {
+    errEl.textContent = 'Please select your gender';
+    errEl.classList.remove('hidden');
+    return;
+  }
+  errEl.classList.add('hidden');
+  document.getElementById('signup-step-1').classList.add('hidden-page');
+  document.getElementById('signup-step-2').classList.remove('hidden-page');
+}
+
+function previewProfilePic(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(ev) {
+    const preview = document.getElementById('profile-pic-preview');
+    preview.innerHTML = `<img src="${ev.target.result}" class="w-full h-full object-cover" />`;
+    preview.dataset.pic = ev.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+async function submitSignup() {
+  const username = document.getElementById('signup-username').value.trim();
+  const bio = document.getElementById('signup-bio').value.trim();
+  const btn = document.getElementById('signup-btn');
+  
+  if (selectedHobbies.length < 1) {
+    alert('Please select at least 1 hobby');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Creating...';
+
+  try {
+    const picPreview = document.getElementById('profile-pic-preview');
+    const profilePic = picPreview.dataset.pic || '';
+    
+    const res = await fetch('/api/users/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username,
+        gender: selectedGender,
+        bio,
+        hobbies: selectedHobbies,
+        profile_pic: profilePic
+      })
+    });
+    const data = await res.json();
+    if (data.error) {
+      alert(data.error);
+      btn.disabled = false;
+      btn.textContent = 'Create Profile ✨';
+      return;
+    }
+    currentUser = data.user;
+    showPage('page-app');
+    showAppPage('dashboard');
+    connectSocket();
+  } catch(e) {
+    alert('Failed to create profile');
+    btn.disabled = false;
+    btn.textContent = 'Create Profile ✨';
+  }
+}
+
+// Bio counter
+document.addEventListener('DOMContentLoaded', () => {
+  const bioInput = document.getElementById('signup-bio');
+  if (bioInput) {
+    bioInput.addEventListener('input', () => {
+      document.getElementById('bio-count').textContent = bioInput.value.length;
+    });
+  }
+});
+
+// ===== LOGIN =====
+function showLogin() {
+  showPage('page-login');
+}
+
+async function submitLogin() {
+  const username = document.getElementById('login-username').value.trim();
+  const errEl = document.getElementById('login-error');
+  if (!username) {
+    errEl.textContent = 'Enter your username';
+    errEl.classList.remove('hidden');
+    return;
+  }
+  try {
+    const res = await fetch('/api/users/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username })
+    });
+    const data = await res.json();
+    if (data.error) {
+      errEl.textContent = 'Username not found. Create a new profile!';
+      errEl.classList.remove('hidden');
+      return;
+    }
+    currentUser = data.user;
+    selectedHobbies = JSON.parse(currentUser.hobbies || '[]');
+    showPage('page-app');
+    showAppPage('dashboard');
+    connectSocket();
+  } catch(e) {
+    errEl.textContent = 'Login failed. Try again.';
+    errEl.classList.remove('hidden');
+  }
+}
+
+async function logout() {
+  await fetch('/api/users/logout', { method: 'POST' });
+  if (socket) socket.disconnect();
+  currentUser = null;
+  showPage('page-onboarding');
+}
+
+// ===== DISCOVER =====
+async function loadDiscover() {
+  const loading = document.getElementById('discover-loading');
+  const empty = document.getElementById('discover-empty');
+  const cards = document.getElementById('discover-cards');
+  
+  loading.classList.remove('hidden');
+  empty.classList.add('hidden');
+  cards.classList.add('hidden');
+
+  try {
+    const res = await fetch('/api/discover');
+    const data = await res.json();
+    loading.classList.add('hidden');
+
+    if (!data.profiles || data.profiles.length === 0) {
+      empty.classList.remove('hidden');
+      return;
+    }
+
+    cards.classList.remove('hidden');            cards.innerHTML = data.profiles.map((p, i) => `
+      <div class="card-stack w-full mb-4 fade-in" style="animation-delay:${i * 0.1}s">
+        <div class="bg-surface rounded-2xl shadow-[0_8px_32px_rgba(165,59,41,0.1)] overflow-hidden hover:shadow-xl transition-shadow duration-300">
+          <!-- Profile Info -->
+          <div class="p-6">
+            <div class="flex items-center justify-between mb-3">
+              <h3 class="font-bold text-hlg-m text-on-surface">${escapeHtml(p.username)}</h3>
+              <div class="px-3 py-1 bg-primary-container/40 text-on-primary-container rounded-full font-lsm text-lsm flex items-center gap-1">
+                <span class="material-symbols-outlined text-sm">favorite</span>
+                ${p.match_count} matches
+              </div>
+            </div>
+            <p class="text-bmd text-on-surface-variant mb-4">${escapeHtml(p.bio || 'No bio yet')}</p>
+            <!-- Hobbies -->
+            <div class="flex flex-wrap gap-2 mb-5">
+              ${p.hobbies.map(h => {
+                const isMatch = p.matching_hobbies.includes(h);
+                const hobby = HOBBY_LIST.find(hl => hl.id === h);
+                return `<span class="px-3 py-1.5 ${isMatch ? 'bg-primary-container text-on-primary-container font-medium' : 'bg-surface-variant text-on-surface-variant'} rounded-full font-lsm text-lsm flex items-center gap-1 transition-all">
+                  ${hobby ? `<span class="material-symbols-outlined" style="font-size:14px">${hobby.icon}</span>` : ''}
+                  ${h}
+                  ${isMatch ? '<span class="material-symbols-outlined text-sm material-fill" style="font-size:14px">check_circle</span>' : ''}
+                </span>`;
+              }).join('')}
+            </div>
+            <!-- Request Button -->
+            <button onclick="sendRequest(${p.id})" id="req-btn-${p.id}"
+              class="w-full py-3 bg-gradient-to-r from-primary to-primary-container text-white font-lmd text-lmd rounded-full shadow-md hover:shadow-xl transition-all active:scale-95 flex items-center justify-center gap-2">
+              <span class="material-symbols-outlined">person_add</span> Send Request
+            </button>
+          </div>
+        </div>
+      </div>
+    `).join('');
+  } catch(e) {
+    loading.classList.add('hidden');
+    empty.classList.remove('hidden');
+    empty.querySelector('p').textContent = 'Failed to load profiles.';
+  }
+}
+
+async function sendRequest(userId) {
+  try {
+    const res = await fetch('/api/connections/request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to_user_id: userId })
+    });
+    const data = await res.json();
+    if (data.error) {
+      alert(data.error);
+      return;
+    }
+    const btn = document.getElementById(`req-btn-${userId}`);
+    if (btn) {
+      btn.textContent = 'Request Sent ✓';
+      btn.disabled = true;
+      btn.className = 'w-full py-3 bg-surface-variant text-on-surface-variant font-lmd text-lmd rounded-full flex items-center justify-center gap-2';
+    }
+  } catch(e) {
+    alert('Failed to send request');
+  }
+}
+
+// ===== REQUESTS =====
+async function loadRequests() {
+  try {
+    const [inRes, sentRes] = await Promise.all([
+      fetch('/api/connections/pending'),
+      fetch('/api/connections/sent')
+    ]);
+    const incoming = await inRes.json();
+    const sent = await sentRes.json();
+
+    const incomingEl = document.getElementById('incoming-requests');
+    const sentEl = document.getElementById('sent-requests');
+
+    if (incoming.requests.length === 0) {
+      document.getElementById('incoming-empty').classList.remove('hidden');
+    } else {
+      document.getElementById('incoming-empty').classList.add('hidden');
+      incomingEl.innerHTML = incoming.requests.map(r => `
+        <div class="bg-surface-container-lowest p-4 rounded-2xl border border-outline-variant/20 flex items-center justify-between fade-in">
+          <div>
+            <h4 class="font-bold text-lmd text-on-surface">${escapeHtml(r.username)}</h4>
+            <p class="text-bmd text-on-surface-variant line-clamp-1">${escapeHtml(r.bio || '')}</p>
+          </div>
+          <div class="flex gap-2">
+            <button onclick="respondRequest(${r.id}, 'reject')" class="px-4 py-2 bg-surface-container-highest text-on-surface rounded-full font-lsm text-lsm hover:bg-surface-dim transition-all">Decline</button>
+            <button onclick="respondRequest(${r.id}, 'accept')" class="px-4 py-2 bg-gradient-to-r from-primary to-primary-container text-white rounded-full font-lsm text-lsm shadow-md hover:shadow-lg transition-all">Accept</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    if (sent.requests.length === 0) {
+      document.getElementById('sent-empty').classList.remove('hidden');
+    } else {
+      document.getElementById('sent-empty').classList.add('hidden');
+      sentEl.innerHTML = sent.requests.map(r => `
+        <div class="bg-surface-container-lowest p-4 rounded-2xl border border-outline-variant/20 flex items-center justify-between fade-in">
+          <div>
+            <h4 class="font-bold text-lmd text-on-surface">${escapeHtml(r.username)}</h4>
+            <p class="text-bmd text-on-surface-variant">Request sent — waiting for response</p>
+          </div>
+          <span class="px-3 py-1 bg-secondary-container/50 text-on-secondary-container rounded-full font-lsm text-lsm">Pending</span>
+        </div>
+      `).join('');
+    }
+  } catch(e) {
+    console.error('Load requests error:', e);
+  }
+}
+
+async function respondRequest(connId, action) {
+  try {
+    const res = await fetch('/api/connections/respond', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ connection_id: connId, action })
+    });
+    const data = await res.json();
+    if (data.error) { alert(data.error); return; }
+    loadRequests();
+    if (action === 'accept') {
+      showAppPage('messages');
+    }
+  } catch(e) {
+    alert('Failed to respond');
+  }
+}
+
+// ===== CONNECTIONS / MESSAGES LIST =====
+async function loadConnections() {
+  try {
+    const res = await fetch('/api/connections/active');
+    const data = await res.json();
+    const el = document.getElementById('connections-list');
+    const empty = document.getElementById('connections-empty');
+
+    if (!data.connections || data.connections.length === 0) {
+      el.innerHTML = '';
+      empty.classList.remove('hidden');
+      return;
+    }
+
+    empty.classList.add('hidden');
+    el.innerHTML = data.connections.map(c => {
+      const now = new Date();
+      const vibeAvail = c.vibe_available_at ? new Date(c.vibe_available_at) <= now : false;
+      const myVote = c.my_vote;
+      const otherVote = c.other_vote;
+      
+      let statusHtml = '';
+      if (vibeAvail && (myVote === 0 || otherVote === 0)) {
+        statusHtml = `<span class="px-3 py-1 bg-secondary-container/50 text-on-secondary-container rounded-full font-lsm text-lsm animate-pulse">Vibe decision needed!</span>`;
+      } else if (myVote === 1 && otherVote === 1) {
+        const revealDate = new Date(c.vibe_available_at);
+        revealDate.setDate(revealDate.getDate() + 4);
+        if (new Date() >= revealDate) {
+          statusHtml = `<span onclick="openReveal(${c.id})" class="px-3 py-1 bg-primary-container text-on-primary-container rounded-full font-lsm text-lsm cursor-pointer hover:bg-primary/20">Reveal Identities?</span>`;
+        } else {
+          const daysLeft = Math.ceil((revealDate - now) / (1000 * 60 * 60 * 24));
+          statusHtml = `<span class="px-3 py-1 bg-surface-variant text-on-surface-variant rounded-full font-lsm text-lsm">Reveal in ${daysLeft}d</span>`;
+        }
+      } else if (myVote > 0 || otherVote > 0) {
+        if (myVote === 1) statusHtml = `<span class="px-3 py-1 bg-green-100 text-green-700 rounded-full font-lsm text-lsm">You vibed ✓</span>`;
+        else if (myVote === 2) statusHtml = `<span class="px-3 py-1 bg-surface-dim text-on-surface rounded-full font-lsm text-lsm">Not your vibe</span>`;
+        else statusHtml = `<span class="px-3 py-1 bg-surface-variant text-on-surface-variant rounded-full font-lsm text-lsm">Waiting for them...</span>`;
+      }        return `
+        <div class="bg-surface-container-lowest p-4 rounded-2xl border border-outline-variant/20 flex items-center justify-between fade-in cursor-pointer hover:shadow-md transition-all" onclick="openChat(${c.id})">
+          <div class="flex items-center gap-4">
+            <div class="w-14 h-14 rounded-full bg-surface-container-highest flex items-center justify-center overflow-hidden">
+              <span class="material-symbols-outlined text-2xl text-outline">person</span>
+            </div>
+            <div>
+              <h4 class="font-bold text-lmd text-on-surface">${escapeHtml(c.other_username)}</h4>
+              <p class="text-sm text-on-surface-variant line-clamp-1">${escapeHtml(c.other_bio || '')}</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            ${statusHtml}
+            <span class="material-symbols-outlined text-outline">chevron_right</span>
+          </div>
+        </div>
+      `;
+    }).join('');
+  } catch(e) {
+    console.error('Load connections error:', e);
+  }
+}
+
+// ===== CHAT =====
+async function openChat(connectionId) {
+  currentChatConnectionId = connectionId;
+  showAppPage('chat');
+  
+  try {
+    const res = await fetch(`/api/messages/${connectionId}`);
+    const data = await res.json();
+    const conn = data.connection;
+    
+    document.getElementById('chat-username').textContent = conn.other_username;
+    
+    // Chat timer
+    updateChatTimer(conn);
+    // Update timer every 60 seconds
+    if (window.chatTimerInterval) clearInterval(window.chatTimerInterval);
+    window.chatTimerInterval = setInterval(() => updateChatTimer(conn), 60000);
+    
+    // Check if vibe is available
+    const now = new Date();
+    const vibeAvail = conn.vibe_available_at ? new Date(conn.vibe_available_at) <= now : false;
+    const vibeStatus = document.getElementById('vibe-status');
+    
+    if (vibeAvail) {
+      const myVote = conn.from_user_id === currentUser.id ? conn.from_vibe : conn.to_vibe;
+      const otherVote = conn.from_user_id === currentUser.id ? conn.to_vibe : conn.from_vibe;
+      
+      vibeStatus.classList.remove('hidden');
+      const chatInput = document.getElementById('chat-input');
+      
+      if (myVote === 0 && otherVote === 0) {
+        document.getElementById('vibe-status-text').innerHTML = `
+          <span class="text-primary font-medium">Time to decide! <button onclick="showVibeDecision(${connectionId})" class="underline font-bold">Click here</button> to choose vibe or not.</span>
+        `;
+        chatInput.disabled = false;
+      } else if (myVote === 0) {
+        document.getElementById('vibe-status-text').innerHTML = `
+          <span class="text-primary font-medium">You haven't voted yet! <button onclick="showVibeDecision(${connectionId})" class="underline font-bold">Choose now</button></span>
+        `;
+        chatInput.disabled = false;
+      } else if (myVote === 1 && otherVote === 0) {
+        document.getElementById('vibe-status-text').textContent = 'You chose "Vibed" — waiting for them to decide...';
+        chatInput.disabled = false;
+      } else if (myVote === 2 || otherVote === 2) {
+        document.getElementById('vibe-status-text').textContent = 'This connection has ended.';
+        chatInput.disabled = true;
+        chatInput.placeholder = 'Conversation ended';
+      } else if (myVote === 1 && otherVote === 1) {
+        chatInput.disabled = false;
+        const revealDate = new Date(conn.vibe_available_at);
+        revealDate.setDate(revealDate.getDate() + 4);
+        if (new Date() >= revealDate) {
+          document.getElementById('vibe-status-text').innerHTML = `
+            <span class="text-primary font-medium">Both vibed! <button onclick="openReveal(${connectionId})" class="underline font-bold">Reveal identities</button> now available.</span>
+          `;
+        } else {
+          const daysLeft = Math.ceil((revealDate - now) / (1000 * 60 * 60 * 24));
+          document.getElementById('vibe-status-text').textContent = `Both vibed! 🎉 Reveal identities in ${daysLeft} day(s).`;
+        }
+      }
+    } else if (conn.vibe_available_at) {
+      vibeStatus.classList.remove('hidden');
+      const diff = new Date(conn.vibe_available_at) - now;
+      const hoursLeft = Math.ceil(diff / (1000 * 60 * 60));
+      document.getElementById('vibe-status-text').textContent = `Chat active — vibe decision available in ~${hoursLeft} hour(s). Enjoy the conversation!`;
+      document.getElementById('chat-input').disabled = false;
+    } else {
+      vibeStatus.classList.add('hidden');
+      document.getElementById('chat-input').disabled = false;
+    }
+
+    // Render messages
+    const messagesEl = document.getElementById('chat-messages');
+    messagesEl.innerHTML = data.messages.map(m => {
+      const isMine = m.sender_id === currentUser.id;
+      return `
+        <div class="flex ${isMine ? 'justify-end' : 'items-end gap-2'} fade-in">
+          ${!isMine ? `<div class="w-8 h-8 rounded-full bg-surface-container-highest flex items-center justify-center shrink-0"><span class="material-symbols-outlined text-sm">person</span></div>` : ''}
+          <div class="${isMine ? 'bg-primary text-on-primary rounded-2xl rounded-br-none' : 'bg-surface-container rounded-2xl rounded-bl-none'} px-5 py-3 max-w-[75%] shadow-sm">
+            <p class="text-bmd">${escapeHtml(m.content)}</p>
+          </div>
+        </div>
+      `;
+    }).join('');
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+
+    // Join socket room
+    if (socket) {
+      socket.emit('join-chat', connectionId);
+    }
+  } catch(e) {
+    console.error('Open chat error:', e);
+  }
+}
+
+// Clean up chat when leaving
+function leaveChat() {
+  if (window.chatTimerInterval) {
+    clearInterval(window.chatTimerInterval);
+    window.chatTimerInterval = null;
+  }
+  if (socket && currentChatConnectionId) {
+    socket.emit('leave-chat', currentChatConnectionId);
+  }
+  currentChatConnectionId = null;
+}
+
+function updateChatTimer(conn) {
+  const timerEl = document.getElementById('chat-timer');
+  const now = new Date();
+  const vibeTime = conn.vibe_available_at ? new Date(conn.vibe_available_at) : null;
+  
+  if (vibeTime && vibeTime > now) {
+    const diff = vibeTime - now;
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+    const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    timerEl.textContent = `${days}d ${hours}h ${mins}m remaining in chat`;
+  } else if (vibeTime) {
+    timerEl.textContent = 'Vibe decision time!';
+  }
+}
+
+function sendChatMessage() {
+  const input = document.getElementById('chat-input');
+  const content = input.value.trim();
+  if (!content || !currentChatConnectionId) return;
+
+  if (socket) {
+    socket.emit('send-message', {
+      connectionId: currentChatConnectionId,
+      content
+    });
+  }
+
+  // Optimistically add own message
+  appendChatMessage({
+    sender_id: currentUser.id,
+    content,
+    id: Date.now(),
+    created_at: new Date().toISOString()
+  });
+
+  input.value = '';
+}
+
+function appendChatMessage(msg) {
+  const el = document.getElementById('chat-messages');
+  const isMine = msg.sender_id === currentUser.id;
+  el.innerHTML += `
+    <div class="flex ${isMine ? 'justify-end' : 'items-end gap-2'} fade-in">
+      ${!isMine ? `<div class="w-8 h-8 rounded-full bg-surface-container-highest flex items-center justify-center shrink-0"><span class="material-symbols-outlined text-sm">person</span></div>` : ''}
+      <div class="${isMine ? 'bg-primary text-on-primary rounded-2xl rounded-br-none' : 'bg-surface-container rounded-2xl rounded-bl-none'} px-5 py-3 max-w-[75%] shadow-sm">
+        <p class="text-bmd">${escapeHtml(msg.content)}</p>
+      </div>
+    </div>
+  `;
+  el.scrollTop = el.scrollHeight;
+}
+
+// Allow Enter to send in chat
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('chat-input')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendChatMessage();
+    }
+  });
+});
+
+// ===== VIBE =====
+let currentVibeConnectionId = null;
+
+function showVibeDecision(connectionId) {
+  currentVibeConnectionId = connectionId;
+  document.getElementById('app-chat').classList.add('hidden-page');
+  document.getElementById('app-vibe').classList.remove('hidden-page');
+}
+
+async function submitVibe(vibe) {
+  try {
+    const res = await fetch('/api/connections/vibe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ connection_id: currentVibeConnectionId, vibe })
+    });
+    const data = await res.json();
+    if (data.error) { alert(data.error); return; }
+    
+    if (data.match && data.bothVibe) {
+      alert('🎉 You both vibed! Your identities can be revealed in 4 days.');
+      showAppPage('messages');
+    } else if (!data.match && !data.bothVibe) {
+      alert('Connection ended. Back to exploring!');
+      showAppPage('dashboard');
+    } else {
+      alert('Waiting for the other person to decide too...');
+      showAppPage('messages');
+    }
+  } catch(e) {
+    alert('Failed to submit');
+  }
+}
+
+// ===== REVEAL =====
+let currentRevealConnectionId = null;
+
+function openReveal(connectionId) {
+  currentRevealConnectionId = connectionId;
+  document.getElementById('reveal-before').classList.remove('hidden-page');
+  document.getElementById('reveal-after').classList.add('hidden-page');
+  document.getElementById('app-chat').classList.add('hidden-page');
+  document.getElementById('app-reveal').classList.remove('hidden-page');
+}
+
+async function submitReveal() {
+  try {
+    const res = await fetch('/api/connections/reveal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ connection_id: currentRevealConnectionId })
+    });
+    const data = await res.json();
+    if (data.error) { alert(data.error); return; }
+
+    if (data.bothRevealed) {
+      document.getElementById('reveal-before').classList.add('hidden-page');
+      document.getElementById('reveal-after').classList.remove('hidden-page');
+      document.getElementById('revealed-username').textContent = data.otherUser.username;
+    } else {
+      alert('Waiting for the other person to reveal too... They will see your reveal.');
+      showAppPage('messages');
+    }
+  } catch(e) {
+    alert('Failed to submit reveal');
+  }
+}
+
+function skipReveal() {
+  document.getElementById('app-reveal').classList.add('hidden-page');
+  showAppPage('dashboard');
+}
+
+function backToDashboard() {
+  document.getElementById('app-reveal').classList.add('hidden-page');
+  showAppPage('dashboard');
+}
+
+// ===== PROFILE =====
+function loadProfile() {
+  if (!currentUser) return;
+  document.getElementById('profile-username-display').textContent = currentUser.username;
+  document.getElementById('profile-gender-display').textContent = currentUser.gender;
+  document.getElementById('profile-bio').value = currentUser.bio || '';
+  
+  // Render hobby list in profile
+  const hobbiesContainer = document.getElementById('profile-hobbies');
+  hobbiesContainer.innerHTML = HOBBY_LIST.map(h => `
+    <button onclick="toggleHobby('profile-hobbies', '${h.id}')" id="hobby-profile-hobbies-${h.id}"
+      class="px-4 py-2 rounded-full font-lsm text-lsm border flex items-center gap-1.5 transition-all hobby-chip
+      ${selectedHobbies.includes(h.id) ? 'bg-primary-container text-on-primary-container border-primary/30' : 'bg-surface-variant text-on-surface-variant border-transparent hover:bg-secondary-container'}">
+      ${h.icon ? `<span class="material-symbols-outlined" style="font-size:16px">${h.icon}</span>` : ''}
+      ${h.label}
+    </button>
+  `).join('');
+}
+
+async function updateProfile() {
+  const bio = document.getElementById('profile-bio').value.trim();
+  try {
+    const res = await fetch('/api/users/me', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bio, hobbies: selectedHobbies })
+    });
+    const data = await res.json();
+    if (data.success) {
+      currentUser = data.user;
+      alert('Profile updated!');
+    }
+  } catch(e) {
+    alert('Failed to update profile');
+  }
+}
+
+// ===== UTILITIES =====
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// Enter key for login
+document.addEventListener('DOMContentLoaded', () => {
+  const loginInput = document.getElementById('login-username');
+  if (loginInput) {
+    loginInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') submitLogin();
+    });
+  }
+  // Enter for signup step 1
+  const signupInput = document.getElementById('signup-username');
+  if (signupInput) {
+    signupInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') goToStep2();
+    });
+  }
+});
+</script>
+</body>
+</html>
