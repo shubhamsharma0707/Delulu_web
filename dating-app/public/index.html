@@ -178,7 +178,7 @@ input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance
         <div class="flex gap-3">
           <button onclick="goToStep1()" class="flex-1 py-4 border-2 border-outline-variant/30 text-on-surface font-lmd text-lmd rounded-full hover:bg-surface-container-low transition-all">Back</button>
           <button onclick="submitSignup()" id="signup-btn" class="flex-[2] py-4 bg-gradient-to-r from-primary to-primary-container text-white font-lmd text-lmd rounded-full shadow-lg shadow-primary/20 hover:shadow-primary/40 transition-all active:scale-95">
-            Create Profile ✨
+            Create Profile
           </button>
         </div>
       </div>
@@ -367,7 +367,7 @@ input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance
         </div>
         <div id="reveal-after" class="hidden-page">
           <span class="material-symbols-outlined text-6xl text-primary mb-4" style="font-variation-settings:'FILL'1">celebration</span>
-          <h2 class="font-bold text-hlg text-on-surface mb-2">Identity Revealed! 🎉</h2>
+          <h2 class="font-bold text-hlg text-on-surface mb-2">Identity Revealed!</h2>
           <p class="text-bmd text-on-surface-variant mb-6">You both chose to reveal! Here's who you've been talking to:</p>
           <div id="revealed-profile" class="flex flex-col items-center gap-3 p-6 bg-surface-container-low rounded-2xl mb-6">
             <div class="w-24 h-24 rounded-full bg-surface-container-highest flex items-center justify-center overflow-hidden">
@@ -656,7 +656,7 @@ async function submitSignup() {
     if (data.error) {
       alert(data.error);
       btn.disabled = false;
-      btn.textContent = 'Create Profile ✨';
+      btn.textContent = 'Create Profile';
       return;
     }
     currentUser = data.user;
@@ -666,7 +666,7 @@ async function submitSignup() {
   } catch(e) {
     alert('Failed to create profile');
     btn.disabled = false;
-    btn.textContent = 'Create Profile ✨';
+    btn.textContent = 'Create Profile';
   }
 }
 
@@ -992,7 +992,7 @@ async function openChat(connectionId) {
           `;
         } else {
           const daysLeft = Math.ceil((revealDate - now) / (1000 * 60 * 60 * 24));
-          document.getElementById('vibe-status-text').textContent = `Both vibed! 🎉 Reveal identities in ${daysLeft} day(s).`;
+          document.getElementById('vibe-status-text').textContent = `Both vibed! Reveal identities in ${daysLeft} day(s).`;
         }
       }
     } else if (conn.vibe_available_at) {
@@ -1125,7 +1125,7 @@ async function submitVibe(vibe) {
     if (data.error) { alert(data.error); return; }
     
     if (data.match && data.bothVibe) {
-      alert('🎉 You both vibed! Your identities can be revealed in 4 days.');
+      alert('You both vibed! Your identities can be revealed in 4 days.');
       showAppPage('messages');
     } else if (!data.match && !data.bothVibe) {
       alert('Connection ended. Back to exploring!');

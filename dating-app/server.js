@@ -310,11 +310,11 @@ getDB();
 seedDemoUsers();
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`✨ Delulu Dating App running at http://localhost:${PORT}`);
-  console.log(`📱 Open your browser to http://localhost:${PORT}`);
+  console.log(`Delulu Dating App running at http://localhost:${PORT}`);
+  console.log(`Open your browser to http://localhost:${PORT}`);
   console.log('');
-  console.log('📝 Demo users with female profiles:');
+  console.log('Demo users with female profiles:');
   console.log('  wanderlust_amy, art_vibes, trailblazer, bookish_bee, melody_maker, spice_queen');
-  console.log('📝 Demo users with male profiles:');
+  console.log('Demo users with male profiles:');
   console.log('  stellar_jay, coffee_leo, pixel_wanderer, green_mind, ocean_soul, zen_master');
 });
