@@ -28,11 +28,13 @@ function initDB() {
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT UNIQUE NOT NULL,
+      email TEXT DEFAULT NULL,
       gender TEXT NOT NULL CHECK(gender IN ('male', 'female', 'other')),
       passcode_hash TEXT NOT NULL DEFAULT '',
       bio TEXT DEFAULT '',
       hobbies TEXT DEFAULT '[]',
       profile_pic TEXT DEFAULT '',
+      is_onboarded INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -71,13 +73,25 @@ function initDB() {
       UNIQUE(from_user_id, to_user_id)
     );
 
+    CREATE TABLE IF NOT EXISTS otps (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT NOT NULL,
+      otp TEXT NOT NULL,
+      used INTEGER DEFAULT 0,
+      expires_at DATETIME NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE INDEX IF NOT EXISTS idx_connections_from ON connections(from_user_id);
     CREATE INDEX IF NOT EXISTS idx_connections_to ON connections(to_user_id);
     CREATE INDEX IF NOT EXISTS idx_connections_status ON connections(status);
     CREATE INDEX IF NOT EXISTS idx_messages_connection ON messages(connection_id);
+    CREATE INDEX IF NOT EXISTS idx_otps_email ON otps(email);
   `);
 
   try { db.exec("ALTER TABLE users ADD COLUMN passcode_hash TEXT NOT NULL DEFAULT '';"); } catch (e) {}
+  try { db.exec("ALTER TABLE users ADD COLUMN email TEXT DEFAULT NULL;"); } catch (e) {}
+  try { db.exec("ALTER TABLE users ADD COLUMN is_onboarded INTEGER DEFAULT 0;"); } catch (e) {}
   try { db.exec("ALTER TABLE connections ADD COLUMN reveal_available_at DATETIME;"); } catch (e) {}
 }
 
@@ -122,12 +136,26 @@ const userOps = {
     return result.lastInsertRowid;
   },
 
+  createWithEmail(username, gender, email, bio, hobbies, profilePic) {
+    const stmt = getDB().prepare(`INSERT INTO users (username, gender, email, bio, hobbies, profile_pic, is_onboarded) VALUES (?, ?, ?, ?, ?, ?, 1)`);
+    const result = stmt.run(username, gender, email, bio || '', JSON.stringify(hobbies || []), profilePic || '');
+    return result.lastInsertRowid;
+  },
+
   getById(id) {
     return getDB().prepare('SELECT * FROM users WHERE id = ?').get(id);
   },
   
   getByUsername(username) {
     return getDB().prepare('SELECT * FROM users WHERE username = ?').get(username);
+  },
+
+  getByEmail(email) {
+    return getDB().prepare('SELECT * FROM users WHERE email = ?').get(email);
+  },
+
+  linkEmailToUser(userId, email) {
+    getDB().prepare('UPDATE users SET email = ?, is_onboarded = 1 WHERE id = ?').run(email, userId);
   },
 
   update(id, fields) {
@@ -268,7 +296,7 @@ const connectionOps = {
       JOIN users u1 ON c.from_user_id = u1.id
       JOIN users u2 ON c.to_user_id = u2.id
       WHERE c.id = ? AND (c.from_user_id = ? OR c.to_user_id = ?)
-    `).get(userId, userId, userId, userId, userId, userId, userId, userId, connectionId, userId, userId);
+    `).get(userId, userId, userId, userId, userId, userId, userId, connectionId, userId, userId);
   },
 
   submitVibe(connectionId, userId, vibe) {
@@ -389,4 +417,31 @@ const messageOps = {
   }
 };
 
-module.exports = { getDB, initDB, seedDemoUsers, userOps, connectionOps, messageOps };
+// OTP operations
+const otpOps = {
+  create(email, otp, expiresAt) {
+    const stmt = getDB().prepare(`INSERT INTO otps (email, otp, expires_at) VALUES (?, ?, ?)`);
+    const result = stmt.run(email, otp, expiresAt);
+    return result.lastInsertRowid;
+  },
+
+  getValidOTP(email, otp) {
+    return getDB().prepare(
+      `SELECT * FROM otps WHERE email = ? AND otp = ? AND used = 0 AND expires_at > datetime('now') ORDER BY created_at DESC LIMIT 1`
+    ).get(email, otp);
+  },
+
+  markUsed(id) {
+    getDB().prepare('UPDATE otps SET used = 1 WHERE id = ?').run(id);
+  },
+
+  cleanExpired() {
+    getDB().prepare("DELETE FROM otps WHERE expires_at < datetime('now') OR used = 1").run();
+  },
+
+  deleteByEmail(email) {
+    getDB().prepare('DELETE FROM otps WHERE email = ?').run(email);
+  }
+};
+
+module.exports = { getDB, initDB, seedDemoUsers, userOps, connectionOps, messageOps, otpOps };
