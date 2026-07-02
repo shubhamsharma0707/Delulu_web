@@ -3,14 +3,92 @@ const session = require('express-session');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
-const bcrypt = require('bcrypt'); // Changed from 'crypto'
-const { getDB, seedDemoUsers, userOps, connectionOps, messageOps } = require('./database');
+const bcrypt = require('bcrypt');
+const nodemailer = require('nodemailer');
+const admin = require('firebase-admin');
+const { getDB, seedDemoUsers, userOps, connectionOps, messageOps, otpOps } = require('./database');
+
+// Load environment variables
+require('dotenv').config();
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
 const PORT = process.env.PORT || 3000;
+
+// Allowed email domains
+const ALLOWED_DOMAINS = ['rishihood.edu.in', 'vitbhopal.ac.in'];
+
+// ===== Firebase Admin SDK Initialization =====
+let firebaseInitialized = false;
+if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
+  try {
+    admin.initializeApp({
+      credential: admin.credential.cert({
+        projectId: process.env.FIREBASE_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+        privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
+      })
+    });
+    firebaseInitialized = true;
+    console.log('Firebase Admin SDK initialized');
+  } catch (err) {
+    console.error('Firebase init error:', err.message);
+  }
+} else {
+  console.log('Firebase not configured — OTP endpoint will use local verification only');
+}
+
+// ===== Nodemailer Transporter (Gmail SMTP) =====
+let transporter = null;
+if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
+  transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: process.env.GMAIL_USER,
+      pass: process.env.GMAIL_APP_PASSWORD
+    }
+  });
+  console.log('Nodemailer transporter ready');
+} else {
+  console.log('Gmail not configured — OTP emails will be logged to console instead');
+}
+
+// ===== OTP Helper Functions =====
+function generateOTP() {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+async function sendOTPEmail(email, otp) {
+  const emailContent = `
+    <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
+      <div style="text-align: center; margin-bottom: 24px;">
+        <h1 style="color: #a53b29; font-size: 28px; margin: 0;">Delulu</h1>
+        <p style="color: #8b716d; font-size: 14px;">Connection before identity.</p>
+      </div>
+      <div style="background: #f5f3f2; border-radius: 16px; padding: 32px; text-align: center;">
+        <h2 style="color: #1b1c1c; font-size: 20px; margin: 0 0 8px;">Your verification code</h2>
+        <p style="color: #57423e; font-size: 14px; margin: 0 0 24px;">Use this code to sign in to Delulu</p>
+        <div style="background: #ffffff; border-radius: 12px; padding: 16px 32px; display: inline-block;">
+          <span style="font-size: 36px; font-weight: 800; letter-spacing: 8px; color: #a53b29;">${otp}</span>
+        </div>
+        <p style="color: #8b716d; font-size: 12px; margin-top: 24px;">This code expires in 10 minutes</p>
+      </div>
+    </div>
+  `;
+
+  if (transporter) {
+    await transporter.sendMail({
+      from: `"Delulu" <${process.env.GMAIL_USER}>`,
+      to: email,
+      subject: 'Your Delulu verification code',
+      html: emailContent
+    });
+  } else {
+    console.log(`[OTP Email] To: ${email} | Code: ${otp}`);
+  }
+}
 
 // Session middleware
 const sessionMiddleware = session({
@@ -164,6 +242,166 @@ app.post('/api/users/login', async (req, res) => {
   req.session.userId = user.id;
   const { passcode_hash, ...safeUser } = user;
   res.json({ success: true, user: safeUser });
+});
+
+// ===== EMAIL OTP AUTH ROUTES =====
+
+// Send OTP to email
+app.post('/api/auth/send-otp', async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email || !email.trim()) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+
+    // Validate email domain
+    const domain = cleanEmail.split('@')[1];
+    if (!domain || !ALLOWED_DOMAINS.includes(domain)) {
+      return res.status(400).json({ 
+        error: 'Only @rishihood.edu.in and @vitbhopal.ac.in email addresses are allowed' 
+      });
+    }
+
+    // Generate 6-digit OTP
+    const otp = generateOTP();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 minutes
+
+    // Delete any previous OTPs for this email
+    otpOps.deleteByEmail(cleanEmail);
+
+    // Store OTP in SQLite
+    otpOps.create(cleanEmail, otp, expiresAt);
+
+    // Send OTP via email
+    try {
+      await sendOTPEmail(cleanEmail, otp);
+    } catch (emailErr) {
+      console.error('Email send error:', emailErr);
+      // Still return success — OTP is stored and can be checked in console
+      // In production, you'd want to return an error here
+    }
+
+    res.json({ success: true, message: 'OTP sent to your email' });
+  } catch (err) {
+    console.error('Send OTP error:', err);
+    res.status(500).json({ error: 'Failed to send OTP' });
+  }
+});
+
+// Verify OTP and login/register
+app.post('/api/auth/verify-otp', async (req, res) => {
+  try {
+    const { email, token } = req.body;
+    if (!email || !token) {
+      return res.status(400).json({ error: 'Email and OTP are required' });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const otpToken = token.trim();
+
+    // Verify OTP from SQLite
+    const otpRecord = otpOps.getValidOTP(cleanEmail, otpToken);
+    if (!otpRecord) {
+      return res.status(400).json({ error: 'Invalid or expired OTP' });
+    }
+
+    // Mark OTP as used
+    otpOps.markUsed(otpRecord.id);
+
+    // If Firebase is configured, also create/verify the user in Firebase
+    if (firebaseInitialized) {
+      try {
+        const firebaseUser = await admin.auth().getUserByEmail(cleanEmail).catch(() => null);
+        if (!firebaseUser) {
+          await admin.auth().createUser({
+            email: cleanEmail,
+            emailVerified: true
+          });
+        } else {
+          await admin.auth().updateUser(firebaseUser.uid, { emailVerified: true });
+        }
+      } catch (fbErr) {
+        console.error('Firebase user sync error:', fbErr);
+        // Non-blocking — login still works
+      }
+    }
+
+    // Check if user already exists in local DB by email
+    let user = userOps.getByEmail(cleanEmail);
+    const isNewUser = !user;
+
+    if (user) {
+      // Existing user — log them in
+      req.session.userId = user.id;
+    } else {
+      // New user — store email in session for profile completion
+      req.session.pendingEmail = cleanEmail;
+    }
+
+    const { passcode_hash, ...safeUser } = user || {};
+    res.json({ 
+      success: true, 
+      isNewUser,
+      email: cleanEmail,
+      user: safeUser || null 
+    });
+  } catch (err) {
+    console.error('Verify OTP error:', err);
+    res.status(500).json({ error: 'Failed to verify OTP' });
+  }
+});
+
+// Complete profile for new users (after OTP verification)
+app.post('/api/auth/complete-profile', async (req, res) => {
+  try {
+    const { email, username, gender, bio, hobbies, profile_pic } = req.body;
+
+    if (!email || !username || !gender) {
+      return res.status(400).json({ error: 'Email, username, and gender are required' });
+    }
+    if (!['male', 'female', 'other'].includes(gender)) {
+      return res.status(400).json({ error: 'Invalid gender' });
+    }
+
+    // Verify this email was recently OTP-verified (stored in session)
+    if (req.session.pendingEmail !== email) {
+      return res.status(401).json({ error: 'Please verify your email with OTP first' });
+    }
+
+    // Check moderation
+    if (profile_pic) {
+      const modResult = await moderateImage(profile_pic);
+      if (!modResult.safe) {
+        return res.status(400).json({ error: modResult.reason });
+      }
+    }
+
+    // Check username availability
+    const existing = userOps.getByUsername(username);
+    if (existing) {
+      return res.status(400).json({ error: 'Username already taken' });
+    }
+
+    // Check if email already taken
+    const existingEmail = userOps.getByEmail(email);
+    if (existingEmail) {
+      return res.status(400).json({ error: 'Email already registered' });
+    }
+
+    const userId = userOps.createWithEmail(username, gender, email, bio, hobbies, profile_pic);
+    
+    req.session.userId = Number(userId);
+    delete req.session.pendingEmail;
+
+    const user = userOps.getById(userId);
+    const { passcode_hash, ...safeUser } = user;
+    res.json({ success: true, user: safeUser });
+  } catch (err) {
+    console.error('Complete profile error:', err);
+    res.status(500).json({ error: 'Failed to create profile' });
+  }
 });
 
 // Logout
@@ -383,6 +621,18 @@ setInterval(() => {
     console.error('[Sweep Error]', err);
   }
 }, 60 * 1000);
+
+// Clean up expired OTPs (every 5 minutes)
+setInterval(() => {
+  try {
+    const deleted = otpOps.cleanExpired();
+    if (deleted.changes > 0) {
+      console.log(`[OTP Cleanup] Removed ${deleted.changes} expired/used OTPs.`);
+    }
+  } catch (err) {
+    console.error('[OTP Cleanup Error]', err);
+  }
+}, 5 * 60 * 1000);
 
 
 server.listen(PORT, '0.0.0.0', () => {
