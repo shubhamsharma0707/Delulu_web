@@ -352,7 +352,7 @@ function updateSceneFromScroll(index) {
     const targetX = baseX + xOffset;
     
     // Smooth interpolation
-    group.position.x += (targetX - group.position.x) * 0.08;
+    group.position.x += (targetX - group.position.x) * 0.22;
     
     // Calculate distance from center for effects (center is always X = 0)
     const distFromCenter = Math.abs(group.position.x);
@@ -451,7 +451,7 @@ function animate() {
   requestAnimationFrame(animate);
 
   // Smooth currentIndex toward targetIndex
-  currentCenterIndex += (targetIndex - currentCenterIndex) * 0.08;
+  currentCenterIndex += (targetIndex - currentCenterIndex) * 0.22;
 
   // Smooth mouse follow
   mouseX += (targetMouseX - mouseX) * 0.05;

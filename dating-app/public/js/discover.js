@@ -25,7 +25,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Smooth scroll wheel/trackpad navigation (debounced vertical scrolling mapped to swiping)
   let lastScrollTime = 0;
-  const scrollCooldown = 700; // ms between card swiping transitions
+  const scrollCooldown = 280; // ms between card swiping transitions
   
   window.addEventListener('wheel', (e) => {
     if (!discoverProfiles.length) return;
