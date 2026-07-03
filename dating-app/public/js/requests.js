@@ -34,7 +34,7 @@ async function loadRequests(type = 'incoming') {
     list.innerHTML = reqs.map(r => `
       <div class="flex items-center gap-4 p-4 rounded-2xl bg-surface-container-low shadow-sm mb-2 fade-in">
         <div class="w-14 h-14 rounded-full overflow-hidden shrink-0 border border-outline-variant/30">
-          ${getAvatarHtml(r.username, r.profile_pic, false)}
+          ${getAvatarHtml(r.username, r.avatar)}
         </div>
         <div class="flex-1 min-w-0">
           <h3 class="font-bold text-on-surface capitalize truncate">${r.username}</h3>

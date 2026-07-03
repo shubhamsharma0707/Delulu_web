@@ -20,7 +20,7 @@ async function requireAuth() {
 function updateHeaderAvatar() {
   const avatarEl = document.getElementById('header-avatar');
   if (avatarEl && currentUser) {
-    avatarEl.innerHTML = currentUser.username.charAt(0).toUpperCase();
+    avatarEl.innerHTML = getAvatarHtml(currentUser.username, currentUser.avatar);
   }
 }
 
@@ -39,9 +39,9 @@ async function apiCall(url, method = 'GET', body = null) {
   return data;
 }
 
-function getAvatarHtml(username, profilePic, isRevealed = false) {
-  if (isRevealed && profilePic) {
-    return `<img src="${profilePic}" alt="${username}" class="w-full h-full object-cover">`;
+function getAvatarHtml(username, avatar) {
+  if (avatar) {
+    return `<img src="/avatars/${avatar}.svg" alt="${username}" class="w-full h-full object-cover">`;
   }
   const initial = username ? username.charAt(0).toUpperCase() : '?';
   return `<div class="w-full h-full bg-primary-container text-on-primary-container flex items-center justify-center font-bold text-2xl">${initial}</div>`;
@@ -79,5 +79,14 @@ function setupLogout() {
   }
 }
 
-// Automatically bind logout on every page
-document.addEventListener('DOMContentLoaded', setupLogout);
+function initHeartBackground() {
+  const script = document.createElement('script');
+  script.src = '/js/heart-bg.js';
+  document.body.appendChild(script);
+}
+
+// Automatically bind setup on every page
+document.addEventListener('DOMContentLoaded', () => {
+  setupLogout();
+  initHeartBackground();
+});
