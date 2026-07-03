@@ -49,35 +49,33 @@ function renderDiscoveryRail() {
       matchHtml = `<span class="px-2 py-0.5 bg-white/20 backdrop-blur-md rounded-full text-xs border border-white/30">No shared hobbies</span>`;
     }
     
-    return `
-      <div id="discover-card-${p.id}" class="discover-card relative w-72 h-[420px] shrink-0 snap-center bg-surface rounded-3xl shadow-[0_8px_32px_rgba(165,59,41,0.1)] overflow-hidden flex flex-col transition-all duration-300 origin-center">
-        <!-- Avatar BG -->
-        <div class="w-full h-full absolute inset-0 bg-primary/5">
-          ${getAvatarHtml(p.username, p.avatar)} 
+      <div id="discover-card-${p.id}" class="discover-card relative w-64 md:w-80 h-[500px] shrink-0 snap-center flex flex-col transition-all duration-300 origin-center justify-end group">
+        <!-- Avatar Image -->
+        <div class="w-full flex-grow relative flex items-end justify-center mb-4">
+          <div class="w-full h-full avatar-img-wrapper transition-all duration-300 drop-shadow-2xl rounded-3xl overflow-hidden bg-surface-container">
+            ${getAvatarHtml(p.username, p.avatar)} 
+          </div>
         </div>
-        <!-- Gradient Overlay -->
-        <div class="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/90 via-black/40 to-transparent z-10"></div>
         
         <!-- Profile Info -->
-        <div class="absolute bottom-16 left-0 w-full p-5 text-white flex flex-col justify-end z-20 pointer-events-none">
-          <h2 class="font-bold text-2xl mb-0.5 capitalize truncate">${p.username}</h2>
-          <p class="text-xs opacity-90 mb-3 line-clamp-2">${p.bio || 'Mystery person...'}</p>
-          <div class="flex flex-wrap gap-1">
+        <div class="w-full text-center px-2 flex flex-col items-center">
+          <h2 class="font-bold text-2xl mb-1 capitalize text-on-surface">${p.username}</h2>
+          <p class="text-sm text-on-surface-variant opacity-90 mb-3 line-clamp-2">${p.bio || 'Mystery person...'}</p>
+          <div class="flex flex-wrap gap-1 justify-center mb-4">
             ${matchHtml}
           </div>
         </div>
 
         <!-- Glass Actions Bar -->
-        <div class="absolute bottom-4 left-4 right-4 flex justify-between items-center z-30">
-          <button onclick="dismissProfile(event, ${p.id})" class="w-10 h-10 rounded-full bg-black/40 hover:bg-black/60 text-white flex items-center justify-center transition-all hover:scale-110 active:scale-95 shadow-sm" title="Pass">
-            <span class="material-symbols-outlined text-xl">close</span>
+        <div class="w-full flex justify-center gap-6 items-center z-30 pb-2">
+          <button onclick="dismissProfile(event, ${p.id})" class="w-12 h-12 rounded-full bg-surface shadow-md hover:shadow-lg border border-outline-variant/30 text-on-surface-variant flex items-center justify-center transition-all hover:scale-110 active:scale-95" title="Pass">
+            <span class="material-symbols-outlined text-2xl">close</span>
           </button>
-          <button onclick="connectProfile(event, ${p.id}, this)" class="px-4 py-2 rounded-full bg-gradient-to-r from-primary to-primary-container text-white flex items-center gap-1.5 hover:scale-105 active:scale-95 transition-all text-xs font-bold shadow-md" title="Connect">
-            <span class="material-symbols-outlined text-sm material-fill">favorite</span> Connect
+          <button onclick="connectProfile(event, ${p.id}, this)" class="px-6 py-3 rounded-full bg-gradient-to-r from-primary to-primary-container text-white flex items-center gap-2 hover:scale-105 active:scale-95 transition-all text-sm font-bold shadow-md hover:shadow-lg" title="Connect">
+            <span class="material-symbols-outlined text-lg material-fill">favorite</span> Connect
           </button>
         </div>
       </div>
-    `;
   }).join('');
 
   // Initial trigger for 3D transforms
@@ -100,13 +98,23 @@ function update3DTransforms() {
     const maxDist = rail.offsetWidth / 2;
     const ratio = Math.min(Math.max(diff / maxDist, -1), 1); // Clamp to [-1, 1]
     
-    const maxAngle = 15;
+    const maxAngle = 25;
     const angle = -ratio * maxAngle;
-    const scale = 1 - Math.abs(ratio) * 0.12;
-    const opacity = 1 - Math.abs(ratio) * 0.35;
+    const scale = 1 - Math.abs(ratio) * 0.25;
+    const opacity = 1 - Math.abs(ratio) * 0.4;
     
     card.style.transform = `perspective(1200px) rotateY(${angle}deg) scale(${scale})`;
     card.style.opacity = opacity;
+    card.style.zIndex = Math.round(100 - Math.abs(ratio) * 100);
+
+    const imgWrapper = card.querySelector('.avatar-img-wrapper');
+    if (imgWrapper) {
+      if (Math.abs(ratio) < 0.15) {
+        imgWrapper.classList.add('animate-hello');
+      } else {
+        imgWrapper.classList.remove('animate-hello');
+      }
+    }
   });
 }
 

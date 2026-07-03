@@ -32,7 +32,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (currentUser.avatar === av) {
         wrapper.classList.add('border-primary', 'border-2', 'ring-2', 'ring-primary/20');
       }
-      wrapper.innerHTML = `<img src="/avatars/${av}.svg" class="w-full h-full object-cover">`;
+      wrapper.innerHTML = `<img src="/avatars/${av}.jpeg" class="w-full h-full object-cover">`;
       wrapper.onclick = () => {
         avatarGrid.querySelectorAll('.aspect-square').forEach(el => el.classList.remove('border-primary', 'border-2', 'ring-2', 'ring-primary/20'));
         wrapper.classList.add('border-primary', 'border-2', 'ring-2', 'ring-primary/20');

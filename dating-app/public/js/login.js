@@ -165,7 +165,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     avatars.forEach(av => {
       const wrapper = document.createElement('div');
       wrapper.className = 'aspect-square rounded-lg overflow-hidden border border-outline-variant/30 hover:border-primary/50 cursor-pointer transition-all flex items-center justify-center p-1 bg-surface-container';
-      wrapper.innerHTML = `<img src="/avatars/${av}.svg" class="w-full h-full object-cover">`;
+      wrapper.innerHTML = `<img src="/avatars/${av}.jpeg" class="w-full h-full object-cover">`;
       wrapper.onclick = () => {
         avatarGrid.querySelectorAll('.aspect-square').forEach(el => el.classList.remove('border-primary', 'border-2', 'ring-2', 'ring-primary/20'));
         wrapper.classList.add('border-primary', 'border-2', 'ring-2', 'ring-primary/20');

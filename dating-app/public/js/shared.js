@@ -41,7 +41,7 @@ async function apiCall(url, method = 'GET', body = null) {
 
 function getAvatarHtml(username, avatar) {
   if (avatar) {
-    return `<img src="/avatars/${avatar}.svg" alt="${username}" class="w-full h-full object-cover">`;
+    return `<img src="/avatars/${avatar}.jpeg" alt="${username}" class="w-full h-full object-cover">`;
   }
   const initial = username ? username.charAt(0).toUpperCase() : '?';
   return `<div class="w-full h-full bg-primary-container text-on-primary-container flex items-center justify-center font-bold text-2xl">${initial}</div>`;
