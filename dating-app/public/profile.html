@@ -82,9 +82,9 @@
     <div class="w-full max-w-5xl mx-auto pt-4 pb-12">
       <h1 class="text-3xl font-bold text-primary mb-6">My Profile</h1>
       
-      <div class="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
+      <div class="grid grid-cols-1 md:grid-cols-12 gap-8 items-start">
         <!-- Left Column: Form -->
-        <div class="md:col-span-7 glass-panel p-6 rounded-3xl ambient-shadow relative overflow-hidden">
+        <div class="md:col-span-7 glass-panel p-6 rounded-3xl ambient-shadow relative overflow-hidden order-2 md:order-1 w-full">
           <!-- Decoration -->
           <div class="absolute -top-12 -right-12 w-32 h-32 bg-primary/10 rounded-full blur-2xl"></div>
           <div class="absolute -bottom-12 -left-12 w-32 h-32 bg-secondary/10 rounded-full blur-2xl"></div>
@@ -122,8 +122,8 @@
       </div>
       
       <!-- Right Column: 3D Preview (No card, borderless, transparent) -->
-      <div class="md:col-span-5 flex items-center justify-center">
-        <div id="profile-3d-preview" class="w-full aspect-[3/4] relative flex items-center justify-center">
+      <div class="md:col-span-5 flex items-center justify-center order-1 md:order-2 w-full">
+        <div id="profile-3d-preview" class="w-full max-w-[260px] md:max-w-none aspect-[3/4] relative flex items-center justify-center">
           <!-- Injected via JS -->
         </div>
       </div>
@@ -133,7 +133,7 @@
   </main>
   
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <script src="/js/shared.js?v=3"></script>
-  <script src="/js/profile.js?v=3"></script>
+  <script src="/js/shared.js?v=4"></script>
+  <script src="/js/profile.js?v=4"></script>
 </body>
 </html>
