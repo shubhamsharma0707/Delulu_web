@@ -164,12 +164,22 @@ function requireAuth(req, res, next) {
   next();
 }
 
+function sanitizeUser(user) {
+  if (!user) return null;
+  const { passcode_hash, ...safeUser } = user;
+  if (typeof safeUser.hobbies === 'string') {
+    try { safeUser.hobbies = JSON.parse(safeUser.hobbies); } 
+    catch(e) { safeUser.hobbies = []; }
+  }
+  return safeUser;
+}
+
 // Check if user is logged in
 app.get('/api/session', (req, res) => {
   if (req.session.userId) {
     const user = userOps.getById(req.session.userId);
     if (user) {
-      const { passcode_hash, ...safeUser } = user; // don't send hash
+      const safeUser = sanitizeUser(user);
       return res.json({ authenticated: true, user: safeUser });
     }
   }
@@ -202,7 +212,7 @@ app.post('/api/users/create', async (req, res) => {
     req.session.userId = Number(userId);
     
     const user = userOps.getById(userId);
-    const { passcode_hash, ...safeUser } = user;
+    const safeUser = sanitizeUser(user);
     res.json({ success: true, user: safeUser });
   } catch (err) {
     console.error('Create user error:', err);
@@ -224,7 +234,7 @@ app.post('/api/users/login', async (req, res) => {
   if (!match) return res.status(401).json({ error: 'Incorrect passcode' });
 
   req.session.userId = user.id;
-  const { passcode_hash, ...safeUser } = user;
+  const safeUser = sanitizeUser(user);
   res.json({ success: true, user: safeUser });
 });
 
@@ -333,7 +343,7 @@ app.post('/api/auth/verify-otp', async (req, res) => {
       req.session.cookie.maxAge = 30 * 24 * 60 * 60 * 1000; // 30 days
     }
 
-    const { passcode_hash, ...safeUser } = user || {};
+    const safeUser = sanitizeUser(user) || {};
     res.json({ 
       success: true, 
       isNewUser,
@@ -381,7 +391,7 @@ app.post('/api/auth/complete-profile', async (req, res) => {
     delete req.session.pendingEmail;
 
     const user = userOps.getById(userId);
-    const { passcode_hash, ...safeUser } = user;
+    const safeUser = sanitizeUser(user);
     res.json({ success: true, user: safeUser });
   } catch (err) {
     console.error('Complete profile error:', err);
@@ -399,7 +409,7 @@ app.post('/api/users/logout', (req, res) => {
 app.get('/api/users/me', requireAuth, (req, res) => {
   const user = userOps.getById(req.session.userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
-  const { passcode_hash, ...safeUser } = user;
+  const safeUser = sanitizeUser(user);
   res.json(safeUser);
 });
 
@@ -408,7 +418,7 @@ app.put('/api/users/me', requireAuth, async (req, res) => {
   const { bio, hobbies, avatar } = req.body;
   userOps.update(req.session.userId, { bio, hobbies, avatar });
   const user = userOps.getById(req.session.userId);
-  const { passcode_hash, ...safeUser } = user;
+  const safeUser = sanitizeUser(user);
   res.json({ success: true, user: safeUser });
 });
 
