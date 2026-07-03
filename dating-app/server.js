@@ -19,7 +19,7 @@ const io = new Server(server);
 const PORT = process.env.PORT || 3000;
 
 // Allowed email domains
-const ALLOWED_SUFFIXES = ['rishihood.edu.in', 'vitbhopal.ac.in'];
+const ALLOWED_SUFFIXES = ['rishihood.edu.in', 'vitbhopal.ac.in', 'nst.rishihood.edu.in'];
 
 // ===== Firebase Admin SDK Initialization =====
 let firebaseInitialized = false;
@@ -268,7 +268,7 @@ app.post('/api/auth/send-otp', async (req, res) => {
     });
     if (!emailValid) {
       return res.status(400).json({ 
-        error: 'Only emails ending in rishihood.edu.in or vitbhopal.ac.in are allowed' 
+        error: 'Only emails ending in rishihood.edu.in, nst.rishihood.edu.in or vitbhopal.ac.in are allowed' 
       });
     }
 
