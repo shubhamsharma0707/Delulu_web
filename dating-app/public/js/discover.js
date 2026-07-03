@@ -7,10 +7,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   const rail = document.getElementById('discovery-rail');
   if (rail) {
     document.getElementById('btn-scroll-left').onclick = () => {
-      rail.scrollBy({ left: -312, behavior: 'smooth' }); // card width 288 (w-72) + gap 24 (gap-6)
+      rail.scrollBy({ left: -320, behavior: 'smooth' });
     };
     document.getElementById('btn-scroll-right').onclick = () => {
-      rail.scrollBy({ left: 312, behavior: 'smooth' });
+      rail.scrollBy({ left: 320, behavior: 'smooth' });
     };
 
     let ticking = false;
@@ -18,10 +18,17 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (!ticking) {
         window.requestAnimationFrame(() => {
           update3DTransforms();
+          updateCenterCard();
           ticking = false;
         });
         ticking = true;
       }
+    });
+
+    // Initial update after a frame
+    requestAnimationFrame(() => {
+      update3DTransforms();
+      updateCenterCard();
     });
   }
 });
@@ -44,15 +51,25 @@ function renderDiscoveryRail() {
   rail.innerHTML = discoverProfiles.map(p => {
     let matchHtml = '';
     if (p.matching_hobbies && p.matching_hobbies.length > 0) {
-      matchHtml = p.matching_hobbies.map(h => `<span class="px-2 py-0.5 bg-white/20 backdrop-blur-md rounded-full text-xs border border-white/30">${h}</span>`).join('');
+      matchHtml = p.matching_hobbies.map(h => 
+        `<span class="hobby-chip px-3 py-1 bg-white/25 backdrop-blur-md rounded-full text-xs font-semibold border border-white/40 text-on-surface shadow-sm">✨ ${h}</span>`
+      ).join('');
     } else {
-      matchHtml = `<span class="px-2 py-0.5 bg-white/20 backdrop-blur-md rounded-full text-xs border border-white/30">No shared hobbies</span>`;
+      matchHtml = `<span class="px-3 py-1 bg-white/20 backdrop-blur-md rounded-full text-xs border border-white/30">No shared hobbies</span>`;
     }
-    
+
+    // Generate all hobbies display
+    const allHobbies = p.hobbies && p.hobbies.length > 0
+      ? p.hobbies.map(h => 
+          `<span class="px-2 py-0.5 bg-surface-container-high/60 backdrop-blur-sm rounded-full text-[10px] font-medium text-on-surface-variant border border-outline-variant/20">${h}</span>`
+        ).join('')
+      : '';
+
+    return `
       <div id="discover-card-${p.id}" class="discover-card relative w-64 md:w-80 h-[500px] shrink-0 snap-center flex flex-col transition-all duration-300 origin-center justify-end group">
         <!-- Avatar Image -->
         <div class="w-full flex-grow relative flex items-end justify-center mb-4">
-          <div class="w-full h-full avatar-img-wrapper transition-all duration-300 drop-shadow-2xl rounded-3xl overflow-hidden bg-surface-container">
+          <div class="w-full h-full avatar-img-wrapper transition-all duration-300">
             ${getAvatarHtml(p.username, p.avatar)} 
           </div>
         </div>
@@ -61,6 +78,9 @@ function renderDiscoveryRail() {
         <div class="w-full text-center px-2 flex flex-col items-center">
           <h2 class="font-bold text-2xl mb-1 capitalize text-on-surface">${p.username}</h2>
           <p class="text-sm text-on-surface-variant opacity-90 mb-3 line-clamp-2">${p.bio || 'Mystery person...'}</p>
+          <div class="flex flex-wrap gap-1 justify-center mb-2">
+            ${allHobbies ? allHobbies : ''}
+          </div>
           <div class="flex flex-wrap gap-1 justify-center mb-4">
             ${matchHtml}
           </div>
@@ -76,16 +96,19 @@ function renderDiscoveryRail() {
           </button>
         </div>
       </div>
+    `;
   }).join('');
 
   // Initial trigger for 3D transforms
-  setTimeout(update3DTransforms, 100);
+  setTimeout(() => {
+    update3DTransforms();
+    updateCenterCard();
+  }, 150);
 }
 
 function update3DTransforms() {
-  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    return;
-  }
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  
   const rail = document.getElementById('discovery-rail');
   if (!rail) return;
   
@@ -95,26 +118,59 @@ function update3DTransforms() {
   cards.forEach(card => {
     const cardCenter = card.offsetLeft + card.offsetWidth / 2;
     const diff = cardCenter - railCenter;
-    const maxDist = rail.offsetWidth / 2;
-    const ratio = Math.min(Math.max(diff / maxDist, -1), 1); // Clamp to [-1, 1]
+    const maxDist = rail.offsetWidth / 2 + card.offsetWidth / 2;
+    const ratio = Math.min(Math.max(diff / maxDist, -1), 1);
     
-    const maxAngle = 25;
-    const angle = -ratio * maxAngle;
-    const scale = 1 - Math.abs(ratio) * 0.25;
-    const opacity = 1 - Math.abs(ratio) * 0.4;
+    // Enhanced 3D perspective transform
+    const maxAngle = 30;
+    const angle = ratio * maxAngle;
+    const scale = 1 - Math.abs(ratio) * 0.2;
+    const translateZ = -Math.abs(ratio) * 80;
+    const opacity = 1 - Math.abs(ratio) * 0.5;
+    const blurAmount = Math.abs(ratio) * 2;
     
-    card.style.transform = `perspective(1200px) rotateY(${angle}deg) scale(${scale})`;
+    // Main card transform with 3D perspective
+    card.style.transform = `perspective(1200px) rotateY(${angle}deg) scale(${scale}) translateZ(${translateZ}px)`;
     card.style.opacity = opacity;
     card.style.zIndex = Math.round(100 - Math.abs(ratio) * 100);
-
+    card.style.filter = `blur(${blurAmount}px)`;
+    
+    // Inner 3D layers - separate transforms for depth
+    const inner = card.querySelector('.discover-card-inner');
+    if (inner) {
+      const innerAngle = angle * 0.3;
+      inner.style.transform = `rotateY(${innerAngle}deg) translateZ(3px)`;
+    }
+    
+    // Avatar wrapper - primary 3D layer with hello animation
     const imgWrapper = card.querySelector('.avatar-img-wrapper');
     if (imgWrapper) {
-      if (Math.abs(ratio) < 0.15) {
+      if (Math.abs(ratio) < 0.2) {
         imgWrapper.classList.add('animate-hello');
+        // Enhanced tilt on the avatar itself
+        const tiltAngle = angle * 0.15;
+        imgWrapper.style.setProperty('--tilt', `${tiltAngle}deg`);
       } else {
         imgWrapper.classList.remove('animate-hello');
+        imgWrapper.style.setProperty('--tilt', '0deg');
       }
     }
+  });
+}
+
+function updateCenterCard() {
+  const rail = document.getElementById('discovery-rail');
+  if (!rail) return;
+  
+  const railCenter = rail.scrollLeft + rail.offsetWidth / 2;
+  const cards = rail.querySelectorAll('.discover-card');
+  
+  cards.forEach(card => {
+    const cardCenter = card.offsetLeft + card.offsetWidth / 2;
+    const diff = Math.abs(cardCenter - railCenter);
+    const isCenter = diff < card.offsetWidth * 0.3;
+    
+    card.classList.toggle('card-center', isCenter);
   });
 }
 
@@ -122,53 +178,64 @@ window.dismissProfile = (e, userId) => {
   e.preventDefault();
   const card = document.getElementById(`discover-card-${userId}`);
   if (card) {
-    card.classList.add('scale-50', 'opacity-0');
+    card.style.transform = 'perspective(1200px) rotateY(-15deg) scale(0.3) translateZ(-300px)';
+    card.style.opacity = '0';
     setTimeout(() => {
       card.remove();
       discoverProfiles = discoverProfiles.filter(p => p.id !== userId);
       checkEmptyState();
       update3DTransforms();
-    }, 300);
+      updateCenterCard();
+    }, 400);
   }
 };
 
 window.connectProfile = async (e, userId, btn) => {
   e.preventDefault();
   btn.disabled = true;
-  btn.textContent = 'Connecting...';
+  btn.innerHTML = '<span class="material-symbols-outlined text-sm">sync</span> Sending...';
   
   try {
     await apiCall('/api/connections/request', 'POST', { to_user_id: userId });
-    // Successful connect -> animate card flying up/fading out
+    // Successful connect -> animate card flying up/fading out with 3D
     const card = document.getElementById(`discover-card-${userId}`);
     if (card) {
-      card.classList.add('-translate-y-12', 'opacity-0');
+      card.style.transform = 'perspective(1200px) rotateY(10deg) scale(0.8) translateY(-80px) translateZ(100px)';
+      card.style.opacity = '0';
       setTimeout(() => {
         card.remove();
         discoverProfiles = discoverProfiles.filter(p => p.id !== userId);
         checkEmptyState();
         update3DTransforms();
-      }, 300);
+        updateCenterCard();
+      }, 400);
     }
   } catch (err) {
     alert(err.message);
     btn.disabled = false;
-    btn.innerHTML = `<span class="material-symbols-outlined text-sm material-fill">favorite</span> Connect`;
+    btn.innerHTML = `<span class="material-symbols-outlined text-lg material-fill">favorite</span> Connect`;
   }
 };
 
 function checkEmptyState() {
   const rail = document.getElementById('discovery-rail');
   const empty = document.getElementById('discovery-empty');
+  const scrollBtns = document.querySelectorAll('#btn-scroll-left, #btn-scroll-right');
   
   if (!discoverProfiles || discoverProfiles.length === 0) {
-    rail.parentElement.classList.add('hidden');
-    empty.classList.remove('hidden');
-    empty.classList.add('flex');
+    if (rail && rail.parentElement) rail.parentElement.classList.add('hidden');
+    if (empty) {
+      empty.classList.remove('hidden');
+      empty.classList.add('flex');
+    }
+    scrollBtns.forEach(b => b.classList.add('hidden'));
   } else {
-    rail.parentElement.classList.remove('hidden');
-    empty.classList.add('hidden');
-    empty.classList.remove('flex');
+    if (rail && rail.parentElement) rail.parentElement.classList.remove('hidden');
+    if (empty) {
+      empty.classList.add('hidden');
+      empty.classList.remove('flex');
+    }
+    scrollBtns.forEach(b => b.classList.remove('hidden'));
     
     if (discoverProfiles.length === 1) {
       rail.classList.add('justify-center');
@@ -177,4 +244,3 @@ function checkEmptyState() {
     }
   }
 }
-

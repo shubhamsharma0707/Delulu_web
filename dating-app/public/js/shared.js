@@ -39,12 +39,14 @@ async function apiCall(url, method = 'GET', body = null) {
   return data;
 }
 
-function getAvatarHtml(username, avatar) {
+function getAvatarHtml(username, avatar, options = {}) {
+  const { className = 'w-full h-full object-cover', lazy = false } = options;
+  const loadingAttr = lazy ? 'loading="lazy"' : '';
   if (avatar) {
-    return `<img src="/avatars/${avatar}.jpeg" alt="${username}" class="w-full h-full object-cover">`;
+    return `<img src="/avatars/${avatar}.jpeg" alt="${username}" class="${className}" ${loadingAttr}>`;
   }
   const initial = username ? username.charAt(0).toUpperCase() : '?';
-  return `<div class="w-full h-full bg-primary-container text-on-primary-container flex items-center justify-center font-bold text-2xl">${initial}</div>`;
+  return `<div class="w-full h-full bg-gradient-to-br from-primary-container to-secondary-container text-white flex items-center justify-center font-bold text-3xl">${initial}</div>`;
 }
 
 function formatTime(dateStr) {
