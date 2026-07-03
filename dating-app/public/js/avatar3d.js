@@ -57,6 +57,8 @@ function loadAndProcessTexture(path, callback) {
 }
 
 function initAvatarScene(containerId, profiles) {
+  destroyAvatarScene();
+  
   sceneContainer = document.getElementById(containerId);
   if (!sceneContainer) return;
   
