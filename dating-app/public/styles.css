@@ -170,9 +170,13 @@ body.discover-page #app-root, body.profile-page #app-root {
 
 @media (min-width: 768px) {
   #profile-3d-preview-container {
-    right: 8%;
-    top: auto;
-    bottom: 4%;
+    position: static !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    flex-grow: 1;
+    display: flex;
+    justify-content: center;
+    align-items: center;
   }
   #profile-3d-preview {
     height: min(50vh, 400px);
