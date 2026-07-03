@@ -438,7 +438,7 @@ const otpOps = {
   },
 
   cleanExpired() {
-    getDB().prepare("DELETE FROM otps WHERE expires_at < datetime('now') OR used = 1").run();
+    return getDB().prepare("DELETE FROM otps WHERE expires_at < datetime('now') OR used = 1").run();
   },
 
   deleteByEmail(email) {
