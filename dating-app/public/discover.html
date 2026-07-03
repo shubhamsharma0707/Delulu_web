@@ -83,25 +83,27 @@
   </nav>
 
   <main class="flex-grow flex flex-col w-full max-w-[1200px] mx-auto px-6 h-full relative" id="app-root">
-    <div id="view-discovery" class="flex flex-col items-center justify-center h-[calc(100vh-8rem)] w-full relative">
+    <div id="view-discovery" class="flex flex-col items-center justify-center min-h-[calc(100dvh-var(--header-h)-var(--bottomnav-h))] md:min-h-[calc(100dvh-var(--header-h-md))] w-full relative">
       <div id="discovery-empty" class="hidden text-center text-on-surface-variant flex-col items-center justify-center h-full">
         <span class="material-symbols-outlined text-6xl mb-4 text-outline-variant">explore_off</span>
         <h2 class="text-2xl font-bold mb-2">No more profiles</h2>
         <p>Check back later for new connections.</p>
       </div>
       
-      <div id="discovery-stack" class="relative w-full max-w-md aspect-[3/4] mx-auto card-stack">
-        <!-- Cards injected via JS -->
-      </div>
-      
-      <div id="discovery-actions" class="flex justify-center items-center gap-6 mt-8 hidden">
-        <button id="btn-pass" class="w-16 h-16 rounded-full bg-surface-container-highest text-primary flex items-center justify-center shadow-lg hover:scale-110 transition-transform">
-          <span class="material-symbols-outlined text-3xl">close</span>
+      <div class="relative w-full flex items-center group">
+        <button id="btn-scroll-left" class="absolute -left-12 z-20 w-12 h-12 rounded-full bg-surface-container shadow-md border border-outline-variant/30 flex items-center justify-center text-primary hover:scale-110 active:scale-95 transition-all opacity-0 group-hover:opacity-100 hidden md:flex">
+          <span class="material-symbols-outlined text-2xl">chevron_left</span>
         </button>
-        <button id="btn-like" class="w-16 h-16 rounded-full bg-gradient-to-tr from-primary to-primary-container text-white flex items-center justify-center shadow-lg hover:scale-110 transition-transform">
-          <span class="material-symbols-outlined text-3xl material-fill">favorite</span>
+        
+        <div id="discovery-rail" class="w-full overflow-x-auto overflow-y-hidden snap-x snap-mandatory flex gap-6 px-4 py-8 custom-scrollbar" style="perspective:1200px; scroll-behavior:smooth;">
+          <!-- Cards injected via JS -->
+        </div>
+
+        <button id="btn-scroll-right" class="absolute -right-12 z-20 w-12 h-12 rounded-full bg-surface-container shadow-md border border-outline-variant/30 flex items-center justify-center text-primary hover:scale-110 active:scale-95 transition-all opacity-0 group-hover:opacity-100 hidden md:flex">
+          <span class="material-symbols-outlined text-2xl">chevron_right</span>
         </button>
       </div>
+
     </div>
   </main>
   
