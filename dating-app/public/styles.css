@@ -1,7 +1,15 @@
+:root {
+  --header-h: 5rem;       /* 80px, matches pt-20 */
+  --header-h-md: 6rem;    /* 96px, matches md:pt-24 */
+  --bottomnav-h: 4.5rem;  /* mobile bottom nav */
+}
+html, body { height: 100%; }
 body {
     font-family: 'Plus Jakarta Sans', sans-serif;
     background-color: theme('colors.surface-bright');
     color: theme('colors.on-surface');
+    min-height: 100dvh;
+    overflow-x: hidden;
 }
 .material-symbols-outlined {
     font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
