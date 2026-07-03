@@ -590,6 +590,25 @@ app.post('/api/connections/request', requireAuth, (req, res) => {
   res.json(result);
 });
 
+// Dismiss/skip profile
+app.post('/api/connections/dismiss', requireAuth, (req, res) => {
+  const { to_user_id } = req.body;
+  if (!to_user_id) return res.status(400).json({ error: 'Missing target user' });
+  
+  // Check if connection already exists
+  const existing = getDB().prepare(
+    'SELECT id, status FROM connections WHERE (from_user_id = ? AND to_user_id = ?) OR (from_user_id = ? AND to_user_id = ?)'
+  ).get(req.session.userId, to_user_id, to_user_id, req.session.userId);
+  
+  if (existing) {
+    getDB().prepare('UPDATE connections SET status = ? WHERE id = ?').run('rejected', existing.id);
+  } else {
+    getDB().prepare('INSERT INTO connections (from_user_id, to_user_id, status) VALUES (?, ?, ?)').run(req.session.userId, to_user_id, 'rejected');
+  }
+  
+  res.json({ success: true });
+});
+
 // Get pending requests (incoming)
 app.get('/api/connections/pending', requireAuth, (req, res) => {
   const requests = connectionOps.getPendingForUser(req.session.userId);

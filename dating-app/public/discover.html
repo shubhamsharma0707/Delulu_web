@@ -109,11 +109,22 @@
       </div>
       
       <!-- Profile Info Overlay (shows for the center card) -->
-      <div id="profile-overlay" class="hidden md:flex w-full justify-center mt-2 px-6">
-        <div id="center-profile-info" class="text-center max-w-md mx-auto fade-in">
+      <div id="profile-overlay" class="flex w-full justify-center mt-2 px-6">
+        <div id="center-profile-info" class="text-center max-w-md mx-auto fade-in flex flex-col items-center">
           <h2 id="center-username" class="font-bold text-2xl capitalize text-on-surface"></h2>
           <p id="center-bio" class="text-sm text-on-surface-variant mt-1"></p>
           <div id="center-hobbies" class="flex flex-wrap gap-1.5 justify-center mt-2"></div>
+          
+          <!-- Connect / Dismiss Buttons -->
+          <div class="flex gap-4 mt-4 mb-2">
+            <button id="btn-discover-dismiss" class="w-12 h-12 rounded-full bg-white shadow-lg border border-outline-variant/30 flex items-center justify-center text-on-surface-variant hover:scale-110 active:scale-95 transition-all hover:bg-surface-container-low" aria-label="Dismiss">
+              <span class="material-symbols-outlined text-2xl">close</span>
+            </button>
+            <button id="btn-discover-connect" class="px-6 py-2 rounded-full bg-gradient-to-r from-primary to-primary-container text-white text-sm font-bold shadow-lg hover:scale-105 active:scale-95 transition-all flex items-center gap-2" aria-label="Connect">
+              <span class="material-symbols-outlined text-lg material-fill">favorite</span>
+              <span>Connect</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -127,8 +138,8 @@
     </div>
   </main>
   
-  <script src="/js/shared.js?v=7"></script>
-  <script src="/js/discover.js?v=7"></script>
-  <script src="/js/avatar3d.js?v=7"></script>
+  <script src="/js/shared.js?v=8"></script>
+  <script src="/js/discover.js?v=8"></script>
+  <script src="/js/avatar3d.js?v=8"></script>
 </body>
 </html>

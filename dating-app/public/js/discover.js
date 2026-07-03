@@ -10,12 +10,67 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-scroll-left').onclick = () => navigateCards(-1);
   document.getElementById('btn-scroll-right').onclick = () => navigateCards(1);
 
+  // Connect/Dismiss buttons for 3D scene
+  document.getElementById('btn-discover-dismiss').onclick = () => handleDismissCenter();
+  document.getElementById('btn-discover-connect').onclick = () => handleConnectCenter();
+
   // Keyboard navigation
   document.addEventListener('keydown', (e) => {
     if (e.key === 'ArrowLeft') navigateCards(-1);
     if (e.key === 'ArrowRight') navigateCards(1);
   });
 });
+
+async function handleDismissCenter() {
+  const profile = discoverProfiles[currentIndex];
+  if (!profile) return;
+  
+  try {
+    await apiCall('/api/connections/dismiss', 'POST', { to_user_id: profile.id });
+    removeProfileAt(currentIndex);
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function handleConnectCenter() {
+  const profile = discoverProfiles[currentIndex];
+  if (!profile) return;
+  
+  const btn = document.getElementById('btn-discover-connect');
+  btn.disabled = true;
+  btn.querySelector('span:not(.material-symbols-outlined)').textContent = 'Sending...';
+  
+  try {
+    await apiCall('/api/connections/request', 'POST', { to_user_id: profile.id });
+    removeProfileAt(currentIndex);
+  } catch (err) {
+    alert(err.message);
+  } finally {
+    btn.disabled = false;
+    btn.querySelector('span:not(.material-symbols-outlined)').textContent = 'Connect';
+  }
+}
+
+function removeProfileAt(index) {
+  discoverProfiles.splice(index, 1);
+  checkEmptyState();
+  
+  if (discoverProfiles.length > 0) {
+    // Re-initialize 3D scene with the updated profile list
+    if (typeof initAvatarScene === 'function') {
+      initAvatarScene('avatar-3d-container', discoverProfiles);
+      // Snap back to nearest index
+      currentIndex = Math.min(index, discoverProfiles.length - 1);
+      window.updateAvatarScene(currentIndex);
+    }
+  } else {
+    // Empty state
+    if (typeof destroyAvatarScene === 'function') {
+      destroyAvatarScene();
+    }
+  }
+}
 
 function navigateCards(dir) {
   if (!discoverProfiles.length) return;

@@ -183,7 +183,7 @@ function createAvatarCards(profiles) {
 
   const cardWidth = 2.2;
   const cardHeight = 3.6;
-  const spacing = 3.2;
+  const spacing = 4.2;
   const totalWidth = (profiles.length - 1) * spacing;
 
   profiles.forEach((profile, i) => {
@@ -294,7 +294,7 @@ function createParticles() {
 }
 
 function updateSceneFromScroll(index) {
-  const spacing = 3.2;
+  const spacing = 4.2;
   const totalWidth = (avatarGroups.length - 1) * spacing;
   const xOffset = totalWidth / 2 - index * spacing;
   
