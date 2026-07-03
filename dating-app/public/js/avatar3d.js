@@ -12,6 +12,50 @@ let onCardConnect = null;
 let sceneContainer;
 let profilesData = [];
 
+function loadAndProcessTexture(path, callback) {
+  const img = new Image();
+  img.crossOrigin = "anonymous";
+  img.onload = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    
+    try {
+      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imgData.data;
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i+1];
+        const b = data[i+2];
+        
+        // Threshold for near-white backgrounds
+        const maxVal = Math.max(r, g, b);
+        if (maxVal > 240) {
+          // Smooth alpha transition to prevent jagged edges
+          const alpha = Math.max(0, (255 - maxVal) / 15);
+          data[i+3] = Math.min(data[i+3], alpha * 255);
+        }
+      }
+      ctx.putImageData(imgData, 0, 0);
+    } catch (e) {
+      console.warn("Failed to apply chroma key filter due to security/CORS, loading fallback texture:", e);
+    }
+    
+    const texture = new THREE.CanvasTexture(canvas);
+    if (THREE.sRGBEncoding) {
+      texture.encoding = THREE.sRGBEncoding;
+    }
+    texture.needsUpdate = true;
+    callback(texture);
+  };
+  img.onerror = (err) => {
+    console.error("Error loading image:", path, err);
+  };
+  img.src = path;
+}
+
 function initAvatarScene(containerId, profiles) {
   sceneContainer = document.getElementById(containerId);
   if (!sceneContainer) return;
@@ -39,8 +83,10 @@ function initAvatarScene(containerId, profiles) {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.2;
+  if (renderer.toneMapping) {
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.2;
+  }
   sceneContainer.appendChild(renderer.domElement);
 
   // Lighting
@@ -88,11 +134,9 @@ function createAvatarCards(profiles) {
   const spacing = 3.2;
   const totalWidth = (profiles.length - 1) * spacing;
 
-  const textureLoader = new THREE.TextureLoader();
-
   profiles.forEach((profile, i) => {
     const group = new THREE.Group();
-    group.userData = { profile, index: i, state: 'idle', lastSwap: 0 };
+    group.userData = { profile, index: i, state: 'idle', lastSwap: Date.now() };
     
     const xPos = i * spacing - totalWidth / 2;
     group.position.set(xPos, 0, 0);
@@ -113,30 +157,23 @@ function createAvatarCards(profiles) {
       const avatarMat = new THREE.MeshBasicMaterial({
         color: 0xffffff,
         transparent: true,
-        side: THREE.DoubleSide,
-        blending: THREE.MultiplyBlending
+        side: THREE.DoubleSide
       });
       const avatarMesh = new THREE.Mesh(avatarGeo, avatarMat);
       avatarMesh.position.set(0, 0.4, 0);
       group.add(avatarMesh);
       group.userData.mesh = avatarMesh;
 
-      textureLoader.load(idlePath, (texIdle) => {
-        texIdle.colorSpace = THREE.SRGBColorSpace;
-        texIdle.needsUpdate = true;
+      loadAndProcessTexture(idlePath, (texIdle) => {
         group.userData.texIdle = texIdle;
         if (group.userData.state === 'idle') {
           avatarMat.map = texIdle;
           avatarMat.needsUpdate = true;
         }
         
-        textureLoader.load(wavePath, (texWave) => {
-          texWave.colorSpace = THREE.SRGBColorSpace;
-          texWave.needsUpdate = true;
+        loadAndProcessTexture(wavePath, (texWave) => {
           group.userData.texWave = texWave;
         });
-      }, undefined, (err) => {
-        console.error("Error loading texture:", idlePath, err);
       });
 
     } else {
