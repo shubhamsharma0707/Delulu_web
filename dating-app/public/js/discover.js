@@ -38,18 +38,8 @@ async function loadDiscovery() {
 
 function renderDiscoveryRail() {
   const rail = document.getElementById('discovery-rail');
-  const empty = document.getElementById('discovery-empty');
-  
-  if (!discoverProfiles || discoverProfiles.length === 0) {
-    rail.parentElement.classList.add('hidden');
-    empty.classList.remove('hidden');
-    empty.classList.add('flex');
-    return;
-  }
-  
-  rail.parentElement.classList.remove('hidden');
-  empty.classList.add('hidden');
-  empty.classList.remove('flex');
+  checkEmptyState();
+  if (!discoverProfiles || discoverProfiles.length === 0) return;
   
   rail.innerHTML = discoverProfiles.map(p => {
     let matchHtml = '';
@@ -162,10 +152,21 @@ window.connectProfile = async (e, userId, btn) => {
 function checkEmptyState() {
   const rail = document.getElementById('discovery-rail');
   const empty = document.getElementById('discovery-empty');
-  if (discoverProfiles.length === 0) {
+  
+  if (!discoverProfiles || discoverProfiles.length === 0) {
     rail.parentElement.classList.add('hidden');
     empty.classList.remove('hidden');
     empty.classList.add('flex');
+  } else {
+    rail.parentElement.classList.remove('hidden');
+    empty.classList.add('hidden');
+    empty.classList.remove('flex');
+    
+    if (discoverProfiles.length === 1) {
+      rail.classList.add('justify-center');
+    } else {
+      rail.classList.remove('justify-center');
+    }
   }
 }
 
