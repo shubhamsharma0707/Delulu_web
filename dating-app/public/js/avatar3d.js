@@ -255,6 +255,7 @@ function updateSceneFromScroll(scrollLeft) {
         group.userData.state = 'wave';
         if (group.userData.mesh && group.userData.texWave) {
           group.userData.mesh.material.map = group.userData.texWave;
+          group.userData.mesh.material.needsUpdate = true;
         }
         
         // Schedule return to idle after 500ms
@@ -262,6 +263,7 @@ function updateSceneFromScroll(scrollLeft) {
           if (group.userData && group.userData.mesh && group.userData.texIdle) {
             group.userData.state = 'idle';
             group.userData.mesh.material.map = group.userData.texIdle;
+            group.userData.mesh.material.needsUpdate = true;
           }
         }, 500);
       }
@@ -277,6 +279,7 @@ function updateSceneFromScroll(scrollLeft) {
         group.userData.state = 'idle';
         if (group.userData.mesh && group.userData.texIdle) {
           group.userData.mesh.material.map = group.userData.texIdle;
+          group.userData.mesh.material.needsUpdate = true;
         }
       }
       group.rotation.y = 0;
