@@ -19,7 +19,7 @@ const io = new Server(server);
 const PORT = process.env.PORT || 3000;
 
 // Allowed email domains
-const ALLOWED_DOMAINS = ['rishihood.edu.in', 'vitbhopal.ac.in'];
+const ALLOWED_SUFFIXES = ['rishihood.edu.in', 'vitbhopal.ac.in'];
 
 // ===== Firebase Admin SDK Initialization =====
 let firebaseInitialized = false;
@@ -259,11 +259,16 @@ app.post('/api/auth/send-otp', async (req, res) => {
 
     const cleanEmail = email.trim().toLowerCase();
 
-    // Validate email domain
-    const domain = cleanEmail.split('@')[1];
-    if (!domain || !ALLOWED_DOMAINS.includes(domain)) {
+    // Validate email — must end with one of the allowed suffixes,
+    // and the suffix must follow immediately after @ or a dot (no spoofing like fakerishihood.edu.in)
+    const emailValid = ALLOWED_SUFFIXES.some(suffix => {
+      if (!cleanEmail.endsWith(suffix)) return false;
+      const before = cleanEmail[cleanEmail.length - suffix.length - 1];
+      return before === '@' || before === '.';
+    });
+    if (!emailValid) {
       return res.status(400).json({ 
-        error: 'Only @rishihood.edu.in and @vitbhopal.ac.in email addresses are allowed' 
+        error: 'Only emails ending in rishihood.edu.in or vitbhopal.ac.in are allowed' 
       });
     }
 
