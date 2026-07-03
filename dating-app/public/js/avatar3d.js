@@ -220,6 +220,14 @@ function createAvatarCards(profiles) {
 
       loadAndProcessTexture(idlePath, (texIdle) => {
         group.userData.texIdle = texIdle;
+        
+        // Auto-scale mesh width to match image aspect ratio
+        if (texIdle.image && texIdle.image.width && texIdle.image.height) {
+          const aspect = texIdle.image.width / texIdle.image.height;
+          const baseAspect = (cardWidth * 1.8) / (cardHeight * 1.3);
+          avatarMesh.scale.x = aspect / baseAspect;
+        }
+
         if (group.userData.state === 'idle') {
           avatarMat.map = texIdle;
           avatarMat.needsUpdate = true;
