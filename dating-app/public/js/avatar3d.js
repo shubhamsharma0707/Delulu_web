@@ -243,7 +243,7 @@ function createParticles() {
 
 function updateSceneFromScroll(scrollLeft) {
   const containerWidth = sceneContainer ? sceneContainer.offsetWidth : window.innerWidth;
-  const totalWidth = Math.max((avatarGroups.length - 1), 1) * 3.2;
+  const totalWidth = (avatarGroups.length - 1) * 3.2;
   
   // Convert scroll position to 3D position offset
   const scrollRatio = scrollLeft / Math.max(containerWidth * 0.5, 1);
