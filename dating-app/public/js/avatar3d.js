@@ -115,6 +115,58 @@ function initAvatarScene(containerId, profiles) {
   // Particles
   createParticles();
 
+  // Drag-to-scroll implementation
+  let isDragging = false;
+  let startX = 0;
+  let scrollStart = 0;
+
+  sceneContainer.style.touchAction = 'none'; // Prevent browser scroll during grab
+  
+  sceneContainer.addEventListener('pointerdown', (e) => {
+    isDragging = true;
+    startX = e.clientX;
+    scrollStart = targetIndex;
+    sceneContainer.style.cursor = 'grabbing';
+    sceneContainer.setPointerCapture(e.pointerId);
+  });
+
+  sceneContainer.addEventListener('pointermove', (e) => {
+    if (!isDragging) return;
+    const deltaX = e.clientX - startX;
+    const sensitivity = 0.005;
+    let newIndex = scrollStart - deltaX * sensitivity;
+    newIndex = Math.max(0, Math.min(newIndex, profilesData.length - 1));
+    targetIndex = newIndex;
+  });
+
+  const endDrag = (e) => {
+    if (!isDragging) return;
+    isDragging = false;
+    sceneContainer.style.cursor = 'grab';
+    if (e && e.pointerId) {
+      try {
+        sceneContainer.releasePointerCapture(e.pointerId);
+      } catch (err) {}
+    }
+    
+    // Snap to nearest integer index
+    targetIndex = Math.round(targetIndex);
+    
+    // Sync back to discover.js state
+    if (typeof window.setCurrentIndex === 'function') {
+      window.setCurrentIndex(targetIndex);
+    }
+    if (typeof window.updateProfileOverlay === 'function') {
+      window.updateProfileOverlay(targetIndex);
+    }
+    if (typeof window.updateNavButtons === 'function') {
+      window.updateNavButtons();
+    }
+  };
+
+  sceneContainer.addEventListener('pointerup', endDrag);
+  sceneContainer.addEventListener('pointercancel', endDrag);
+
   // Events
   window.addEventListener('resize', onResize);
   document.addEventListener('mousemove', onMouseMove);
@@ -241,23 +293,20 @@ function createParticles() {
   scene.add(particles);
 }
 
-function updateSceneFromScroll(scrollLeft) {
-  const containerWidth = sceneContainer ? sceneContainer.offsetWidth : window.innerWidth;
-  const totalWidth = (avatarGroups.length - 1) * 3.2;
-  
-  // Convert scroll position to 3D position offset
-  const scrollRatio = scrollLeft / Math.max(containerWidth * 0.5, 1);
-  const xOffset = -scrollRatio * 1.5;
+function updateSceneFromScroll(index) {
+  const spacing = 3.2;
+  const totalWidth = (avatarGroups.length - 1) * spacing;
+  const xOffset = -index * spacing;
   
   avatarGroups.forEach((group, i) => {
-    const baseX = i * 3.2 - totalWidth / 2;
+    const baseX = i * spacing - totalWidth / 2;
     const targetX = baseX + xOffset;
     
     // Smooth interpolation
     group.position.x += (targetX - group.position.x) * 0.08;
     
     // Calculate distance from center for effects
-    const centerX = -xOffset;
+    const centerX = index * spacing;
     const distFromCenter = Math.abs(group.position.x - centerX);
     const maxDist = 6;
     const ratio = Math.min(distFromCenter / maxDist, 1);
@@ -368,7 +417,7 @@ function animate() {
   }
 
   // Update 3D card positions from current index
-  updateSceneFromScroll(currentCenterIndex * 60);
+  updateSceneFromScroll(currentCenterIndex);
 
   // Animate particles
   if (particles) {

@@ -112,12 +112,21 @@ function appendMessage(m, scrollToBottom = true) {
   
   const div = document.createElement('div');
   div.className = `flex ${isMe ? 'justify-end' : 'justify-start'} w-full fade-in`;
-  div.innerHTML = `
-    <div class="max-w-[75%] rounded-2xl p-3 ${isMe ? 'bg-primary text-white rounded-tr-sm shadow-sm' : 'bg-surface-container-low text-on-surface rounded-tl-sm shadow-sm border border-outline-variant/10'}">
-      <p class="text-[15px] leading-relaxed break-words">${m.content}</p>
-      <div class="text-[10px] mt-1 text-right ${isMe ? 'text-white/70' : 'text-on-surface-variant/70'}">${time}</div>
-    </div>
-  `;
+  
+  const inner = document.createElement('div');
+  inner.className = `max-w-[75%] rounded-2xl p-3 ${isMe ? 'bg-primary text-white rounded-tr-sm shadow-sm' : 'bg-surface-container-low text-on-surface rounded-tl-sm shadow-sm border border-outline-variant/10'}`;
+  
+  const p = document.createElement('p');
+  p.className = 'text-[15px] leading-relaxed break-words';
+  p.textContent = m.content || ''; // SAFE: textContent escapes HTML
+  
+  const timeEl = document.createElement('div');
+  timeEl.className = `text-[10px] mt-1 text-right ${isMe ? 'text-white/70' : 'text-on-surface-variant/70'}`;
+  timeEl.textContent = time;
+  
+  inner.appendChild(p);
+  inner.appendChild(timeEl);
+  div.appendChild(inner);
   
   // Because it's flex-col-reverse, prepend adds to bottom visually
   cont.prepend(div);
@@ -172,7 +181,10 @@ function setupChatOptions() {
   blockBtn.onclick = async () => {
     if (confirm(`Are you sure you want to block this user? They will disappear forever.`)) {
       try {
-        await apiCall('/api/users/block', 'POST', { connection_id: currentConnId });
+        // Fetch connection details to get the other user's ID
+        const connData = await apiCall(`/api/connections/${currentConnId}`);
+        const targetUserId = connData.connection.other_user_id;
+        await apiCall('/api/connections/block', 'POST', { target_user_id: targetUserId });
         window.location.href = '/messages';
       } catch(err) { alert(err.message); }
     }

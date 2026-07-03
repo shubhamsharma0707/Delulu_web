@@ -1,6 +1,14 @@
 let currentUser = null;
 let socket = null;
 
+// Escape HTML to prevent XSS
+function escapeHtml(str) {
+  if (!str) return '';
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
 // Ensure we have user data on protected routes
 async function requireAuth() {
   try {
@@ -42,6 +50,7 @@ async function apiCall(url, method = 'GET', body = null) {
 function getAvatarHtml(username, avatar, options = {}) {
   const { className = 'w-full h-full object-cover', lazy = false } = options;
   const loadingAttr = lazy ? 'loading="lazy"' : '';
+  const safeUsername = escapeHtml(username || '');
   if (avatar) {
     // Determine path based on if it's the new object or old string format
     let src = '';
@@ -50,9 +59,9 @@ function getAvatarHtml(username, avatar, options = {}) {
     } else {
       src = `/avatars/${avatar}.jpeg`;
     }
-    return `<img src="${src}" alt="${username}" class="${className}" ${loadingAttr}>`;
+    return `<img src="${src}" alt="${safeUsername}" class="${className}" ${loadingAttr}>`;
   }
-  const initial = username ? username.charAt(0).toUpperCase() : '?';
+  const initial = safeUsername ? safeUsername.charAt(0).toUpperCase() : '?';
   return `<div class="w-full h-full bg-gradient-to-br from-primary-container to-secondary-container text-white flex items-center justify-center font-bold text-3xl">${initial}</div>`;
 }
 

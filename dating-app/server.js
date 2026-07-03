@@ -3,7 +3,10 @@ const session = require('express-session');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
+const crypto = require('crypto');
 const bcrypt = require('bcrypt');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const nodemailer = require('nodemailer');
 const { initializeApp: firebaseInitializeApp, cert } = require('firebase-admin/app');
 const { getAuth: getFirebaseAuth } = require('firebase-admin/auth');
@@ -60,7 +63,7 @@ if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
 
 // ===== OTP Helper Functions =====
 function generateOTP() {
-  return Math.floor(100000 + Math.random() * 900000).toString();
+  return crypto.randomInt(100000, 999999).toString();
 }
 
 async function sendOTPEmail(email, otp) {
@@ -92,13 +95,61 @@ async function sendOTPEmail(email, otp) {
     console.log(`[OTP Email] To: ${email} | Code: ${otp}`);
   }
 }
+// Warn if SESSION_SECRET is not set
+if (!process.env.SESSION_SECRET) {
+  console.warn('⚠️  WARNING: SESSION_SECRET environment variable is not set! Using a development-only fallback.');
+  console.warn('   Set a strong random SESSION_SECRET in production: openssl rand -hex 32');
+}
+
+// Trust proxy for when running behind nginx/render/heroku
+app.set('trust proxy', 1);
+
+// Security headers via Helmet
+// CSP is disabled to allow our CDN-loaded libraries (Tailwind, Three.js, Socket.io, Google Fonts)
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,
+}));
+
+// ===== Rate Limiting =====
+// Auth endpoints: 5 attempts per 15 minutes
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { error: 'Too many attempts. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// OTP endpoints: 3 per 15 minutes (stricter to prevent email bombing)
+const otpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 3,
+  message: { error: 'Too many OTP requests. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// General API rate limit: 60 requests per minute
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  message: { error: 'Too many requests. Please slow down.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // Session middleware
 const sessionMiddleware = session({
-  secret: process.env.SESSION_SECRET || 'delulu-secret-key-change-in-production',
+  secret: process.env.SESSION_SECRET || 'delulu-dev-secret-do-not-use-in-prod',
   resave: false,
-  saveUninitialized: true,
-  cookie: { maxAge: 24 * 60 * 60 * 1000 }
+  saveUninitialized: false, // Don't create sessions for unauthenticated visitors
+  cookie: {
+    maxAge: 24 * 60 * 60 * 1000,
+    httpOnly: true, // Prevent JS access to cookie
+    sameSite: 'lax', // CSRF protection
+    secure: process.env.NODE_ENV === 'production' // HTTPS only in production
+  }
 });
 
 app.use(sessionMiddleware);
@@ -106,6 +157,9 @@ app.use(sessionMiddleware);
 // Body parsing
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Apply general API rate limiter to all /api/ routes
+app.use('/api/', apiLimiter);
 
 // Static files
 app.use(express.static(path.join(__dirname, 'public')));
@@ -200,6 +254,17 @@ app.post('/api/users/create', async (req, res) => {
     if (passcode.length < 6) {
       return res.status(400).json({ error: 'Passcode must be at least 6 characters' });
     }
+    // Input validation
+    const usernameStr = String(username).trim();
+    if (usernameStr.length < 3 || usernameStr.length > 20) {
+      return res.status(400).json({ error: 'Username must be between 3 and 20 characters' });
+    }
+    if (!/^[a-zA-Z0-9_]+$/.test(usernameStr)) {
+      return res.status(400).json({ error: 'Username can only contain letters, numbers, and underscores' });
+    }
+    if (bio && bio.length > 500) {
+      return res.status(400).json({ error: 'Bio must be less than 500 characters' });
+    }
 
     // Check username availability
     const existing = userOps.getByUsername(username);
@@ -221,10 +286,12 @@ app.post('/api/users/create', async (req, res) => {
 });
 
 // Login
-app.post('/api/users/login', async (req, res) => {
-  const { username, passcode } = req.body;
+app.post('/api/users/login', async (req, res) => {    const { username, passcode } = req.body;
   if (!username || !passcode) {
     return res.status(400).json({ error: 'Username and passcode required' });
+  }
+  if (typeof passcode !== 'string' || passcode.length < 6) {
+    return res.status(400).json({ error: 'Invalid passcode' });
   }
   
   const user = userOps.getByUsername(username);
@@ -240,8 +307,8 @@ app.post('/api/users/login', async (req, res) => {
 
 // ===== EMAIL OTP AUTH ROUTES =====
 
-// Send OTP to email
-app.post('/api/auth/send-otp', async (req, res) => {
+// Send OTP to email (rate limited separately)
+app.post('/api/auth/send-otp', otpLimiter, async (req, res) => {
   try {
     const { email } = req.body;
     if (!email || !email.trim()) {
@@ -289,8 +356,8 @@ app.post('/api/auth/send-otp', async (req, res) => {
   }
 });
 
-// Verify OTP and login/register
-app.post('/api/auth/verify-otp', async (req, res) => {
+// Verify OTP and login/register (rate limited separately)
+app.post('/api/auth/verify-otp', authLimiter, async (req, res) => {
   try {
     const { email, token } = req.body;
     if (!email || !token) {
@@ -367,6 +434,25 @@ app.post('/api/auth/complete-profile', async (req, res) => {
     if (!['male', 'female', 'other'].includes(gender)) {
       return res.status(400).json({ error: 'Invalid gender' });
     }
+    // Input validation
+    const usernameStr = String(username).trim();
+    if (usernameStr.length < 3 || usernameStr.length > 20) {
+      return res.status(400).json({ error: 'Username must be between 3 and 20 characters' });
+    }
+    if (!/^[a-zA-Z0-9_]+$/.test(usernameStr)) {
+      return res.status(400).json({ error: 'Username can only contain letters, numbers, and underscores' });
+    }
+    if (bio && bio.length > 500) {
+      return res.status(400).json({ error: 'Bio must be less than 500 characters' });
+    }
+    if (hobbies && Array.isArray(hobbies) && hobbies.length > 20) {
+      return res.status(400).json({ error: 'Maximum 20 hobbies allowed' });
+    }
+    for (const h of (hobbies || [])) {
+      if (typeof h !== 'string' || h.length > 50) {
+        return res.status(400).json({ error: 'Each hobby must be under 50 characters' });
+      }
+    }
 
     // Verify this email was recently OTP-verified (stored in session)
     if (req.session.pendingEmail !== email) {
@@ -416,6 +502,20 @@ app.get('/api/users/me', requireAuth, (req, res) => {
 // Update profile
 app.put('/api/users/me', requireAuth, async (req, res) => {
   const { bio, hobbies, avatar } = req.body;
+  // Input validation
+  if (bio !== undefined && bio !== null && bio.length > 500) {
+    return res.status(400).json({ error: 'Bio must be less than 500 characters' });
+  }
+  if (hobbies && Array.isArray(hobbies)) {
+    if (hobbies.length > 20) {
+      return res.status(400).json({ error: 'Maximum 20 hobbies allowed' });
+    }
+    for (const h of hobbies) {
+      if (typeof h !== 'string' || h.length > 50) {
+        return res.status(400).json({ error: 'Each hobby must be under 50 characters' });
+      }
+    }
+  }
   userOps.update(req.session.userId, { bio, hobbies, avatar });
   const user = userOps.getById(req.session.userId);
   const safeUser = sanitizeUser(user);
@@ -638,7 +738,17 @@ setInterval(() => {
 }, 5 * 60 * 1000);
 
 
-server.listen(PORT, '0.0.0.0', () => {
+// HTTP → HTTPS redirect in production
+if (process.env.NODE_ENV === 'production') {
+  app.use((req, res, next) => {
+    if (req.headers['x-forwarded-proto'] !== 'https') {
+      return res.redirect('https://' + req.headers.host + req.url);
+    }
+    next();
+  });
+}
+
+server.listen(PORT, process.env.NODE_ENV === 'production' ? '127.0.0.1' : '0.0.0.0', () => {
   console.log(`Delulu Dating App running at http://localhost:${PORT}`);
   console.log(`Open your browser to http://localhost:${PORT}`);
   console.log('');

@@ -31,23 +31,27 @@ async function loadRequests(type = 'incoming') {
       return;
     }
     
-    list.innerHTML = reqs.map(r => `
-      <div class="flex items-center gap-4 p-4 rounded-2xl bg-surface-container-low shadow-sm mb-2 fade-in">
-        <div class="w-14 h-14 rounded-full overflow-hidden shrink-0 border border-outline-variant/30">
-          ${getAvatarHtml(r.username, r.avatar)}
-        </div>
-        <div class="flex-1 min-w-0">
-          <h3 class="font-bold text-on-surface capitalize truncate">${r.username}</h3>
-          <p class="text-sm text-on-surface-variant truncate">${r.bio || 'Wants to connect'}</p>
-        </div>
-        ${type === 'incoming' ? `
-          <div class="flex gap-2 shrink-0">
-            <button onclick="respondReq(${r.id}, 'accept')" class="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center hover:scale-110 transition-transform"><span class="material-symbols-outlined material-fill text-sm">check</span></button>
-            <button onclick="respondReq(${r.id}, 'reject')" class="w-10 h-10 rounded-full bg-surface-variant text-on-surface-variant flex items-center justify-center hover:scale-110 transition-transform"><span class="material-symbols-outlined text-sm">close</span></button>
+    list.innerHTML = reqs.map(r => {
+      const safeUsername = escapeHtml(r.username);
+      const safeBio = escapeHtml(r.bio || 'Wants to connect');
+      return `
+        <div class="flex items-center gap-4 p-4 rounded-2xl bg-surface-container-low shadow-sm mb-2 fade-in">
+          <div class="w-14 h-14 rounded-full overflow-hidden shrink-0 border border-outline-variant/30">
+            ${getAvatarHtml(r.username, r.avatar)}
           </div>
-        ` : `<span class="text-xs text-outline bg-surface px-2 py-1 rounded-md">Pending</span>`}
-      </div>
-    `).join('');
+          <div class="flex-1 min-w-0">
+            <h3 class="font-bold text-on-surface capitalize truncate">${safeUsername}</h3>
+            <p class="text-sm text-on-surface-variant truncate">${safeBio}</p>
+          </div>
+          ${type === 'incoming' ? `
+            <div class="flex gap-2 shrink-0">
+              <button onclick="respondReq(${r.id}, 'accept')" class="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center hover:scale-110 transition-transform"><span class="material-symbols-outlined material-fill text-sm">check</span></button>
+              <button onclick="respondReq(${r.id}, 'reject')" class="w-10 h-10 rounded-full bg-surface-variant text-on-surface-variant flex items-center justify-center hover:scale-110 transition-transform"><span class="material-symbols-outlined text-sm">close</span></button>
+            </div>
+          ` : `<span class="text-xs text-outline bg-surface px-2 py-1 rounded-md">Pending</span>`}
+        </div>
+      `;
+    }).join('');
   } catch (err) {
     list.innerHTML = `<div class="p-4 text-error">${err.message}</div>`;
   }

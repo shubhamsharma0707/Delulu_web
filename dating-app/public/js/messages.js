@@ -17,6 +17,7 @@ async function loadMessagesList() {
     
     list.innerHTML = conns.map(c => {
       const isRevealed = c.status === 'revealed';
+      const safeUsername = escapeHtml(c.other_username);
       return `
       <a href="/chat?id=${c.id}" class="w-full flex items-center gap-4 p-4 rounded-2xl hover:bg-surface-container-low mb-2 transition-colors fade-in">
         <div class="w-14 h-14 rounded-full overflow-hidden shrink-0 border border-outline-variant/30 relative">
@@ -24,7 +25,7 @@ async function loadMessagesList() {
         </div>
         <div class="flex-1 min-w-0 text-left">
           <div class="flex justify-between items-baseline mb-1">
-            <h3 class="font-bold text-on-surface capitalize truncate">${c.other_username}</h3>
+            <h3 class="font-bold text-on-surface capitalize truncate">${safeUsername}</h3>
           </div>
           <p class="text-sm text-primary font-medium truncate">${isRevealed ? 'Identities Revealed!' : 'Tap to chat'}</p>
         </div>
