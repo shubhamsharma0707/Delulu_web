@@ -135,20 +135,34 @@ body {
   flex-shrink: 0;
 }
 
-/* Discover Page Scroll-Free Layout */
-body.discover-page {
+/* Discover & Profile Pages Scroll-Free Layout */
+body.discover-page, body.profile-page {
   overflow: hidden !important;
   height: 100dvh !important;
 }
 
-body.discover-page #app-root {
+body.discover-page #app-root, body.profile-page #app-root {
   height: calc(100dvh - var(--header-h) - var(--bottomnav-h, 0px)) !important;
   overflow: hidden !important;
 }
 
 @media (min-width: 768px) {
-  body.discover-page #app-root {
+  body.discover-page #app-root, body.profile-page #app-root {
     height: calc(100dvh - var(--header-h-md)) !important;
+  }
+}
+
+/* Profile 3D Preview Dynamic Dimensions */
+#profile-3d-preview {
+  position: relative;
+  height: min(40vh, 260px);
+  width: calc(min(40vh, 260px) * 0.75);
+}
+
+@media (min-width: 768px) {
+  #profile-3d-preview {
+    height: min(45vh, 380px);
+    width: calc(min(45vh, 380px) * 0.75);
   }
 }
 
