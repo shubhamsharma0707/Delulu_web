@@ -22,6 +22,26 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (e.key === 'ArrowLeft') navigateCards(-1);
     if (e.key === 'ArrowRight') navigateCards(1);
   });
+
+  // Smooth scroll wheel/trackpad navigation (debounced vertical scrolling mapped to swiping)
+  let lastScrollTime = 0;
+  const scrollCooldown = 700; // ms between card swiping transitions
+  
+  window.addEventListener('wheel', (e) => {
+    if (!discoverProfiles.length) return;
+    
+    // Catch significant vertical scrolls
+    if (Math.abs(e.deltaY) > 15) {
+      e.preventDefault(); // Stop default vertical scroll repaints
+      
+      const now = Date.now();
+      if (now - lastScrollTime > scrollCooldown) {
+        lastScrollTime = now;
+        const direction = e.deltaY > 0 ? 1 : -1;
+        navigateCards(direction);
+      }
+    }
+  }, { passive: false });
 });
 
 async function handleDismissCenter() {

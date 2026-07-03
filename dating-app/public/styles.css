@@ -139,6 +139,7 @@ body {
 body.discover-page, body.profile-page {
   overflow: hidden !important;
   height: 100dvh !important;
+  touch-action: none !important;
 }
 
 body.discover-page #app-root, body.profile-page #app-root {
