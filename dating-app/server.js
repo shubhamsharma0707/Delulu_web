@@ -5,7 +5,8 @@ const { Server } = require('socket.io');
 const path = require('path');
 const bcrypt = require('bcrypt');
 const nodemailer = require('nodemailer');
-const admin = require('firebase-admin');
+const { initializeApp: firebaseInitializeApp, cert } = require('firebase-admin/app');
+const { getAuth: getFirebaseAuth } = require('firebase-admin/auth');
 const { getDB, seedDemoUsers, userOps, connectionOps, messageOps, otpOps } = require('./database');
 
 // Load environment variables
@@ -22,15 +23,17 @@ const ALLOWED_DOMAINS = ['rishihood.edu.in', 'vitbhopal.ac.in'];
 
 // ===== Firebase Admin SDK Initialization =====
 let firebaseInitialized = false;
+let firebaseAuth = null;
 if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
   try {
-    admin.initializeApp({
-      credential: admin.credential.cert({
+    const firebaseApp = firebaseInitializeApp({
+      credential: cert({
         projectId: process.env.FIREBASE_PROJECT_ID,
         clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-        privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
+        privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/^"|"$/g, '').replace(/\\n/g, '\n')
       })
     });
+    firebaseAuth = getFirebaseAuth(firebaseApp);
     firebaseInitialized = true;
     console.log('Firebase Admin SDK initialized');
   } catch (err) {
@@ -311,16 +314,16 @@ app.post('/api/auth/verify-otp', async (req, res) => {
     otpOps.markUsed(otpRecord.id);
 
     // If Firebase is configured, also create/verify the user in Firebase
-    if (firebaseInitialized) {
+    if (firebaseInitialized && firebaseAuth) {
       try {
-        const firebaseUser = await admin.auth().getUserByEmail(cleanEmail).catch(() => null);
+        const firebaseUser = await firebaseAuth.getUserByEmail(cleanEmail).catch(() => null);
         if (!firebaseUser) {
-          await admin.auth().createUser({
+          await firebaseAuth.createUser({
             email: cleanEmail,
             emailVerified: true
           });
         } else {
-          await admin.auth().updateUser(firebaseUser.uid, { emailVerified: true });
+          await firebaseAuth.updateUser(firebaseUser.uid, { emailVerified: true });
         }
       } catch (fbErr) {
         console.error('Firebase user sync error:', fbErr);
