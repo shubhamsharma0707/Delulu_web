@@ -109,7 +109,7 @@ function updateProfileOverlay(index) {
   const hobbiesEl = document.getElementById('center-hobbies');
   if (p.hobbies && p.hobbies.length > 0) {
     hobbiesEl.innerHTML = p.hobbies.map(h => 
-      `<span class="px-2 py-0.5 bg-white/30 backdrop-blur-md rounded-full text-[10px] font-medium text-on-surface-variant border border-white/40">${h}</span>`
+      `<span class="px-3 py-1 bg-white/40 backdrop-blur-md rounded-full text-xs font-semibold text-on-surface-variant border border-white/50 shadow-sm">${h}</span>`
     ).join('');
   }
 }
