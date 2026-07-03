@@ -132,14 +132,61 @@ document.addEventListener('DOMContentLoaded', async () => {
   };
 
   // ===== STAGE 3: Complete Profile (new users) =====
+  const profileGender = document.getElementById('profile-gender');
+  const avatarPickerContainer = document.getElementById('avatar-picker-container');
+  const avatarGrid = document.getElementById('avatar-grid');
+  const profileAvatarInput = document.getElementById('profile-avatar');
+
+  profileGender.onchange = () => {
+    const gender = profileGender.value;
+    avatarGrid.innerHTML = '';
+    profileAvatarInput.value = '';
+    
+    if (!gender) {
+      avatarPickerContainer.classList.add('hidden');
+      return;
+    }
+    
+    avatarPickerContainer.classList.remove('hidden');
+    let avatars = [];
+    if (gender === 'male') {
+      for (let i = 1; i <= 10; i++) avatars.push(`male_${String(i).padStart(2, '0')}`);
+    } else if (gender === 'female') {
+      for (let i = 1; i <= 10; i++) avatars.push(`female_${String(i).padStart(2, '0')}`);
+    } else {
+      for (let i = 1; i <= 10; i++) {
+        avatars.push(`female_${String(i).padStart(2, '0')}`);
+        avatars.push(`male_${String(i).padStart(2, '0')}`);
+      }
+    }
+
+    avatars.forEach(av => {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'aspect-square rounded-lg overflow-hidden border border-outline-variant/30 hover:border-primary/50 cursor-pointer transition-all flex items-center justify-center p-1 bg-surface-container';
+      wrapper.innerHTML = `<img src="/avatars/${av}.svg" class="w-full h-full object-cover">`;
+      wrapper.onclick = () => {
+        avatarGrid.querySelectorAll('.aspect-square').forEach(el => el.classList.remove('border-primary', 'border-2', 'ring-2', 'ring-primary/20'));
+        wrapper.classList.add('border-primary', 'border-2', 'ring-2', 'ring-primary/20');
+        profileAvatarInput.value = av;
+      };
+      avatarGrid.appendChild(wrapper);
+    });
+  };
+
   document.getElementById('form-profile').onsubmit = async (e) => {
     e.preventDefault();
 
     const username = document.getElementById('profile-username').value.trim();
-    const gender = document.getElementById('profile-gender').value;
+    const gender = profileGender.value;
     const bio = document.getElementById('profile-bio').value.trim();
     const hobbiesStr = document.getElementById('profile-hobbies').value;
-    const profile_pic = document.getElementById('profile-photo').value.trim();
+    const avatar = profileAvatarInput.value;
+
+    if (!avatar) {
+      document.getElementById('profile-error').textContent = 'Please select an avatar';
+      document.getElementById('profile-error').classList.remove('hidden');
+      return;
+    }
 
     let hobbies = [];
     if (hobbiesStr) {
@@ -158,7 +205,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         gender,
         bio,
         hobbies,
-        profile_pic
+        avatar
       });
       window.location.href = '/discover';
     } catch (err) {
