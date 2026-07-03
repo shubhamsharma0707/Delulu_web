@@ -105,21 +105,21 @@ function seedDemoUsers() {
   const defaultHash = bcrypt.hashSync('123456', 10);
 
   const demos = [
-    { username: 'wanderlust_amy', gender: 'female', bio: 'Dog mom, amateur pasta maker, and weekend hiker. Love finding obscure coffee shops.', hobbies: JSON.stringify(['hiking', 'photography', 'coffee', 'cooking', 'travel']), profile_pic: '' },
-    { username: 'art_vibes', gender: 'female', bio: 'Art enthusiast and gallery hopper. Always on the lookout for the next great exhibition.', hobbies: JSON.stringify(['art', 'photography', 'reading', 'music']), profile_pic: '' },
-    { username: 'stellar_jay', gender: 'male', bio: 'Astronomy nerd and weekend astronomer. Love stargazing and deep conversations.', hobbies: JSON.stringify(['photography', 'hiking', 'reading', 'movies', 'camping']), profile_pic: '' },
-    { username: 'coffee_leo', gender: 'male', bio: 'Barista by day, musician by night. Looking for someone to share a latte and a laugh.', hobbies: JSON.stringify(['coffee', 'music', 'cooking', 'baking', 'writing']), profile_pic: '' },
-    { username: 'trailblazer', gender: 'female', bio: "Trail runner and outdoor enthusiast. Summited 12 peaks last year! Let's explore together.", hobbies: JSON.stringify(['hiking', 'running', 'yoga', 'travel', 'camping']), profile_pic: '' },
-    { username: 'pixel_wanderer', gender: 'male', bio: 'Digital nomad and travel photographer. Capturing moments one frame at a time.', hobbies: JSON.stringify(['photography', 'travel', 'hiking', 'coffee', 'writing']), profile_pic: '' },
-    { username: 'bookish_bee', gender: 'female', bio: 'Bookworm with an indie soul. Bibliophile, poet, and curator of cozy corners.', hobbies: JSON.stringify(['reading', 'writing', 'coffee', 'music', 'gardening']), profile_pic: '' },
-    { username: 'green_mind', gender: 'male', bio: 'Plant dad and sustainability advocate. Growing my own food and building a better world.', hobbies: JSON.stringify(['gardening', 'cooking', 'yoga', 'reading', 'cycling']), profile_pic: '' },
-    { username: 'melody_maker', gender: 'female', bio: 'Indie musician and vinyl collector. Music is my love language.', hobbies: JSON.stringify(['music', 'writing', 'art', 'coffee', 'dancing']), profile_pic: '' },
-    { username: 'ocean_soul', gender: 'male', bio: 'Surfer, sailor, and beach bum. The ocean is my happy place.', hobbies: JSON.stringify(['swimming', 'travel', 'photography', 'yoga', 'running']), profile_pic: '' },
-    { username: 'spice_queen', gender: 'female', bio: 'Home chef and spice collector. Cooking my way around the world from my tiny kitchen.', hobbies: JSON.stringify(['cooking', 'travel', 'baking', 'gardening', 'dancing']), profile_pic: '' },
-    { username: 'zen_master', gender: 'male', bio: 'Yoga instructor and mindfulness coach. Finding balance in a chaotic world.', hobbies: JSON.stringify(['yoga', 'meditation', 'hiking', 'reading', 'gardening']), profile_pic: '' },
+    { username: 'wanderlust_amy', gender: 'female', bio: 'Dog mom, amateur pasta maker, and weekend hiker. Love finding obscure coffee shops.', hobbies: JSON.stringify(['hiking', 'photography', 'coffee', 'cooking', 'travel']), avatar: 'female_01' },
+    { username: 'art_vibes', gender: 'female', bio: 'Art enthusiast and gallery hopper. Always on the lookout for the next great exhibition.', hobbies: JSON.stringify(['art', 'photography', 'reading', 'music']), avatar: 'female_02' },
+    { username: 'stellar_jay', gender: 'male', bio: 'Astronomy nerd and weekend astronomer. Love stargazing and deep conversations.', hobbies: JSON.stringify(['photography', 'hiking', 'reading', 'movies', 'camping']), avatar: 'male_01' },
+    { username: 'coffee_leo', gender: 'male', bio: 'Barista by day, musician by night. Looking for someone to share a latte and a laugh.', hobbies: JSON.stringify(['coffee', 'music', 'cooking', 'baking', 'writing']), avatar: 'male_02' },
+    { username: 'trailblazer', gender: 'female', bio: "Trail runner and outdoor enthusiast. Summited 12 peaks last year! Let's explore together.", hobbies: JSON.stringify(['hiking', 'running', 'yoga', 'travel', 'camping']), avatar: 'female_03' },
+    { username: 'pixel_wanderer', gender: 'male', bio: 'Digital nomad and travel photographer. Capturing moments one frame at a time.', hobbies: JSON.stringify(['photography', 'travel', 'hiking', 'coffee', 'writing']), avatar: 'male_03' },
+    { username: 'bookish_bee', gender: 'female', bio: 'Bookworm with an indie soul. Bibliophile, poet, and curator of cozy corners.', hobbies: JSON.stringify(['reading', 'writing', 'coffee', 'music', 'gardening']), avatar: 'female_04' },
+    { username: 'green_mind', gender: 'male', bio: 'Plant dad and sustainability advocate. Growing my own food and building a better world.', hobbies: JSON.stringify(['gardening', 'cooking', 'yoga', 'reading', 'cycling']), avatar: 'male_04' },
+    { username: 'melody_maker', gender: 'female', bio: 'Indie musician and vinyl collector. Music is my love language.', hobbies: JSON.stringify(['music', 'writing', 'art', 'coffee', 'dancing']), avatar: 'female_05' },
+    { username: 'ocean_soul', gender: 'male', bio: 'Surfer, sailor, and beach bum. The ocean is my happy place.', hobbies: JSON.stringify(['swimming', 'travel', 'photography', 'yoga', 'running']), avatar: 'male_05' },
+    { username: 'spice_queen', gender: 'female', bio: 'Home chef and spice collector. Cooking my way around the world from my tiny kitchen.', hobbies: JSON.stringify(['cooking', 'travel', 'baking', 'gardening', 'dancing']), avatar: 'female_06' },
+    { username: 'zen_master', gender: 'male', bio: 'Yoga instructor and mindfulness coach. Finding balance in a chaotic world.', hobbies: JSON.stringify(['yoga', 'meditation', 'hiking', 'reading', 'gardening']), avatar: 'male_06' },
   ];
 
-  const insert = db.prepare(`INSERT INTO users (username, gender, passcode_hash, bio, hobbies, profile_pic) VALUES (@username, @gender, @passcode_hash, @bio, @hobbies, @profile_pic)`);
+  const insert = db.prepare(`INSERT INTO users (username, gender, passcode_hash, bio, hobbies, avatar) VALUES (@username, @gender, @passcode_hash, @bio, @hobbies, @avatar)`);
   const insertMany = db.transaction((users) => {
     for (const u of users) {
       u.passcode_hash = defaultHash;
