@@ -96,13 +96,11 @@ body {
 #avatar-3d-container {
   position: relative;
   overflow: hidden;
-  height: min(40vh, 360px);
-}
-
-@media (min-width: 768px) {
-  #avatar-3d-container {
-    height: min(48vh, 450px);
-  }
+  flex-grow: 1;
+  flex-shrink: 1;
+  height: 0;
+  min-height: 150px;
+  max-height: 480px;
 }
 
 #avatar-3d-container canvas {
@@ -134,6 +132,24 @@ body {
 /* ===== Profile Info Overlay ===== */
 #profile-overlay {
   transition: all 0.4s ease;
+  flex-shrink: 0;
+}
+
+/* Discover Page Scroll-Free Layout */
+body.discover-page {
+  overflow: hidden !important;
+  height: 100dvh !important;
+}
+
+body.discover-page #app-root {
+  height: calc(100dvh - var(--header-h) - var(--bottomnav-h, 0px)) !important;
+  overflow: hidden !important;
+}
+
+@media (min-width: 768px) {
+  body.discover-page #app-root {
+    height: calc(100dvh - var(--header-h-md)) !important;
+  }
 }
 
 #center-profile-info {
