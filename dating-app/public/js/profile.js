@@ -47,7 +47,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       avatarGrid.appendChild(wrapper);
     });
 
-    document.getElementById('prof-avatar').innerHTML = getAvatarHtml(currentUser.username, currentUser.avatar);
+    document.getElementById('prof-avatar').innerHTML = getAvatarHtml(currentUser.username, currentUser.avatar, {
+      className: 'w-full h-full object-cover scale-[2.2] origin-[center_15%]'
+    });
     
     // Initial 3D avatar preview load
     if (currentUser.avatar) {
@@ -80,7 +82,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       currentUser.bio = bio;
       currentUser.hobbies = hobbies;
       currentUser.avatar = avatar;
-      document.getElementById('prof-avatar').innerHTML = getAvatarHtml(currentUser.username, currentUser.avatar);
+      document.getElementById('prof-avatar').innerHTML = getAvatarHtml(currentUser.username, currentUser.avatar, {
+        className: 'w-full h-full object-cover scale-[2.2] origin-[center_15%]'
+      });
       updateHeaderAvatar();
       
       setTimeout(() => { msgEl.classList.add('hidden'); msgEl.textContent = ''; }, 3000);
