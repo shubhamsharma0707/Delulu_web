@@ -111,6 +111,7 @@ function createAvatarCards(profiles) {
       const avatarGeo = new THREE.PlaneGeometry(cardWidth * 1.8, cardHeight * 1.3);
       
       const avatarMat = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
         transparent: true,
         side: THREE.DoubleSide,
         blending: THREE.MultiplyBlending
@@ -121,14 +122,21 @@ function createAvatarCards(profiles) {
       group.userData.mesh = avatarMesh;
 
       textureLoader.load(idlePath, (texIdle) => {
+        texIdle.colorSpace = THREE.SRGBColorSpace;
         texIdle.needsUpdate = true;
         group.userData.texIdle = texIdle;
-        if (group.userData.state === 'idle') avatarMat.map = texIdle;
+        if (group.userData.state === 'idle') {
+          avatarMat.map = texIdle;
+          avatarMat.needsUpdate = true;
+        }
         
         textureLoader.load(wavePath, (texWave) => {
+          texWave.colorSpace = THREE.SRGBColorSpace;
           texWave.needsUpdate = true;
           group.userData.texWave = texWave;
         });
+      }, undefined, (err) => {
+        console.error("Error loading texture:", idlePath, err);
       });
 
     } else {
