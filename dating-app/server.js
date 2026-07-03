@@ -259,18 +259,16 @@ app.post('/api/auth/send-otp', async (req, res) => {
 
     const cleanEmail = email.trim().toLowerCase();
 
-    // Validate email — domain must exactly match or be a subdomain of an allowed suffix
+    // Validate email — domain must exactly match one of the allowed domains
     const parts = cleanEmail.split('@');
     if (parts.length !== 2 || !parts[1]) {
       return res.status(400).json({ error: 'Invalid email address' });
     }
     const domain = parts[1];
-    const emailValid = ALLOWED_SUFFIXES.some(suffix =>
-      domain === suffix || domain.endsWith('.' + suffix)
-    );
+    const emailValid = ALLOWED_SUFFIXES.includes(domain);
     if (!emailValid) {
       return res.status(400).json({ 
-        error: 'Only emails ending in rishihood.edu.in, nst.rishihood.edu.in or vitbhopal.ac.in are allowed' 
+        error: 'Only emails from rishihood.edu.in, nst.rishihood.edu.in or vitbhopal.ac.in are allowed' 
       });
     }
 
