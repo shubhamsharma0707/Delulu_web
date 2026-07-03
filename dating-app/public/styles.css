@@ -209,3 +209,33 @@ body.discover-page #app-root, body.profile-page #app-root {
     display: none;
   }
 }
+
+/* Profile Page Vertical Scaling */
+#prof-bio {
+  height: 4rem; /* 64px */
+  transition: all 0.3s ease;
+}
+
+#prof-avatar-grid {
+  max-height: 7rem; /* 112px */
+  transition: all 0.3s ease;
+}
+
+@media (max-height: 620px) {
+  #prof-bio {
+    height: 3rem !important; /* 48px */
+  }
+  #prof-avatar-grid {
+    max-height: 5.25rem !important; /* 84px */
+  }
+  #profile-form {
+    gap: 0.5rem !important; /* 8px */
+  }
+  body.profile-page .glass-panel {
+    padding: 0.875rem !important; /* 14px */
+  }
+  #prof-avatar {
+    width: 4rem !important; /* 64px */
+    height: 4rem !important;
+  }
+}

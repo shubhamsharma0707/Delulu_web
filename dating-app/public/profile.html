@@ -40,7 +40,7 @@
       }
     };
   </script>
-  <link rel="stylesheet" href="/styles.css?v=7">
+  <link rel="stylesheet" href="/styles.css?v=8">
   <style>
     #nav-profile, #mnav-profile {
       color: theme('colors.primary');
@@ -84,14 +84,14 @@
       
       <div class="relative w-full min-h-[460px]">
         <!-- Left Column: Form -->
-        <div class="w-full md:w-[70%] lg:w-[62%] max-w-[700px] glass-panel p-3.5 rounded-3xl ambient-shadow relative overflow-hidden z-10">
+        <div class="w-full md:w-[70%] lg:w-[62%] max-w-[700px] glass-panel p-5 rounded-3xl ambient-shadow relative overflow-hidden z-10">
           <!-- Decoration -->
           <div class="absolute -top-12 -right-12 w-32 h-32 bg-primary/10 rounded-full blur-2xl"></div>
           <div class="absolute -bottom-12 -left-12 w-32 h-32 bg-secondary/10 rounded-full blur-2xl"></div>
         
-          <form id="profile-form" class="relative z-10 flex flex-col gap-2">
+          <form id="profile-form" class="relative z-10 flex flex-col gap-3">
             <div class="flex items-center gap-4 mb-1">
-              <div id="prof-avatar" class="w-16 h-16 rounded-full bg-primary-container text-white flex items-center justify-center overflow-hidden border-2 border-outline-variant/30 text-3xl shadow-sm relative"></div>
+              <div id="prof-avatar" class="w-20 h-20 rounded-full bg-primary-container text-white flex items-center justify-center overflow-hidden border-2 border-outline-variant/30 text-4xl shadow-sm relative"></div>
               <div>
                 <h2 id="prof-username" class="text-2xl font-bold text-on-surface capitalize">...</h2>
                 <p class="text-sm text-on-surface-variant font-semibold mt-1">Identity protected</p>
@@ -100,7 +100,7 @@
             
             <div class="space-y-1">
               <label class="text-sm font-bold text-on-surface-variant pl-2">Bio</label>
-              <textarea id="prof-bio" class="w-full bg-surface-container-low rounded-xl px-4 py-2 border-none focus:ring-2 focus:ring-primary/50 outline-none resize-none h-12" placeholder="Tell them about you..."></textarea>
+              <textarea id="prof-bio" class="w-full bg-surface-container-low rounded-xl px-4 py-2 border-none focus:ring-2 focus:ring-primary/50 outline-none resize-none" placeholder="Tell them about you..."></textarea>
             </div>
             
             <div class="space-y-1">
@@ -110,7 +110,7 @@
             
             <div class="space-y-1">
               <label class="text-sm font-bold text-on-surface-variant pl-2">Select Avatar</label>
-              <div id="prof-avatar-grid" class="grid grid-cols-6 gap-2 max-h-[84px] overflow-y-auto p-2 border border-outline-variant/30 rounded-xl bg-surface-container-low custom-scrollbar">
+              <div id="prof-avatar-grid" class="grid grid-cols-6 gap-2 overflow-y-auto p-2 border border-outline-variant/30 rounded-xl bg-surface-container-low custom-scrollbar">
                 <!-- Dynamically populated -->
               </div>
               <input type="hidden" id="prof-avatar-input" required>
@@ -134,7 +134,7 @@
   </main>
   
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <script src="/js/shared.js?v=8"></script>
-  <script src="/js/profile.js?v=8"></script>
+  <script src="/js/shared.js?v=9"></script>
+  <script src="/js/profile.js?v=9"></script>
 </body>
 </html>
