@@ -278,7 +278,7 @@ function update3DPreview(avatarCode, gender) {
   }
 
   // Set card base width/height to look exactly like the discover cards
-  const geometry = new THREE.PlaneGeometry(2.3, 4.4);
+  const geometry = new THREE.PlaneGeometry(2.07, 3.96);
   const material = new THREE.MeshBasicMaterial({
     transparent: true,
     side: THREE.DoubleSide
