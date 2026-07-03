@@ -10,8 +10,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-scroll-left').onclick = () => navigateCards(-1);
   document.getElementById('btn-scroll-right').onclick = () => navigateCards(1);
 
-  // Connect/Dismiss buttons for 3D scene
-  document.getElementById('btn-discover-dismiss').onclick = () => handleDismissCenter();
+  // Connect button for 3D scene
+  const dismissBtn = document.getElementById('btn-discover-dismiss');
+  if (dismissBtn) {
+    dismissBtn.onclick = () => handleDismissCenter();
+  }
   document.getElementById('btn-discover-connect').onclick = () => handleConnectCenter();
 
   // Keyboard navigation
