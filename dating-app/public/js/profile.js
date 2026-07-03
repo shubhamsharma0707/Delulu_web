@@ -1,3 +1,8 @@
+let previewRenderer, previewScene, previewCamera, previewMesh, previewAnimationId;
+let previewTexIdle, previewTexWave;
+let previewState = 'idle';
+let previewLastSwap = Date.now();
+
 document.addEventListener('DOMContentLoaded', async () => {
   await requireAuth();
   
@@ -37,11 +42,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         avatarGrid.querySelectorAll('.aspect-square').forEach(el => el.classList.remove('border-primary', 'border-2', 'ring-2', 'ring-primary/20'));
         wrapper.classList.add('border-primary', 'border-2', 'ring-2', 'ring-primary/20');
         avatarInput.value = av;
+        update3DPreview(av, gender);
       };
       avatarGrid.appendChild(wrapper);
     });
 
     document.getElementById('prof-avatar').innerHTML = getAvatarHtml(currentUser.username, currentUser.avatar);
+    
+    // Initial 3D avatar preview load
+    if (currentUser.avatar) {
+      update3DPreview(currentUser.avatar, gender);
+    }
   }
   
   document.getElementById('profile-form').onsubmit = async (e) => {
@@ -80,3 +91,172 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   };
 });
+
+// Three.js 3D Preview Engine
+function init3DPreview() {
+  const container = document.getElementById('profile-3d-preview');
+  if (!container) return;
+
+  container.innerHTML = '';
+
+  const rect = container.getBoundingClientRect();
+  const width = container.clientWidth || rect.width || 300;
+  const height = container.clientHeight || rect.height || 400;
+
+  // Scene
+  previewScene = new THREE.Scene();
+
+  // Camera
+  previewCamera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100);
+  previewCamera.position.set(0, 0, 5);
+
+  // Renderer
+  previewRenderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+  previewRenderer.setSize(width, height);
+  previewRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  container.appendChild(previewRenderer.domElement);
+
+  // Ambient Lighting
+  const ambientLight = new THREE.AmbientLight(0xffffff, 1.0);
+  previewScene.add(ambientLight);
+
+  // Resize Handler
+  window.addEventListener('resize', onPreviewResize);
+
+  // Run loop
+  animatePreview();
+}
+
+function onPreviewResize() {
+  const container = document.getElementById('profile-3d-preview');
+  if (!container || !previewRenderer || !previewCamera) return;
+  const width = container.clientWidth;
+  const height = container.clientHeight;
+  previewCamera.aspect = width / height;
+  previewCamera.updateProjectionMatrix();
+  previewRenderer.setSize(width, height);
+}
+
+function animatePreview() {
+  previewAnimationId = requestAnimationFrame(animatePreview);
+
+  if (previewMesh) {
+    // Gentle breathing/floating animations
+    previewMesh.position.y = 0.1 * Math.sin(Date.now() * 0.002);
+    
+    // Scale pulsation
+    const scaleFactor = 1.0 + 0.015 * Math.sin(Date.now() * 0.001);
+    previewMesh.scale.y = scaleFactor;
+
+    // Swap wave and idle textures dynamically (identical to discover feed behavior)
+    if (previewTexIdle && previewTexWave) {
+      const now = Date.now();
+      if (previewState === 'idle' && now - previewLastSwap > 4000) {
+        previewState = 'wave';
+        previewMesh.material.map = previewTexWave;
+        previewMesh.material.needsUpdate = true;
+        previewLastSwap = now;
+      } else if (previewState === 'wave' && now - previewLastSwap > 1500) {
+        previewState = 'idle';
+        previewMesh.material.map = previewTexIdle;
+        previewMesh.material.needsUpdate = true;
+        previewLastSwap = now;
+      }
+    }
+  }
+
+  previewRenderer.render(previewScene, previewCamera);
+}
+
+function loadAndProcessTexture(url, callback) {
+  const loader = new THREE.TextureLoader();
+  loader.load(url, (texture) => {
+    const img = texture.image;
+    
+    const canvas = document.createElement('canvas');
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    
+    // Clean out white backgrounds for transparency blending
+    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imgData.data;
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      
+      if (r > 215 && g > 215 && b > 215) {
+        data[i + 3] = 0;
+      }
+    }
+    ctx.putImageData(imgData, 0, 0);
+    
+    const cleanTexture = new THREE.CanvasTexture(canvas);
+    cleanTexture.minFilter = THREE.LinearFilter;
+    callback(cleanTexture);
+  }, undefined, (err) => {
+    console.error('Failed to load texture:', url, err);
+  });
+}
+
+function update3DPreview(avatarCode, gender) {
+  if (!previewScene) {
+    init3DPreview();
+  }
+
+  if (previewMesh) {
+    previewScene.remove(previewMesh);
+    previewMesh.geometry.dispose();
+    previewMesh.material.dispose();
+    previewMesh = null;
+  }
+
+  previewTexIdle = null;
+  previewTexWave = null;
+  previewState = 'idle';
+  previewLastSwap = Date.now();
+
+  // Normalize path resolution depending on type mapping
+  let idleUrl, waveUrl;
+  if (avatarCode.startsWith('/') || avatarCode.startsWith('http')) {
+    idleUrl = avatarCode;
+    waveUrl = avatarCode;
+  } else {
+    idleUrl = `/avatars/${gender}/${avatarCode}/idle.jpeg`;
+    waveUrl = `/avatars/${gender}/${avatarCode}/wave.jpeg`;
+  }
+
+  // Set card base width/height to look exactly like the discover cards
+  const geometry = new THREE.PlaneGeometry(2.3, 4.4);
+  const material = new THREE.MeshBasicMaterial({
+    transparent: true,
+    side: THREE.DoubleSide
+  });
+
+  previewMesh = new THREE.Mesh(geometry, material);
+  previewMesh.position.set(0, 0, 0);
+  previewScene.add(previewMesh);
+
+  // Load and apply clean processed textures
+  loadAndProcessTexture(idleUrl, (texIdle) => {
+    previewTexIdle = texIdle;
+    
+    // Scale horizontally based on actual image aspect ratio to avoid stretching
+    if (texIdle.image && texIdle.image.width && texIdle.image.height) {
+      const aspect = texIdle.image.width / texIdle.image.height;
+      const baseAspect = 2.3 / 4.4;
+      previewMesh.scale.x = aspect / baseAspect;
+    }
+
+    if (previewState === 'idle') {
+      material.map = texIdle;
+      material.needsUpdate = true;
+    }
+    
+    loadAndProcessTexture(waveUrl, (texWave) => {
+      previewTexWave = texWave;
+    });
+  });
+}
