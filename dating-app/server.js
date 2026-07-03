@@ -11,6 +11,8 @@ const nodemailer = require('nodemailer');
 const { initializeApp: firebaseInitializeApp, cert } = require('firebase-admin/app');
 const { getAuth: getFirebaseAuth } = require('firebase-admin/auth');
 const { getDB, seedDemoUsers, userOps, connectionOps, messageOps, otpOps } = require('./database');
+const multer = require('multer');
+const fs = require('fs');
 
 // Load environment variables
 require('dotenv').config();
@@ -18,6 +20,20 @@ require('dotenv').config();
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
+
+// Ensure uploads folder exists
+fs.mkdirSync('public/uploads/voice', { recursive: true });
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'public/uploads/voice/');
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, 'voice-' + uniqueSuffix + '.webm');
+  }
+});
+const upload = multer({ storage: storage });
 
 const PORT = process.env.PORT || 3000;
 
@@ -201,6 +217,12 @@ io.on('connection', (socket) => {
       ...msg,
       sender_id: userId
     });
+  });
+
+  socket.on('typing', (data) => {
+    const { connectionId, isTyping } = data;
+    if (!connectionId) return;
+    socket.to(`chat:${connectionId}`).emit('typing', { userId, isTyping });
   });
 
   socket.on('disconnect', () => {
@@ -719,6 +741,55 @@ app.get('/api/messages/:connectionId', requireAuth, (req, res) => {
   
   const messages = messageOps.getRecentForConnection(req.params.connectionId);
   res.json({ messages, connection: conn });
+});
+
+// Send normal text message
+app.post('/api/messages/send', requireAuth, (req, res) => {
+  const { connection_id, content } = req.body;
+  if (!connection_id || !content?.trim()) {
+    return res.status(400).json({ error: 'Missing connection_id or content' });
+  }
+
+  const conn = connectionOps.getConnection(connection_id, req.session.userId);
+  if (!conn) return res.status(404).json({ error: 'Connection not found' });
+
+  const msg = messageOps.send(connection_id, req.session.userId, content.trim(), 0, 0);
+
+  // Emit socket event for real-time receipt
+  io.to(`chat:${connection_id}`).emit('new-message', {
+    ...msg,
+    sender_id: req.session.userId
+  });
+
+  res.json({ success: true, message: msg });
+});
+
+// Send voice message
+app.post('/api/messages/upload-voice', requireAuth, upload.single('audio'), (req, res) => {
+  try {
+    const { connection_id, duration } = req.body;
+    if (!req.file || !connection_id) {
+      return res.status(400).json({ error: 'Missing audio file or connection_id' });
+    }
+
+    const conn = connectionOps.getConnection(connection_id, req.session.userId);
+    if (!conn) return res.status(404).json({ error: 'Connection not found' });
+
+    // Store the file path relative to public/
+    const content = `/uploads/voice/${req.file.filename}`;
+    const msg = messageOps.send(connection_id, req.session.userId, content, 1, Math.round(duration || 0));
+
+    // Emit socket event for real-time receipt
+    io.to(`chat:${connection_id}`).emit('new-message', {
+      ...msg,
+      sender_id: req.session.userId
+    });
+
+    res.json({ success: true, message: msg });
+  } catch (err) {
+    console.error('Voice upload error:', err);
+    res.status(500).json({ error: 'Failed to upload voice message' });
+  }
 });
 
 // ===== PAGE ROUTES =====

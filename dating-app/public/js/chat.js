@@ -1,5 +1,7 @@
 let currentConnId = null;
 let currentChatOther = '';
+let currentPlayingAudio = null;
+let currentPlayingBtn = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
   await requireAuth();
@@ -17,12 +19,30 @@ document.addEventListener('DOMContentLoaded', async () => {
   
   // Connect socket explicitly since shared.js initializes io
   if (socket) {
-    socket.emit('join', currentUser.id);
-    socket.on('message', (msg) => {
-      if (msg.connection_id == currentConnId) {
-        appendMessage(msg, false);
+    socket.emit('join-chat', currentConnId);
+    
+    socket.on('new-message', (msg) => {
+      if (msg.connection_id == currentConnId && msg.sender_id !== currentUser.id) {
+        appendMessage(msg, true);
       }
     });
+
+    let originalStatus = '';
+    socket.on('typing', (data) => {
+      if (data.userId !== currentUser.id) {
+        const statusEl = document.getElementById('chat-status');
+        if (data.isTyping) {
+          if (!originalStatus) originalStatus = statusEl.innerHTML;
+          statusEl.innerHTML = `<span class="italic animate-pulse">typing...</span>`;
+        } else {
+          if (originalStatus) {
+            statusEl.innerHTML = originalStatus;
+            originalStatus = '';
+          }
+        }
+      }
+    });
+
     socket.on('status_change', (data) => {
       if (data.connection_id == currentConnId) {
         loadChatInfo(); // refresh status and UI
@@ -30,17 +50,134 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  document.getElementById('chat-form').onsubmit = async (e) => {
+  const chatForm = document.getElementById('chat-form');
+  const chatInput = document.getElementById('chat-input');
+  const chatSendBtn = document.getElementById('btn-chat-send');
+  const chatMicBtn = document.getElementById('btn-record-voice');
+  let typingTimeout = null;
+
+  // Text input changed (show/hide mic or send buttons)
+  chatInput.oninput = () => {
+    if (chatInput.value.trim().length > 0) {
+      chatSendBtn.classList.remove('hidden');
+      chatMicBtn.classList.add('hidden');
+    } else {
+      chatSendBtn.classList.add('hidden');
+      chatMicBtn.classList.remove('hidden');
+    }
+
+    // Handle socket typing state
+    if (socket) {
+      socket.emit('typing', { connectionId: currentConnId, isTyping: true });
+      clearTimeout(typingTimeout);
+      typingTimeout = setTimeout(() => {
+        socket.emit('typing', { connectionId: currentConnId, isTyping: false });
+      }, 1500);
+    }
+  };
+
+  chatInput.onblur = () => {
+    if (socket) {
+      socket.emit('typing', { connectionId: currentConnId, isTyping: false });
+    }
+  };
+
+  chatForm.onsubmit = async (e) => {
     e.preventDefault();
-    const input = document.getElementById('chat-input');
-    const content = input.value.trim();
+    const content = chatInput.value.trim();
     if (!content) return;
     
     try {
       await apiCall('/api/messages/send', 'POST', { connection_id: currentConnId, content });
-      input.value = '';
+      chatInput.value = '';
+      chatSendBtn.classList.add('hidden');
+      chatMicBtn.classList.remove('hidden');
       appendMessage({ sender_id: currentUser.id, content, created_at: new Date().toISOString() }, true);
+      
+      if (socket) {
+        socket.emit('typing', { connectionId: currentConnId, isTyping: false });
+      }
     } catch(err) { alert(err.message); }
+  };
+  
+  // Voice Recording Implementation
+  let mediaRecorder = null;
+  let audioChunks = [];
+  let recordStartTime = 0;
+  let recordTimerInterval = null;
+
+  chatMicBtn.onclick = async () => {
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+      mediaRecorder.stop();
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioChunks = [];
+      mediaRecorder = new MediaRecorder(stream);
+      
+      mediaRecorder.ondataavailable = (event) => {
+        audioChunks.push(event.data);
+      };
+
+      mediaRecorder.onstop = async () => {
+        const duration = Math.round((Date.now() - recordStartTime) / 1000);
+        clearInterval(recordTimerInterval);
+        document.getElementById('recording-overlay').classList.add('hidden');
+
+        stream.getTracks().forEach(track => track.stop());
+
+        if (audioChunks.length === 0 || duration < 1) {
+          return;
+        }
+
+        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+        const formData = new FormData();
+        formData.append('audio', audioBlob);
+        formData.append('connection_id', currentConnId);
+        formData.append('duration', duration);
+
+        try {
+          const res = await fetch('/api/messages/upload-voice', {
+            method: 'POST',
+            body: formData
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'Failed to send voice note');
+          
+          appendMessage(data.message, true);
+        } catch (err) {
+          alert(err.message);
+        }
+      };
+
+      recordStartTime = Date.now();
+      mediaRecorder.start();
+      
+      document.getElementById('recording-overlay').classList.remove('hidden');
+      const timerEl = document.getElementById('record-timer');
+      timerEl.textContent = '0:00';
+      recordTimerInterval = setInterval(() => {
+        const elapsed = Math.round((Date.now() - recordStartTime) / 1000);
+        const mins = Math.floor(elapsed / 60);
+        const secs = elapsed % 60;
+        timerEl.textContent = `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+      }, 1000);
+
+    } catch (err) {
+      alert('Could not access microphone: ' + err.message);
+    }
+  };
+
+  document.getElementById('btn-record-cancel').onclick = () => {
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+      mediaRecorder.onstop = () => {
+        clearInterval(recordTimerInterval);
+        document.getElementById('recording-overlay').classList.add('hidden');
+      };
+      mediaRecorder.stop();
+    }
   };
   
   document.getElementById('btn-vibe-check').onclick = () => openModal('modal-vibe');
@@ -55,7 +192,6 @@ async function loadChatInfo() {
   try {
     const data = await apiCall(`/api/connections/${currentConnId}`);
     const c = data.connection;
-    const isRevealed = c.status === 'revealed';
     currentChatOther = c.other_username;
     
     document.getElementById('chat-name').textContent = c.other_username;
@@ -98,7 +234,7 @@ async function loadMessages() {
     const data = await apiCall(`/api/messages/${currentConnId}`);
     cont.innerHTML = '';
     data.messages.reverse().forEach(m => {
-      appendMessage(m, false); // prepend to top (flex-col-reverse makes it bottom)
+      appendMessage(m, false);
     });
   } catch (err) {
     cont.innerHTML = `<p class="text-error">${err.message}</p>`;
@@ -116,24 +252,87 @@ function appendMessage(m, scrollToBottom = true) {
   const inner = document.createElement('div');
   inner.className = `max-w-[75%] rounded-2xl p-3 ${isMe ? 'bg-primary text-white rounded-tr-sm shadow-sm' : 'bg-surface-container-low text-on-surface rounded-tl-sm shadow-sm border border-outline-variant/10'}`;
   
-  const p = document.createElement('p');
-  p.className = 'text-[15px] leading-relaxed break-words';
-  p.textContent = m.content || ''; // SAFE: textContent escapes HTML
+  if (m.is_voice || (m.content && m.content.startsWith('/uploads/voice/'))) {
+    // Custom audio player
+    const voiceContainer = document.createElement('div');
+    voiceContainer.className = `flex items-center gap-3 p-0.5 ${isMe ? 'text-white' : 'text-on-surface'}`;
+    
+    const playBtn = document.createElement('button');
+    playBtn.className = `w-9 h-9 rounded-full flex items-center justify-center shadow-sm shrink-0 transition-transform hover:scale-105 active:scale-95 ${isMe ? 'bg-white text-primary' : 'bg-primary text-white'}`;
+    playBtn.innerHTML = `<span class="material-symbols-outlined text-lg">play_arrow</span>`;
+    playBtn.onclick = () => {
+      window.playVoiceNote(playBtn, m.content);
+    };
+
+    const details = document.createElement('div');
+    details.className = 'flex flex-col';
+    
+    const label = document.createElement('span');
+    label.className = 'text-xs font-bold';
+    label.textContent = 'Voice Note';
+    
+    const dur = document.createElement('span');
+    dur.className = 'text-[9px] opacity-70';
+    dur.textContent = `${m.voice_duration || 0}s`;
+    
+    details.appendChild(label);
+    details.appendChild(dur);
+    
+    voiceContainer.appendChild(playBtn);
+    voiceContainer.appendChild(details);
+    inner.appendChild(voiceContainer);
+  } else {
+    const p = document.createElement('p');
+    p.className = 'text-[15px] leading-relaxed break-words';
+    p.textContent = m.content || '';
+    inner.appendChild(p);
+  }
   
   const timeEl = document.createElement('div');
   timeEl.className = `text-[10px] mt-1 text-right ${isMe ? 'text-white/70' : 'text-on-surface-variant/70'}`;
   timeEl.textContent = time;
-  
-  inner.appendChild(p);
   inner.appendChild(timeEl);
-  div.appendChild(inner);
   
-  // Because it's flex-col-reverse, prepend adds to bottom visually
+  div.appendChild(inner);
   cont.prepend(div);
+  
   if (scrollToBottom) {
     cont.scrollTop = 0;
   }
 }
+
+window.playVoiceNote = (btn, url) => {
+  const icon = btn.querySelector('span');
+  
+  if (currentPlayingAudio) {
+    currentPlayingAudio.pause();
+    if (currentPlayingBtn) {
+      currentPlayingBtn.querySelector('span').textContent = 'play_arrow';
+    }
+    
+    if (currentPlayingAudio.src.endsWith(url)) {
+      currentPlayingAudio = null;
+      currentPlayingBtn = null;
+      return;
+    }
+  }
+
+  const audio = new Audio(url);
+  currentPlayingAudio = audio;
+  currentPlayingBtn = btn;
+  icon.textContent = 'pause';
+  
+  audio.play().catch(err => {
+    console.error('Audio play failed:', err);
+    icon.textContent = 'play_arrow';
+  });
+  
+  audio.onended = () => {
+    icon.textContent = 'play_arrow';
+    currentPlayingAudio = null;
+    currentPlayingBtn = null;
+  };
+};
 
 window.openModal = function(id) {
   document.getElementById('modal-overlay').classList.remove('hidden');
@@ -181,7 +380,6 @@ function setupChatOptions() {
   blockBtn.onclick = async () => {
     if (confirm(`Are you sure you want to block this user? They will disappear forever.`)) {
       try {
-        // Fetch connection details to get the other user's ID
         const connData = await apiCall(`/api/connections/${currentConnId}`);
         const targetUserId = connData.connection.other_user_id;
         await apiCall('/api/connections/block', 'POST', { target_user_id: targetUserId });

@@ -60,6 +60,8 @@ function initDB() {
       connection_id INTEGER NOT NULL,
       sender_id INTEGER NOT NULL,
       content TEXT NOT NULL,
+      is_voice INTEGER DEFAULT 0,
+      voice_duration INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (connection_id) REFERENCES connections(id) ON DELETE CASCADE,
       FOREIGN KEY (sender_id) REFERENCES users(id)
@@ -95,6 +97,8 @@ function initDB() {
   try { db.exec("ALTER TABLE users ADD COLUMN is_onboarded INTEGER DEFAULT 0;"); } catch (e) {}
   try { db.exec("ALTER TABLE users ADD COLUMN avatar TEXT DEFAULT '';"); } catch (e) {}
   try { db.exec("ALTER TABLE connections ADD COLUMN reveal_available_at DATETIME;"); } catch (e) {}
+  try { db.exec("ALTER TABLE messages ADD COLUMN is_voice INTEGER DEFAULT 0;"); } catch (e) {}
+  try { db.exec("ALTER TABLE messages ADD COLUMN voice_duration INTEGER DEFAULT 0;"); } catch (e) {}
 }
 
 // Seed some demo users if none exist
@@ -404,9 +408,9 @@ const connectionOps = {
 
 // Message operations
 const messageOps = {
-  send(connectionId, senderId, content) {
-    const stmt = getDB().prepare('INSERT INTO messages (connection_id, sender_id, content) VALUES (?, ?, ?)');
-    const result = stmt.run(connectionId, senderId, content);
+  send(connectionId, senderId, content, isVoice = 0, voiceDuration = 0) {
+    const stmt = getDB().prepare('INSERT INTO messages (connection_id, sender_id, content, is_voice, voice_duration) VALUES (?, ?, ?, ?, ?)');
+    const result = stmt.run(connectionId, senderId, content, isVoice, voiceDuration);
     return getDB().prepare('SELECT * FROM messages WHERE id = ?').get(result.lastInsertRowid);
   },
 

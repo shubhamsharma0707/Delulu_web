@@ -98,10 +98,32 @@
         <!-- Messages injected here -->
       </div>
       
-      <div class="p-3 bg-surface-container-lowest border-t border-outline-variant/10 z-10 pb-safe">
+      <div class="p-3 bg-surface-container-lowest border-t border-outline-variant/10 z-10 pb-safe relative">
+        <!-- Recording overlay -->
+        <div id="recording-overlay" class="absolute inset-0 bg-surface-container-lowest flex items-center justify-between px-6 z-20 hidden transition-all duration-300">
+          <div class="flex items-center gap-3">
+            <div class="w-2.5 h-2.5 rounded-full bg-error animate-pulse"></div>
+            <span class="text-xs text-on-surface-variant font-medium">Recording voice note... <span id="record-timer">0:00</span></span>
+            <div class="flex gap-1 items-center justify-center h-4 shrink-0" id="record-wave">
+              <span class="w-0.5 h-2 bg-primary rounded-full animate-bounce" style="animation-delay: 0.1s"></span>
+              <span class="w-0.5 h-3 bg-primary rounded-full animate-bounce" style="animation-delay: 0.2s"></span>
+              <span class="w-0.5 h-1.5 bg-primary rounded-full animate-bounce" style="animation-delay: 0.3s"></span>
+              <span class="w-0.5 h-4 bg-primary rounded-full animate-bounce" style="animation-delay: 0.4s"></span>
+            </div>
+          </div>
+          <button type="button" id="btn-record-cancel" class="text-xs text-error font-semibold hover:underline">Cancel</button>
+        </div>
+        
         <form id="chat-form" class="flex items-center gap-2 bg-surface-container-low rounded-full p-1 pr-1 shadow-sm">
           <input id="chat-input" class="flex-1 bg-transparent border-none text-sm px-4 focus:ring-0 placeholder-outline outline-none" placeholder="Type a message..." type="text" autocomplete="off"/>
-          <button type="submit" class="w-9 h-9 flex items-center justify-center bg-primary text-on-primary rounded-full hover:bg-primary/90 transition-colors shrink-0 shadow-sm">
+          
+          <!-- Mic Button for Voice Note -->
+          <button type="button" id="btn-record-voice" class="w-9 h-9 flex items-center justify-center bg-surface-variant text-on-surface-variant rounded-full hover:bg-surface-dim hover:text-primary transition-all shrink-0 shadow-sm relative cursor-pointer" title="Record Voice Note">
+            <span class="material-symbols-outlined text-sm">mic</span>
+          </button>
+
+          <!-- Submit Text Button -->
+          <button type="submit" id="btn-chat-send" class="w-9 h-9 flex items-center justify-center bg-primary text-on-primary rounded-full hover:bg-primary/90 transition-colors shrink-0 shadow-sm hidden">
             <span class="material-symbols-outlined text-sm material-fill">send</span>
           </button>
         </form>
@@ -134,7 +156,7 @@
     </div>
   </div>
 
-  <script src="/js/shared.js"></script>
-  <script src="/js/chat.js"></script>
+  <script src="/js/shared.js?v=2"></script>
+  <script src="/js/chat.js?v=2"></script>
 </body>
 </html>
