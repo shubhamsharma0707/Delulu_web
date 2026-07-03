@@ -107,9 +107,11 @@
           </div>
           
           <div class="space-y-1">
-            <label class="text-sm font-bold text-on-surface-variant pl-2">Secret Profile Photo URL</label>
-            <p class="text-xs text-on-surface-variant/70 pl-2 mb-1">Only revealed to matches when both pass the vibe check.</p>
-            <input id="prof-photo" type="url" class="w-full bg-surface-container-low rounded-xl px-4 py-3 border-none focus:ring-2 focus:ring-primary/50 outline-none" placeholder="https://example.com/me.jpg">
+            <label class="text-sm font-bold text-on-surface-variant pl-2">Select Avatar</label>
+            <div id="prof-avatar-grid" class="grid grid-cols-5 gap-2 max-h-40 overflow-y-auto p-2 border border-outline-variant/30 rounded-xl bg-surface-container-low custom-scrollbar">
+              <!-- Dynamically populated -->
+            </div>
+            <input type="hidden" id="prof-avatar-input" required>
           </div>
           
           <p id="prof-msg" class="text-sm font-semibold hidden"></p>
