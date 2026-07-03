@@ -53,13 +53,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 async function loadChatInfo() {
   try {
-    const data = await apiCall(`/api/connections/info/${currentConnId}`);
+    const data = await apiCall(`/api/connections/${currentConnId}`);
     const c = data.connection;
     const isRevealed = c.status === 'revealed';
     currentChatOther = c.other_username;
     
     document.getElementById('chat-name').textContent = c.other_username;
-    document.getElementById('chat-avatar').innerHTML = getAvatarHtml(c.other_username, c.other_profile_pic, isRevealed);
+    document.getElementById('chat-avatar').innerHTML = getAvatarHtml(c.other_username, c.other_avatar);
     
     updateChatStatus(c);
     loadMessages();

@@ -20,8 +20,7 @@ async function loadMessagesList() {
       return `
       <a href="/chat?id=${c.id}" class="w-full flex items-center gap-4 p-4 rounded-2xl hover:bg-surface-container-low mb-2 transition-colors fade-in">
         <div class="w-14 h-14 rounded-full overflow-hidden shrink-0 border border-outline-variant/30 relative">
-          ${getAvatarHtml(c.other_username, c.other_profile_pic, isRevealed)}
-          ${isRevealed ? '' : `<span class="absolute bottom-0 right-0 w-4 h-4 bg-primary text-white text-[10px] flex items-center justify-center rounded-full material-symbols-outlined" style="font-size: 10px;">lock</span>`}
+          ${getAvatarHtml(c.other_username, c.other_avatar)}
         </div>
         <div class="flex-1 min-w-0 text-left">
           <div class="flex justify-between items-baseline mb-1">
