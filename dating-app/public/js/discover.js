@@ -1,246 +1,194 @@
 let discoverProfiles = [];
+let currentIndex = 0;
+let navTimeout = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
   await requireAuth();
   await loadDiscovery();
   
-  const rail = document.getElementById('discovery-rail');
-  if (rail) {
-    document.getElementById('btn-scroll-left').onclick = () => {
-      rail.scrollBy({ left: -320, behavior: 'smooth' });
-    };
-    document.getElementById('btn-scroll-right').onclick = () => {
-      rail.scrollBy({ left: 320, behavior: 'smooth' });
-    };
+  // Scroll buttons for 3D scene
+  document.getElementById('btn-scroll-left').onclick = () => navigateCards(-1);
+  document.getElementById('btn-scroll-right').onclick = () => navigateCards(1);
 
-    let ticking = false;
-    rail.addEventListener('scroll', () => {
-      if (!ticking) {
-        window.requestAnimationFrame(() => {
-          update3DTransforms();
-          updateCenterCard();
-          ticking = false;
-        });
-        ticking = true;
-      }
-    });
-
-    // Initial update after a frame
-    requestAnimationFrame(() => {
-      update3DTransforms();
-      updateCenterCard();
-    });
-  }
+  // Keyboard navigation
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowLeft') navigateCards(-1);
+    if (e.key === 'ArrowRight') navigateCards(1);
+  });
 });
+
+function navigateCards(dir) {
+  if (!discoverProfiles.length) return;
+  
+  currentIndex += dir;
+  if (currentIndex < 0) currentIndex = 0;
+  if (currentIndex >= discoverProfiles.length) currentIndex = discoverProfiles.length - 1;
+  
+  // Update scene via scroll simulation
+  const scene = document.getElementById('avatar-3d-container');
+  if (scene && window.updateAvatarScene) {
+    window.updateAvatarScene(currentIndex);
+  }
+  
+  updateProfileOverlay(currentIndex);
+  updateNavButtons();
+}
+
+function updateNavButtons() {
+  document.getElementById('btn-scroll-left').style.opacity = currentIndex <= 0 ? '0.3' : '1';
+  document.getElementById('btn-scroll-left').style.pointerEvents = currentIndex <= 0 ? 'none' : 'auto';
+  document.getElementById('btn-scroll-right').style.opacity = currentIndex >= discoverProfiles.length - 1 ? '0.3' : '1';
+  document.getElementById('btn-scroll-right').style.pointerEvents = currentIndex >= discoverProfiles.length - 1 ? 'none' : 'auto';
+}
+
+function updateProfileOverlay(index) {
+  const p = discoverProfiles[index];
+  if (!p) return;
+  
+  const overlay = document.getElementById('center-profile-info');
+  if (!overlay) return;
+  
+  document.getElementById('center-username').textContent = p.username;
+  document.getElementById('center-bio').textContent = p.bio || 'Mystery person...';
+  
+  const hobbiesEl = document.getElementById('center-hobbies');
+  if (p.hobbies && p.hobbies.length > 0) {
+    hobbiesEl.innerHTML = p.hobbies.map(h => 
+      `<span class="px-2 py-0.5 bg-white/30 backdrop-blur-md rounded-full text-[10px] font-medium text-on-surface-variant border border-white/40">${h}</span>`
+    ).join('');
+  }
+}
 
 async function loadDiscovery() {
   try {
     const data = await apiCall('/api/discover');
     discoverProfiles = data.profiles;
-    renderDiscoveryRail();
+    init3DScene();
   } catch (err) {
     console.error(err);
   }
 }
 
-function renderDiscoveryRail() {
-  const rail = document.getElementById('discovery-rail');
+function init3DScene() {
   checkEmptyState();
   if (!discoverProfiles || discoverProfiles.length === 0) return;
   
-  rail.innerHTML = discoverProfiles.map(p => {
-    let matchHtml = '';
-    if (p.matching_hobbies && p.matching_hobbies.length > 0) {
-      matchHtml = p.matching_hobbies.map(h => 
-        `<span class="hobby-chip px-3 py-1 bg-white/25 backdrop-blur-md rounded-full text-xs font-semibold border border-white/40 text-on-surface shadow-sm">✨ ${h}</span>`
-      ).join('');
-    } else {
-      matchHtml = `<span class="px-3 py-1 bg-white/20 backdrop-blur-md rounded-full text-xs border border-white/30">No shared hobbies</span>`;
-    }
-
-    // Generate all hobbies display
-    const allHobbies = p.hobbies && p.hobbies.length > 0
-      ? p.hobbies.map(h => 
-          `<span class="px-2 py-0.5 bg-surface-container-high/60 backdrop-blur-sm rounded-full text-[10px] font-medium text-on-surface-variant border border-outline-variant/20">${h}</span>`
-        ).join('')
-      : '';
-
-    return `
-      <div id="discover-card-${p.id}" class="discover-card relative w-64 md:w-80 h-[500px] shrink-0 snap-center flex flex-col transition-all duration-300 origin-center justify-end group">
-        <!-- Avatar Image -->
-        <div class="w-full flex-grow relative flex items-end justify-center mb-4">
-          <div class="w-full h-full avatar-img-wrapper transition-all duration-300">
-            ${getAvatarHtml(p.username, p.avatar)} 
-          </div>
-        </div>
-        
-        <!-- Profile Info -->
-        <div class="w-full text-center px-2 flex flex-col items-center">
-          <h2 class="font-bold text-2xl mb-1 capitalize text-on-surface">${p.username}</h2>
-          <p class="text-sm text-on-surface-variant opacity-90 mb-3 line-clamp-2">${p.bio || 'Mystery person...'}</p>
-          <div class="flex flex-wrap gap-1 justify-center mb-2">
-            ${allHobbies ? allHobbies : ''}
-          </div>
-          <div class="flex flex-wrap gap-1 justify-center mb-4">
-            ${matchHtml}
-          </div>
-        </div>
-
-        <!-- Glass Actions Bar -->
-        <div class="w-full flex justify-center gap-6 items-center z-30 pb-2">
-          <button onclick="dismissProfile(event, ${p.id})" class="w-12 h-12 rounded-full bg-surface shadow-md hover:shadow-lg border border-outline-variant/30 text-on-surface-variant flex items-center justify-center transition-all hover:scale-110 active:scale-95" title="Pass">
-            <span class="material-symbols-outlined text-2xl">close</span>
-          </button>
-          <button onclick="connectProfile(event, ${p.id}, this)" class="px-6 py-3 rounded-full bg-gradient-to-r from-primary to-primary-container text-white flex items-center gap-2 hover:scale-105 active:scale-95 transition-all text-sm font-bold shadow-md hover:shadow-lg" title="Connect">
-            <span class="material-symbols-outlined text-lg material-fill">favorite</span> Connect
-          </button>
-        </div>
-      </div>
-    `;
-  }).join('');
-
-  // Initial trigger for 3D transforms
-  setTimeout(() => {
-    update3DTransforms();
-    updateCenterCard();
-  }, 150);
-}
-
-function update3DTransforms() {
-  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const container = document.getElementById('avatar-3d-container');
+  const overlay = document.getElementById('profile-overlay');
+  if (!container) return;
   
-  const rail = document.getElementById('discovery-rail');
-  if (!rail) return;
-  
-  const railCenter = rail.scrollLeft + rail.offsetWidth / 2;
-  const cards = rail.querySelectorAll('.discover-card');
-  
-  cards.forEach(card => {
-    const cardCenter = card.offsetLeft + card.offsetWidth / 2;
-    const diff = cardCenter - railCenter;
-    const maxDist = rail.offsetWidth / 2 + card.offsetWidth / 2;
-    const ratio = Math.min(Math.max(diff / maxDist, -1), 1);
+  // Initialize Three.js scene via avatar3d.js
+  if (typeof initAvatarScene === 'function') {
+    initAvatarScene('avatar-3d-container', discoverProfiles);
     
-    // Enhanced 3D perspective transform
-    const maxAngle = 30;
-    const angle = ratio * maxAngle;
-    const scale = 1 - Math.abs(ratio) * 0.2;
-    const translateZ = -Math.abs(ratio) * 80;
-    const opacity = 1 - Math.abs(ratio) * 0.5;
-    const blurAmount = Math.abs(ratio) * 2;
-    
-    // Main card transform with 3D perspective
-    card.style.transform = `perspective(1200px) rotateY(${angle}deg) scale(${scale}) translateZ(${translateZ}px)`;
-    card.style.opacity = opacity;
-    card.style.zIndex = Math.round(100 - Math.abs(ratio) * 100);
-    card.style.filter = `blur(${blurAmount}px)`;
-    
-    // Inner 3D layers - separate transforms for depth
-    const inner = card.querySelector('.discover-card-inner');
-    if (inner) {
-      const innerAngle = angle * 0.3;
-      inner.style.transform = `rotateY(${innerAngle}deg) translateZ(3px)`;
-    }
-    
-    // Avatar wrapper - primary 3D layer with hello animation
-    const imgWrapper = card.querySelector('.avatar-img-wrapper');
-    if (imgWrapper) {
-      if (Math.abs(ratio) < 0.2) {
-        imgWrapper.classList.add('animate-hello');
-        // Enhanced tilt on the avatar itself
-        const tiltAngle = angle * 0.15;
-        imgWrapper.style.setProperty('--tilt', `${tiltAngle}deg`);
-      } else {
-        imgWrapper.classList.remove('animate-hello');
-        imgWrapper.style.setProperty('--tilt', '0deg');
-      }
-    }
-  });
-}
-
-function updateCenterCard() {
-  const rail = document.getElementById('discovery-rail');
-  if (!rail) return;
-  
-  const railCenter = rail.scrollLeft + rail.offsetWidth / 2;
-  const cards = rail.querySelectorAll('.discover-card');
-  
-  cards.forEach(card => {
-    const cardCenter = card.offsetLeft + card.offsetWidth / 2;
-    const diff = Math.abs(cardCenter - railCenter);
-    const isCenter = diff < card.offsetWidth * 0.3;
-    
-    card.classList.toggle('card-center', isCenter);
-  });
-}
-
-window.dismissProfile = (e, userId) => {
-  e.preventDefault();
-  const card = document.getElementById(`discover-card-${userId}`);
-  if (card) {
-    card.style.transform = 'perspective(1200px) rotateY(-15deg) scale(0.3) translateZ(-300px)';
-    card.style.opacity = '0';
+    // After scene is set up, show first profile
     setTimeout(() => {
-      card.remove();
-      discoverProfiles = discoverProfiles.filter(p => p.id !== userId);
-      checkEmptyState();
-      update3DTransforms();
-      updateCenterCard();
-    }, 400);
+      currentIndex = 0;
+      updateProfileOverlay(0);
+      updateNavButtons();
+      if (overlay) overlay.classList.remove('hidden');
+    }, 500);
+  } else {
+    // Fallback to HTML cards if Three.js isn't loaded
+    renderFallbackCards();
   }
-};
+}
 
-window.connectProfile = async (e, userId, btn) => {
-  e.preventDefault();
-  btn.disabled = true;
-  btn.innerHTML = '<span class="material-symbols-outlined text-sm">sync</span> Sending...';
+function renderFallbackCards() {
+  const container = document.getElementById('avatar-3d-container');
+  if (!container) return;
   
-  try {
-    await apiCall('/api/connections/request', 'POST', { to_user_id: userId });
-    // Successful connect -> animate card flying up/fading out with 3D
-    const card = document.getElementById(`discover-card-${userId}`);
-    if (card) {
-      card.style.transform = 'perspective(1200px) rotateY(10deg) scale(0.8) translateY(-80px) translateZ(100px)';
-      card.style.opacity = '0';
-      setTimeout(() => {
-        card.remove();
-        discoverProfiles = discoverProfiles.filter(p => p.id !== userId);
-        checkEmptyState();
-        update3DTransforms();
-        updateCenterCard();
-      }, 400);
-    }
-  } catch (err) {
-    alert(err.message);
-    btn.disabled = false;
-    btn.innerHTML = `<span class="material-symbols-outlined text-lg material-fill">favorite</span> Connect`;
-  }
-};
+  container.innerHTML = `
+    <div class="w-full h-full flex items-center justify-center overflow-x-auto snap-x snap-mandatory gap-6 px-8" id="fallback-rail">
+      ${discoverProfiles.map((p, i) => `
+        <div class="discover-card relative w-64 h-[420px] shrink-0 snap-center flex flex-col items-center justify-center bg-white/60 backdrop-blur-xl rounded-3xl shadow-xl border border-white/40 p-4 transition-all duration-300" id="fallback-card-${i}">
+          <div class="w-40 h-40 rounded-2xl overflow-hidden shadow-lg mb-3 avatar-img-wrapper transition-all duration-300 ${i === 0 ? 'animate-hello' : ''}">
+            ${getAvatarHtml(p.username, p.avatar)}
+          </div>
+          <h3 class="font-bold text-xl capitalize text-on-surface">${p.username}</h3>
+          <p class="text-xs text-on-surface-variant mt-1 line-clamp-2 text-center">${p.bio || 'Mystery person...'}</p>
+          <div class="flex flex-wrap gap-1 justify-center mt-2 mb-3">
+            ${(p.hobbies || []).slice(0, 3).map(h => 
+              `<span class="px-2 py-0.5 bg-surface-container-high/60 rounded-full text-[10px]">${h}</span>`
+            ).join('')}
+          </div>
+          <div class="flex gap-3 mt-auto">
+            <button onclick="dismissFallback(${i})" class="w-10 h-10 rounded-full bg-white shadow-md border border-outline-variant/20 flex items-center justify-center text-on-surface-variant hover:scale-110 transition-all">
+              <span class="material-symbols-outlined">close</span>
+            </button>
+            <button onclick="connectFallback(${i}, this)" class="px-5 py-2 rounded-full bg-gradient-to-r from-primary to-primary-container text-white text-sm font-bold shadow-md hover:scale-105 transition-all">
+              <span class="material-symbols-outlined text-sm material-fill">favorite</span> Connect
+            </button>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
 
 function checkEmptyState() {
-  const rail = document.getElementById('discovery-rail');
+  const container = document.getElementById('avatar-3d-container');
   const empty = document.getElementById('discovery-empty');
-  const scrollBtns = document.querySelectorAll('#btn-scroll-left, #btn-scroll-right');
+  const overlay = document.getElementById('profile-overlay');
+  const navBtns = document.getElementById('btn-scroll-left');
   
   if (!discoverProfiles || discoverProfiles.length === 0) {
-    if (rail && rail.parentElement) rail.parentElement.classList.add('hidden');
+    if (container) container.classList.add('hidden');
+    if (overlay) overlay.classList.add('hidden');
+    if (navBtns) navBtns.parentElement.classList.add('hidden');
     if (empty) {
       empty.classList.remove('hidden');
       empty.classList.add('flex');
     }
-    scrollBtns.forEach(b => b.classList.add('hidden'));
   } else {
-    if (rail && rail.parentElement) rail.parentElement.classList.remove('hidden');
+    if (container) container.classList.remove('hidden');
+    if (navBtns) navBtns.parentElement.classList.remove('hidden');
     if (empty) {
       empty.classList.add('hidden');
       empty.classList.remove('flex');
     }
-    scrollBtns.forEach(b => b.classList.remove('hidden'));
-    
-    if (discoverProfiles.length === 1) {
-      rail.classList.add('justify-center');
-    } else {
-      rail.classList.remove('justify-center');
-    }
   }
 }
+
+// Fallback dismiss
+window.dismissFallback = (index) => {
+  const card = document.getElementById(`fallback-card-${index}`);
+  if (card) {
+    card.style.transform = 'scale(0.5) rotateY(-20deg)';
+    card.style.opacity = '0';
+    setTimeout(() => {
+      discoverProfiles.splice(index, 1);
+      renderFallbackCards();
+      checkEmptyState();
+    }, 300);
+  }
+};
+
+// Fallback connect
+window.connectFallback = async (index, btn) => {
+  const profile = discoverProfiles[index];
+  if (!profile) return;
+  
+  btn.disabled = true;
+  btn.innerHTML = 'Sending...';
+  
+  try {
+    await apiCall('/api/connections/request', 'POST', { to_user_id: profile.id });
+    discoverProfiles.splice(index, 1);
+    renderFallbackCards();
+    checkEmptyState();
+  } catch (err) {
+    alert(err.message);
+    btn.innerHTML = 'Connect';
+    btn.disabled = false;
+  }
+};
+
+// Expose for avatar3d.js to call
+window.getDiscoverProfiles = () => discoverProfiles;
+window.updateProfileOverlay = updateProfileOverlay;
+window.updateNavButtons = updateNavButtons;
+window.removeProfile = (id) => {
+  discoverProfiles = discoverProfiles.filter(p => p.id !== id);
+  checkEmptyState();
+};

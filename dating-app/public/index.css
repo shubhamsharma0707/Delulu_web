@@ -1,4 +1,4 @@
-/* ===== 3D Hello Emote Animation ===== */
+/* ===== 3D Hello Emote Animation (Fallback CSS Cards) ===== */
 @keyframes hello-emote {
   0% { 
     transform: perspective(800px) rotateY(0deg) rotateX(0deg) translateZ(0px) scale(1.02); 
@@ -29,176 +29,82 @@
   will-change: transform;
 }
 
-/* ===== 3D Avatar Card Effects ===== */
-
-/* Floating 3D depth layers for avatar */
-.avatar-3d-wrapper {
+/* ===== Three.js 3D Scene Container ===== */
+#avatar-3d-container {
   position: relative;
-  transform-style: preserve-3d;
-  perspective: 1000px;
-}
-
-.avatar-3d-layer {
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
   overflow: hidden;
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
 }
 
-.avatar-3d-layer--front {
-  transform: translateZ(15px);
-  z-index: 3;
+#avatar-3d-container canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
 }
 
-.avatar-3d-layer--back {
-  transform: translateZ(-15px) scaleX(-1);
-  z-index: 1;
-  filter: brightness(0.7) blur(2px);
-  opacity: 0.4;
-}
-
-.avatar-3d-layer--shadow {
-  transform: translateZ(-25px);
-  z-index: 0;
-  background: rgba(0,0,0,0.08);
-  border-radius: inherit;
-}
-
-/* 3D card depth shadow */
-.card-3d-shadow {
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: linear-gradient(135deg, rgba(165,59,41,0.08), rgba(118,88,72,0.04));
-  transform: translateZ(-10px);
-  filter: blur(8px);
-  opacity: 0.6;
-  transition: all 0.5s ease;
-}
-
-.discover-card:hover .card-3d-shadow {
-  transform: translateZ(-8px) scale(0.98);
-  filter: blur(12px);
-  opacity: 0.8;
-}
-
-/* 3D tilt card base */
+/* ===== Fallback Card Styles ===== */
 .discover-card {
   transform-style: preserve-3d;
   perspective: 1200px;
   will-change: transform;
-  cursor: pointer;
 }
 
-/* Glass card interior with depth */
-.discover-card-inner {
-  background: linear-gradient(
-    180deg, 
-    rgba(255,255,255,0.15) 0%, 
-    rgba(255,255,255,0.08) 40%, 
-    rgba(240,237,237,0.12) 100%
-  );
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255,255,255,0.3);
-  transform: translateZ(5px);
+.discover-card .avatar-img-wrapper {
+  transition: all 0.3s ease;
 }
 
-/* Spotlight glow effect on center card */
-.discover-card.card-center .avatar-img-wrapper::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(
-    ellipse at 50% 30%,
-    rgba(255, 180, 166, 0.3) 0%,
-    transparent 70%
-  );
-  pointer-events: none;
-  border-radius: inherit;
-  z-index: 2;
-}
-
-/* ===== Avatar Image Depth Frame ===== */
-.avatar-img-frame {
-  position: relative;
-  border-radius: inherit;
-  overflow: hidden;
-  transform-style: preserve-3d;
-}
-
-.avatar-img-frame::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: linear-gradient(
-    180deg,
-    rgba(255,255,255,0.25) 0%,
-    transparent 40%,
-    rgba(0,0,0,0.1) 100%
-  );
-  z-index: 1;
-  pointer-events: none;
-}
-
-/* ===== Discover Rail Enhancements ===== */
-#discovery-rail {
+#fallback-rail {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
 
-#discovery-rail::-webkit-scrollbar {
+#fallback-rail::-webkit-scrollbar {
   display: none;
 }
 
-/* Card floating hover */
-.discover-card:hover .avatar-img-wrapper {
-  filter: brightness(1.05) contrast(1.05);
+/* ===== Profile Info Overlay ===== */
+#profile-overlay {
+  transition: all 0.4s ease;
 }
 
-.discover-card:not(.card-center) .animate-hello {
-  animation-duration: 4s; /* slower when not in center */
+#center-profile-info {
+  animation: fadeInUp 0.5s ease-out;
 }
 
-/* ===== Smooth scroll snap ===== */
-.snap-x {
-  scroll-snap-type: x mandatory;
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(15px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
-/* ===== Responsive card height ===== */
+/* ===== Nav Buttons ===== */
+#btn-scroll-left,
+#btn-scroll-right {
+  transform: translateY(-50%);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+}
+
+#btn-scroll-left:hover,
+#btn-scroll-right:hover {
+  box-shadow: 0 12px 40px rgba(165,59,41,0.2);
+}
+
+/* ===== Hobby Chips ===== */
+.hobby-chip {
+  transition: all 0.2s ease;
+}
+
+.hobby-chip:hover {
+  transform: scale(1.05);
+}
+
+/* ===== Responsive ===== */
 @media (max-width: 768px) {
-  .discover-card {
-    height: 440px !important;
-    width: 260px !important;
+  #btn-scroll-left, #btn-scroll-right {
+    display: none;
   }
-}
-
-/* ===== Connection button glow ===== */
-.btn-connect-glow {
-  position: relative;
-  overflow: hidden;
-}
-
-.btn-connect-glow::after {
-  content: '';
-  position: absolute;
-  inset: -2px;
-  border-radius: inherit;
-  background: conic-gradient(from 0deg, transparent, rgba(255,255,255,0.4), transparent, rgba(255,255,255,0.4), transparent);
-  z-index: -1;
-  opacity: 0;
-  transition: opacity 0.4s ease;
-  animation: rotate-glow 3s linear infinite;
-}
-
-.btn-connect-glow:hover::after {
-  opacity: 1;
-}
-
-@keyframes rotate-glow {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  #avatar-3d-container {
+    height: 380px !important;
+  }
 }

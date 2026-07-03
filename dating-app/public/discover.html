@@ -12,6 +12,7 @@
   
   <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
   <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script id="tailwind-config">
     tailwind.config = {
       darkMode: "class",
@@ -95,40 +96,39 @@
       </div>
     </div>
 
-    <div id="view-discovery" class="flex-grow flex flex-col items-center justify-center w-full relative overflow-hidden">
+    <div id="view-discovery" class="flex-grow flex flex-col items-center justify-center w-full relative overflow-visible">
       <div id="discovery-empty" class="hidden text-center text-on-surface-variant flex-col items-center justify-center h-full px-6">
         <span class="material-symbols-outlined text-7xl mb-4 text-outline-variant">explore_off</span>
         <h2 class="text-2xl font-bold mb-2">No more profiles</h2>
         <p class="text-on-surface-variant/70">Check back later for new connections.</p>
       </div>
       
-      <div class="relative w-full max-w-full flex items-center group py-2">
-        <!-- Left Scroll Button -->
-        <button id="btn-scroll-left" class="absolute left-2 md:left-4 z-30 w-11 h-11 md:w-12 md:h-12 rounded-full bg-white/80 backdrop-blur-lg shadow-lg border border-white/40 flex items-center justify-center text-primary hover:scale-110 active:scale-95 transition-all opacity-0 group-hover:opacity-100 hidden md:flex hover:shadow-xl" aria-label="Scroll left">
-          <span class="material-symbols-outlined text-2xl">chevron_left</span>
-        </button>
-        
-        <!-- Discovery Rail -->
-        <div id="discovery-rail" class="w-full overflow-x-auto overflow-y-hidden snap-x snap-mandatory flex gap-6 px-8 md:px-20 py-4 md:py-8" style="perspective:1200px; scroll-behavior:smooth;">
-          <!-- Cards injected via JS -->
+      <!-- 3D Scene Container -->
+      <div id="avatar-3d-container" class="w-full h-[500px] md:h-[620px] relative cursor-grab active:cursor-grabbing mt-4">
+        <!-- Three.js canvas injected here -->
+      </div>
+      
+      <!-- Profile Info Overlay (shows for the center card) -->
+      <div id="profile-overlay" class="hidden md:flex w-full justify-center mt-2 px-6">
+        <div id="center-profile-info" class="text-center max-w-md mx-auto fade-in">
+          <h2 id="center-username" class="font-bold text-2xl capitalize text-on-surface"></h2>
+          <p id="center-bio" class="text-sm text-on-surface-variant mt-1"></p>
+          <div id="center-hobbies" class="flex flex-wrap gap-1.5 justify-center mt-2"></div>
         </div>
-
-        <!-- Right Scroll Button -->
-        <button id="btn-scroll-right" class="absolute right-2 md:right-4 z-30 w-11 h-11 md:w-12 md:h-12 rounded-full bg-white/80 backdrop-blur-lg shadow-lg border border-white/40 flex items-center justify-center text-primary hover:scale-110 active:scale-95 transition-all opacity-0 group-hover:opacity-100 hidden md:flex hover:shadow-xl" aria-label="Scroll right">
-          <span class="material-symbols-outlined text-2xl">chevron_right</span>
-        </button>
       </div>
 
-      <!-- Scroll indicator dots -->
-      <div class="flex gap-1.5 mt-3 md:hidden">
-        <span class="w-1.5 h-1.5 rounded-full bg-primary"></span>
-        <span class="w-1.5 h-1.5 rounded-full bg-outline-variant"></span>
-        <span class="w-1.5 h-1.5 rounded-full bg-outline-variant"></span>
-      </div>
+      <!-- Scroll Buttons -->
+      <button id="btn-scroll-left" class="fixed left-4 top-1/2 z-40 w-12 h-12 rounded-full bg-white/80 backdrop-blur-lg shadow-xl border border-white/50 flex items-center justify-center text-primary hover:scale-110 active:scale-95 transition-all hover:shadow-2xl" aria-label="Previous">
+        <span class="material-symbols-outlined text-3xl">chevron_left</span>
+      </button>
+      <button id="btn-scroll-right" class="fixed right-4 top-1/2 z-40 w-12 h-12 rounded-full bg-white/80 backdrop-blur-lg shadow-xl border border-white/50 flex items-center justify-center text-primary hover:scale-110 active:scale-95 transition-all hover:shadow-2xl" aria-label="Next">
+        <span class="material-symbols-outlined text-3xl">chevron_right</span>
+      </button>
     </div>
   </main>
   
   <script src="/js/shared.js"></script>
   <script src="/js/discover.js"></script>
+  <script src="/js/avatar3d.js"></script>
 </body>
 </html>

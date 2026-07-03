@@ -453,7 +453,10 @@ app.get('/api/discover', requireAuth, (req, res) => {
       hobbies: profileHobbies,
       matching_hobbies: matchingHobbies,
       match_count: matchCount,
-      avatar: p.avatar,
+      avatar: {
+        idle: p.avatar ? `/avatars/${p.gender}/${p.avatar}/idle.jpeg` : null,
+        wave: p.avatar ? `/avatars/${p.gender}/${p.avatar}/wave.jpeg` : null
+      },
       gender: p.gender,
       total_count: p.total_count
     };

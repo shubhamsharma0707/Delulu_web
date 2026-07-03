@@ -43,7 +43,14 @@ function getAvatarHtml(username, avatar, options = {}) {
   const { className = 'w-full h-full object-cover', lazy = false } = options;
   const loadingAttr = lazy ? 'loading="lazy"' : '';
   if (avatar) {
-    return `<img src="/avatars/${avatar}.jpeg" alt="${username}" class="${className}" ${loadingAttr}>`;
+    // Determine path based on if it's the new object or old string format
+    let src = '';
+    if (typeof avatar === 'object' && avatar.idle) {
+      src = avatar.idle;
+    } else {
+      src = `/avatars/${avatar}.jpeg`;
+    }
+    return `<img src="${src}" alt="${username}" class="${className}" ${loadingAttr}>`;
   }
   const initial = username ? username.charAt(0).toUpperCase() : '?';
   return `<div class="w-full h-full bg-gradient-to-br from-primary-container to-secondary-container text-white flex items-center justify-center font-bold text-3xl">${initial}</div>`;
