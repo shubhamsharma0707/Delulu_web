@@ -184,52 +184,58 @@ function loadAndProcessTexture(url, callback) {
     const w = canvas.width;
     const h = canvas.height;
     
-    // Sample background colors dynamically from top, left, and right outer edges
-    const bgColors = [];
-    const samplePixel = (x, y) => {
+    // Flood fill traversal state
+    const visited = new Uint8Array(w * h);
+    const queue = [];
+    
+    // Check if pixel is light white/grey (checkered background colors)
+    const isLightPixel = (x, y) => {
       const idx = (y * w + x) * 4;
       const r = data[idx];
       const g = data[idx+1];
       const b = data[idx+2];
       
-      const exists = bgColors.some(c => 
-        Math.abs(c.r - r) < 10 && 
-        Math.abs(c.g - g) < 10 && 
-        Math.abs(c.b - b) < 10
-      );
-      if (!exists) {
-        bgColors.push({ r, g, b });
+      const isWhite = (r > 200 && g > 200 && b > 200);
+      const isGrey = (r > 160 && g > 160 && b > 160 && Math.abs(r - g) < 18 && Math.abs(g - b) < 18);
+      return isWhite || isGrey;
+    };
+    
+    const addNode = (x, y) => {
+      if (x < 0 || x >= w || y < 0 || y >= h) return;
+      const idx = y * w + x;
+      if (visited[idx]) return;
+      
+      if (isLightPixel(x, y)) {
+        visited[idx] = 1;
+        queue.push(idx);
       }
     };
     
-    // Sample along top rows
-    for (let x = 0; x < w; x += Math.max(1, Math.floor(w / 20))) {
-      samplePixel(x, 0);
-      samplePixel(x, 3);
-      samplePixel(x, 6);
+    // Initialize search queue with all border pixels
+    for (let x = 0; x < w; x++) {
+      addNode(x, 0);
+      addNode(x, h - 1);
     }
-    // Sample along upper side edges (top 15% height)
-    for (let y = 0; y < Math.floor(h * 0.15); y += 4) {
-      samplePixel(0, y);
-      samplePixel(w - 1, y);
+    for (let y = 0; y < h; y++) {
+      addNode(0, y);
+      addNode(w - 1, y);
     }
     
-    // Remove all pixels matching the sampled colors
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i];
-      const g = data[i+1];
-      const b = data[i+2];
+    // BFS traversal
+    let head = 0;
+    while (head < queue.length) {
+      const idx = queue[head++];
+      const x = idx % w;
+      const y = Math.floor(idx / w);
       
-      const isBg = bgColors.some(c => 
-        Math.abs(c.r - r) < 22 && 
-        Math.abs(c.g - g) < 22 && 
-        Math.abs(c.b - b) < 22
-      );
+      data[idx * 4 + 3] = 0; // Set alpha channel to transparent
       
-      if (isBg) {
-        data[i+3] = 0;
-      }
+      addNode(x + 1, y);
+      addNode(x - 1, y);
+      addNode(x, y + 1);
+      addNode(x, y - 1);
     }
+    
     ctx.putImageData(imgData, 0, 0);
     
     const cleanTexture = new THREE.CanvasTexture(canvas);

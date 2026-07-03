@@ -28,50 +28,55 @@ function loadAndProcessTexture(path, callback) {
       const w = canvas.width;
       const h = canvas.height;
       
-      // Sample background colors dynamically from the borders
-      const bgColors = [];
-      const samplePixel = (x, y) => {
+      // Flood fill traversal state
+      const visited = new Uint8Array(w * h);
+      const queue = [];
+      
+      const isLightPixel = (x, y) => {
         const idx = (y * w + x) * 4;
         const r = data[idx];
         const g = data[idx+1];
         const b = data[idx+2];
         
-        const exists = bgColors.some(c => 
-          Math.abs(c.r - r) < 10 && 
-          Math.abs(c.g - g) < 10 && 
-          Math.abs(c.b - b) < 10
-        );
-        if (!exists) {
-          bgColors.push({ r, g, b });
+        const isWhite = (r > 200 && g > 200 && b > 200);
+        const isGrey = (r > 160 && g > 160 && b > 160 && Math.abs(r - g) < 18 && Math.abs(g - b) < 18);
+        return isWhite || isGrey;
+      };
+      
+      const addNode = (x, y) => {
+        if (x < 0 || x >= w || y < 0 || y >= h) return;
+        const idx = y * w + x;
+        if (visited[idx]) return;
+        
+        if (isLightPixel(x, y)) {
+          visited[idx] = 1;
+          queue.push(idx);
         }
       };
       
-      for (let x = 0; x < w; x += Math.max(1, Math.floor(w / 20))) {
-        samplePixel(x, 0);
-        samplePixel(x, 3);
-        samplePixel(x, 6);
+      for (let x = 0; x < w; x++) {
+        addNode(x, 0);
+        addNode(x, h - 1);
       }
-      for (let y = 0; y < Math.floor(h * 0.15); y += 4) {
-        samplePixel(0, y);
-        samplePixel(w - 1, y);
+      for (let y = 0; y < h; y++) {
+        addNode(0, y);
+        addNode(w - 1, y);
       }
       
-      // Clear matching background colors
-      for (let i = 0; i < data.length; i += 4) {
-        const r = data[i];
-        const g = data[i+1];
-        const b = data[i+2];
+      let head = 0;
+      while (head < queue.length) {
+        const idx = queue[head++];
+        const x = idx % w;
+        const y = Math.floor(idx / w);
         
-        const isBg = bgColors.some(c => 
-          Math.abs(c.r - r) < 22 && 
-          Math.abs(c.g - g) < 22 && 
-          Math.abs(c.b - b) < 22
-        );
+        data[idx * 4 + 3] = 0;
         
-        if (isBg) {
-          data[i+3] = 0;
-        }
+        addNode(x + 1, y);
+        addNode(x - 1, y);
+        addNode(x, y + 1);
+        addNode(x, y - 1);
       }
+      
       ctx.putImageData(imgData, 0, 0);
     } catch (e) {
       console.warn("Failed to apply chroma key filter due to security/CORS, loading fallback texture:", e);
