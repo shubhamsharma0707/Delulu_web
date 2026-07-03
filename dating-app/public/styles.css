@@ -60,3 +60,109 @@ body {
 @keyframes slideUp { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
 .pulse-heart { animation: pulseHeart 1.5s ease-in-out infinite; }
 @keyframes pulseHeart { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
+
+/* ===== 3D Hello Emote Animation (Fallback CSS Cards) ===== */
+@keyframes hello-emote {
+  0% { 
+    transform: perspective(800px) rotateY(0deg) rotateX(0deg) translateZ(0px) scale(1.02); 
+  }
+  15% { 
+    transform: perspective(800px) rotateY(-8deg) rotateX(4deg) translateZ(20px) scale(1.06); 
+  }
+  30% { 
+    transform: perspective(800px) rotateY(8deg) rotateX(-2deg) translateZ(10px) scale(1.04); 
+  }
+  45% { 
+    transform: perspective(800px) rotateY(-6deg) rotateX(3deg) translateZ(25px) scale(1.07); 
+  }
+  60% { 
+    transform: perspective(800px) rotateY(5deg) rotateX(-1deg) translateZ(15px) scale(1.05); 
+  }
+  75% { 
+    transform: perspective(800px) rotateY(-3deg) rotateX(2deg) translateZ(30px) scale(1.06); 
+  }
+  100% { 
+    transform: perspective(800px) rotateY(0deg) rotateX(0deg) translateZ(0px) scale(1.02); 
+  }
+}
+
+.animate-hello {
+  animation: hello-emote 3s ease-in-out infinite;
+  transform-origin: center bottom;
+  will-change: transform;
+}
+
+/* ===== Three.js 3D Scene Container ===== */
+#avatar-3d-container {
+  position: relative;
+  overflow: hidden;
+  height: min(40vh, 360px);
+}
+
+@media (min-width: 768px) {
+  #avatar-3d-container {
+    height: min(48vh, 450px);
+  }
+}
+
+#avatar-3d-container canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* ===== Fallback Card Styles ===== */
+.discover-card {
+  transform-style: preserve-3d;
+  perspective: 1200px;
+  will-change: transform;
+}
+
+.discover-card .avatar-img-wrapper {
+  transition: all 0.3s ease;
+}
+
+#fallback-rail {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+#fallback-rail::-webkit-scrollbar {
+  display: none;
+}
+
+/* ===== Profile Info Overlay ===== */
+#profile-overlay {
+  transition: all 0.4s ease;
+}
+
+#center-profile-info {
+  animation: fadeInUp 0.5s ease-out;
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(15px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ===== Nav Buttons ===== */
+#btn-scroll-left,
+#btn-scroll-right {
+  transform: translateY(-50%);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+}
+
+#btn-scroll-left:hover,
+#btn-scroll-right:hover {
+  box-shadow: 0 12px 40px rgba(165,59,41,0.2);
+}
+
+/* ===== Responsive Mobile Navigation Scroll Buttons ===== */
+@media (max-width: 768px) {
+  #btn-scroll-left, #btn-scroll-right {
+    display: none;
+  }
+}
