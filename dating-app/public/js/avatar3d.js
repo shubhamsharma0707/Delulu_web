@@ -25,17 +25,51 @@ function loadAndProcessTexture(path, callback) {
     try {
       const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const data = imgData.data;
+      const w = canvas.width;
+      const h = canvas.height;
+      
+      // Sample background colors dynamically from the borders
+      const bgColors = [];
+      const samplePixel = (x, y) => {
+        const idx = (y * w + x) * 4;
+        const r = data[idx];
+        const g = data[idx+1];
+        const b = data[idx+2];
+        
+        const exists = bgColors.some(c => 
+          Math.abs(c.r - r) < 10 && 
+          Math.abs(c.g - g) < 10 && 
+          Math.abs(c.b - b) < 10
+        );
+        if (!exists) {
+          bgColors.push({ r, g, b });
+        }
+      };
+      
+      for (let x = 0; x < w; x += Math.max(1, Math.floor(w / 20))) {
+        samplePixel(x, 0);
+        samplePixel(x, 3);
+        samplePixel(x, 6);
+      }
+      for (let y = 0; y < Math.floor(h * 0.15); y += 4) {
+        samplePixel(0, y);
+        samplePixel(w - 1, y);
+      }
+      
+      // Clear matching background colors
       for (let i = 0; i < data.length; i += 4) {
         const r = data[i];
         const g = data[i+1];
         const b = data[i+2];
         
-        // Threshold for near-white backgrounds
-        const maxVal = Math.max(r, g, b);
-        if (maxVal > 240) {
-          // Smooth alpha transition to prevent jagged edges
-          const alpha = Math.max(0, (255 - maxVal) / 15);
-          data[i+3] = Math.min(data[i+3], alpha * 255);
+        const isBg = bgColors.some(c => 
+          Math.abs(c.r - r) < 22 && 
+          Math.abs(c.g - g) < 22 && 
+          Math.abs(c.b - b) < 22
+        );
+        
+        if (isBg) {
+          data[i+3] = 0;
         }
       }
       ctx.putImageData(imgData, 0, 0);

@@ -121,16 +121,10 @@
         </form>
       </div>
       
-      <!-- Right Column: 3D Preview -->
-      <div class="md:col-span-5 flex flex-col gap-4">
-        <div class="glass-panel p-6 rounded-3xl ambient-shadow relative overflow-hidden flex flex-col items-center">
-          <h3 class="text-xl font-extrabold text-primary mb-1 text-center">3D Avatar Preview</h3>
-          <p class="text-xs text-on-surface-variant/80 text-center mb-4 leading-normal">This is how other users will see your avatar when swiping in their Discover feed.</p>
-          
-          <!-- Three.js Canvas Container -->
-          <div id="profile-3d-preview" class="w-full aspect-[3/4] bg-surface-container-low rounded-2xl overflow-hidden relative border border-outline-variant/20 shadow-inner flex items-center justify-center">
-            <span id="preview-placeholder" class="text-sm text-outline-variant italic font-semibold">Select an avatar to preview</span>
-          </div>
+      <!-- Right Column: 3D Preview (No card, borderless, transparent) -->
+      <div class="md:col-span-5 flex items-center justify-center">
+        <div id="profile-3d-preview" class="w-full aspect-[3/4] relative flex items-center justify-center">
+          <!-- Injected via JS -->
         </div>
       </div>
       
@@ -139,7 +133,7 @@
   </main>
   
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <script src="/js/shared.js?v=2"></script>
-  <script src="/js/profile.js?v=2"></script>
+  <script src="/js/shared.js?v=3"></script>
+  <script src="/js/profile.js?v=3"></script>
 </body>
 </html>

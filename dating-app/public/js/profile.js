@@ -179,16 +179,55 @@ function loadAndProcessTexture(url, callback) {
     const ctx = canvas.getContext('2d');
     ctx.drawImage(img, 0, 0);
     
-    // Clean out white backgrounds for transparency blending
     const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = imgData.data;
+    const w = canvas.width;
+    const h = canvas.height;
+    
+    // Sample background colors dynamically from top, left, and right outer edges
+    const bgColors = [];
+    const samplePixel = (x, y) => {
+      const idx = (y * w + x) * 4;
+      const r = data[idx];
+      const g = data[idx+1];
+      const b = data[idx+2];
+      
+      const exists = bgColors.some(c => 
+        Math.abs(c.r - r) < 10 && 
+        Math.abs(c.g - g) < 10 && 
+        Math.abs(c.b - b) < 10
+      );
+      if (!exists) {
+        bgColors.push({ r, g, b });
+      }
+    };
+    
+    // Sample along top rows
+    for (let x = 0; x < w; x += Math.max(1, Math.floor(w / 20))) {
+      samplePixel(x, 0);
+      samplePixel(x, 3);
+      samplePixel(x, 6);
+    }
+    // Sample along upper side edges (top 15% height)
+    for (let y = 0; y < Math.floor(h * 0.15); y += 4) {
+      samplePixel(0, y);
+      samplePixel(w - 1, y);
+    }
+    
+    // Remove all pixels matching the sampled colors
     for (let i = 0; i < data.length; i += 4) {
       const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
+      const g = data[i+1];
+      const b = data[i+2];
       
-      if (r > 215 && g > 215 && b > 215) {
-        data[i + 3] = 0;
+      const isBg = bgColors.some(c => 
+        Math.abs(c.r - r) < 22 && 
+        Math.abs(c.g - g) < 22 && 
+        Math.abs(c.b - b) < 22
+      );
+      
+      if (isBg) {
+        data[i+3] = 0;
       }
     }
     ctx.putImageData(imgData, 0, 0);
