@@ -34,6 +34,7 @@ function initDB() {
       bio TEXT DEFAULT '',
       hobbies TEXT DEFAULT '[]',
       profile_pic TEXT DEFAULT '',
+      avatar TEXT DEFAULT '',
       is_onboarded INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
@@ -92,6 +93,7 @@ function initDB() {
   try { db.exec("ALTER TABLE users ADD COLUMN passcode_hash TEXT NOT NULL DEFAULT '';"); } catch (e) {}
   try { db.exec("ALTER TABLE users ADD COLUMN email TEXT DEFAULT NULL;"); } catch (e) {}
   try { db.exec("ALTER TABLE users ADD COLUMN is_onboarded INTEGER DEFAULT 0;"); } catch (e) {}
+  try { db.exec("ALTER TABLE users ADD COLUMN avatar TEXT DEFAULT '';"); } catch (e) {}
   try { db.exec("ALTER TABLE connections ADD COLUMN reveal_available_at DATETIME;"); } catch (e) {}
 }
 
@@ -130,15 +132,15 @@ function seedDemoUsers() {
 
 // User operations
 const userOps = {
-  create(username, gender, passcodeHash, bio, hobbies, profilePic) {
-    const stmt = getDB().prepare(`INSERT INTO users (username, gender, passcode_hash, bio, hobbies, profile_pic) VALUES (?, ?, ?, ?, ?, ?)`);
-    const result = stmt.run(username, gender, passcodeHash, bio || '', JSON.stringify(hobbies || []), profilePic || '');
+  create(username, gender, passcodeHash, bio, hobbies, avatar) {
+    const stmt = getDB().prepare(`INSERT INTO users (username, gender, passcode_hash, bio, hobbies, avatar) VALUES (?, ?, ?, ?, ?, ?)`);
+    const result = stmt.run(username, gender, passcodeHash, bio || '', JSON.stringify(hobbies || []), avatar || '');
     return result.lastInsertRowid;
   },
 
-  createWithEmail(username, gender, email, bio, hobbies, profilePic) {
-    const stmt = getDB().prepare(`INSERT INTO users (username, gender, email, bio, hobbies, profile_pic, is_onboarded) VALUES (?, ?, ?, ?, ?, ?, 1)`);
-    const result = stmt.run(username, gender, email, bio || '', JSON.stringify(hobbies || []), profilePic || '');
+  createWithEmail(username, gender, email, bio, hobbies, avatar) {
+    const stmt = getDB().prepare(`INSERT INTO users (username, gender, email, bio, hobbies, avatar, is_onboarded) VALUES (?, ?, ?, ?, ?, ?, 1)`);
+    const result = stmt.run(username, gender, email, bio || '', JSON.stringify(hobbies || []), avatar || '');
     return result.lastInsertRowid;
   },
 
@@ -159,7 +161,7 @@ const userOps = {
   },
 
   update(id, fields) {
-    const allowed = ['bio', 'hobbies', 'profile_pic'];
+    const allowed = ['bio', 'hobbies', 'avatar'];
     const updates = [];
     const values = [];
     for (const key of allowed) {
@@ -194,7 +196,7 @@ const userOps = {
     let params;
     if (genderFilter) {
       sql = `
-        SELECT u.id, u.username, u.bio, u.hobbies, u.profile_pic, u.gender
+        SELECT u.id, u.username, u.bio, u.hobbies, u.avatar, u.gender
         FROM users u
         WHERE u.gender = ? AND u.id != ?
           AND u.id NOT IN (${placeholders})
@@ -203,7 +205,7 @@ const userOps = {
       params = [genderFilter, userId, ...allExclude];
     } else {
       sql = `
-        SELECT u.id, u.username, u.bio, u.hobbies, u.profile_pic, u.gender
+        SELECT u.id, u.username, u.bio, u.hobbies, u.avatar, u.gender
         FROM users u
         WHERE u.id != ?
           AND u.id NOT IN (${placeholders})
@@ -230,7 +232,7 @@ const connectionOps = {
 
   getPendingForUser(userId) {
     return getDB().prepare(`
-      SELECT c.*, u.username, u.bio, u.hobbies, u.profile_pic, u.gender
+      SELECT c.*, u.username, u.bio, u.hobbies, u.avatar, u.gender
       FROM connections c
       JOIN users u ON c.from_user_id = u.id
       WHERE c.to_user_id = ? AND c.status = 'pending'
@@ -240,7 +242,7 @@ const connectionOps = {
 
   getSentRequests(userId) {
     return getDB().prepare(`
-      SELECT c.*, u.username, u.bio, u.hobbies, u.profile_pic, u.gender
+      SELECT c.*, u.username, u.bio, u.hobbies, u.avatar, u.gender
       FROM connections c
       JOIN users u ON c.to_user_id = u.id
       WHERE c.from_user_id = ? AND c.status = 'pending'
@@ -272,7 +274,7 @@ const connectionOps = {
         CASE WHEN c.from_user_id = ? THEN u2.username ELSE u1.username END as other_username,
         CASE WHEN c.from_user_id = ? THEN u2.bio ELSE u1.bio END as other_bio,
         CASE WHEN c.from_user_id = ? THEN u2.hobbies ELSE u1.hobbies END as other_hobbies,
-        CASE WHEN c.from_user_id = ? THEN u2.profile_pic ELSE u1.profile_pic END as other_profile_pic,
+        CASE WHEN c.from_user_id = ? THEN u2.avatar ELSE u1.avatar END as other_avatar,
         CASE WHEN c.from_user_id = ? THEN u2.id ELSE u1.id END as other_user_id
       FROM connections c
       JOIN users u1 ON c.from_user_id = u1.id
@@ -289,7 +291,7 @@ const connectionOps = {
         CASE WHEN c.from_user_id = ? THEN u2.gender ELSE u1.gender END as other_gender,
         CASE WHEN c.from_user_id = ? THEN u2.bio ELSE u1.bio END as other_bio,
         CASE WHEN c.from_user_id = ? THEN u2.hobbies ELSE u1.hobbies END as other_hobbies,
-        CASE WHEN c.from_user_id = ? THEN u2.profile_pic ELSE u1.profile_pic END as other_profile_pic,
+        CASE WHEN c.from_user_id = ? THEN u2.avatar ELSE u1.avatar END as other_avatar,
         CASE WHEN c.from_user_id = ? THEN u2.id ELSE u1.id END as other_user_id,
         CASE WHEN c.from_user_id = ? THEN u1.id ELSE u2.id END as my_user_id
       FROM connections c
@@ -351,8 +353,8 @@ const connectionOps = {
     if (bothRevealed) {
       // Identity revealed — get other user's real info
       const otherUser = isFrom 
-        ? getDB().prepare('SELECT id, username, profile_pic FROM users WHERE id = ?').get(conn.to_user_id)
-        : getDB().prepare('SELECT id, username, profile_pic FROM users WHERE id = ?').get(conn.from_user_id);
+        ? getDB().prepare('SELECT id, username, avatar FROM users WHERE id = ?').get(conn.to_user_id)
+        : getDB().prepare('SELECT id, username, avatar FROM users WHERE id = ?').get(conn.from_user_id);
       getDB().prepare('UPDATE connections SET status = ? WHERE id = ?').run('revealed', connectionId);
       return { success: true, bothRevealed: true, otherUser };
     }
