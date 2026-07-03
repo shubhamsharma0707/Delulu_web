@@ -48,7 +48,9 @@ async function loadRequests(type = 'incoming') {
               <button onclick="respondReq(${r.id}, 'accept')" class="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center hover:scale-110 transition-transform"><span class="material-symbols-outlined material-fill text-sm">check</span></button>
               <button onclick="respondReq(${r.id}, 'reject')" class="w-10 h-10 rounded-full bg-surface-variant text-on-surface-variant flex items-center justify-center hover:scale-110 transition-transform"><span class="material-symbols-outlined text-sm">close</span></button>
             </div>
-          ` : `<span class="text-xs text-outline bg-surface px-2 py-1 rounded-md">Pending</span>`}
+          ` : `
+            <button onclick="revokeReq(${r.id})" class="px-3 py-1.5 rounded-full bg-white shadow-sm border border-outline-variant/30 text-on-surface-variant text-xs font-semibold hover:scale-105 hover:bg-error/10 hover:text-error hover:border-error/20 transition-all shrink-0">Revoke</button>
+          `}
         </div>
       `;
     }).join('');
@@ -62,4 +64,13 @@ window.respondReq = async (id, action) => {
     await apiCall('/api/connections/respond', 'POST', { connection_id: id, action });
     loadRequests('incoming');
   } catch(err) { alert(err.message); }
+};
+
+window.revokeReq = async (id) => {
+  try {
+    await apiCall(`/api/connections/${id}`, 'DELETE');
+    loadRequests('sent');
+  } catch (err) {
+    alert(err.message);
+  }
 };

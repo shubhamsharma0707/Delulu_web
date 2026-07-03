@@ -632,6 +632,26 @@ app.post('/api/connections/respond', requireAuth, (req, res) => {
   res.json(result);
 });
 
+// Revoke/cancel connection request
+app.delete('/api/connections/:id', requireAuth, (req, res) => {
+  const connectionId = Number(req.params.id);
+  if (!connectionId) return res.status(400).json({ error: 'Missing connection ID' });
+  
+  const conn = getDB().prepare('SELECT * FROM connections WHERE id = ?').get(connectionId);
+  if (!conn) return res.status(404).json({ error: 'Connection not found' });
+  
+  if (conn.from_user_id !== req.session.userId) {
+    return res.status(403).json({ error: 'Not authorized to revoke this request' });
+  }
+  
+  if (conn.status !== 'pending') {
+    return res.status(400).json({ error: 'Cannot revoke a request that is not pending' });
+  }
+  
+  getDB().prepare('DELETE FROM connections WHERE id = ?').run(connectionId);
+  res.json({ success: true });
+});
+
 // Get active connections (accepted chats)
 app.get('/api/connections/active', requireAuth, (req, res) => {
   const connections = connectionOps.getActiveConnections(req.session.userId);
