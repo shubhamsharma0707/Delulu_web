@@ -188,16 +188,16 @@ function loadAndProcessTexture(url, callback) {
     const visited = new Uint8Array(w * h);
     const queue = [];
     
-    // Check if pixel is light white/grey (checkered background colors)
+    // Check if pixel is neutral and light (white or grey background checkers)
     const isLightPixel = (x, y) => {
       const idx = (y * w + x) * 4;
       const r = data[idx];
       const g = data[idx+1];
       const b = data[idx+2];
       
-      const isWhite = (r > 200 && g > 200 && b > 200);
-      const isGrey = (r > 160 && g > 160 && b > 160 && Math.abs(r - g) < 18 && Math.abs(g - b) < 18);
-      return isWhite || isGrey;
+      const isNeutral = (Math.abs(r - g) < 12 && Math.abs(g - b) < 12);
+      const isLight = (r > 100 && g > 100 && b > 100);
+      return isNeutral && isLight;
     };
     
     const addNode = (x, y) => {

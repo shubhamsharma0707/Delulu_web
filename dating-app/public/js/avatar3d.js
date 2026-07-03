@@ -38,9 +38,9 @@ function loadAndProcessTexture(path, callback) {
         const g = data[idx+1];
         const b = data[idx+2];
         
-        const isWhite = (r > 200 && g > 200 && b > 200);
-        const isGrey = (r > 160 && g > 160 && b > 160 && Math.abs(r - g) < 18 && Math.abs(g - b) < 18);
-        return isWhite || isGrey;
+        const isNeutral = (Math.abs(r - g) < 12 && Math.abs(g - b) < 12);
+        const isLight = (r > 100 && g > 100 && b > 100);
+        return isNeutral && isLight;
       };
       
       const addNode = (x, y) => {
