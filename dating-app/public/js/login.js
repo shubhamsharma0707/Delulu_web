@@ -103,9 +103,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('otp-error').classList.add('hidden');
 
     try {
+      const rememberMe = document.getElementById('remember-me').checked;
       const data = await apiCall('/api/auth/verify-otp', 'POST', { 
         email: currentEmail, 
-        token 
+        token,
+        rememberMe
       });
 
       if (data.isNewUser) {

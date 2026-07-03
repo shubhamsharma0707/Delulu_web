@@ -329,6 +329,10 @@ app.post('/api/auth/verify-otp', async (req, res) => {
       req.session.pendingEmail = cleanEmail;
     }
 
+    if (req.body.rememberMe) {
+      req.session.cookie.maxAge = 30 * 24 * 60 * 60 * 1000; // 30 days
+    }
+
     const { passcode_hash, ...safeUser } = user || {};
     res.json({ 
       success: true, 
