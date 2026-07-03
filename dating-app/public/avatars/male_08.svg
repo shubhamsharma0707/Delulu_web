@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="200" height="200">
+  <circle cx="50" cy="50" r="50" fill="#e4e2e1"/>
+  <path d="M50 18 Q30 20 29 40 Q28 55 32 68 Q30 78 34 82 Q36 84 38 82 Q36 74 38 66 Q50 72 62 66 Q64 74 62 82 Q64 84 66 82 Q70 78 68 68 Q72 55 71 40 Q70 20 50 18Z" fill="#D4A017"/>
+  <!-- Face -->
+  <ellipse cx="50" cy="53" rx="17" ry="19" fill="#F1C27D"/>
+  <!-- Ears -->
+  <ellipse cx="33" cy="53" rx="3.5" ry="4.5" fill="#F1C27D"/>
+  <ellipse cx="67" cy="53" rx="3.5" ry="4.5" fill="#F1C27D"/>
+  <!-- Eyes -->
+  <ellipse cx="43" cy="50" rx="3" ry="3" fill="white"/>
+  <ellipse cx="57" cy="50" rx="3" ry="3" fill="white"/>
+  <circle cx="43" cy="50.5" r="2" fill="#2C1810"/>
+  <circle cx="57" cy="50.5" r="2" fill="#2C1810"/>
+  <circle cx="44" cy="49.5" r="0.7" fill="white"/>
+  <circle cx="58" cy="49.5" r="0.7" fill="white"/>
+  <!-- Eyebrows (straighter for male) -->
+  <path d="M40 46 Q43 45 46 46" fill="none" stroke="#D4A017" stroke-width="2" stroke-linecap="round"/>
+  <path d="M54 46 Q57 45 60 46" fill="none" stroke="#D4A017" stroke-width="2" stroke-linecap="round"/>
+  <!-- Nose -->
+  <path d="M49 53 Q47 57 50 58 Q53 57 51 53Z" fill="#F1C27D" filter="brightness(0.85)"/>
+  <!-- Mouth -->
+  <path d="M45 62 Q50 65 55 62" fill="none" stroke="#C9956C" stroke-width="1.8" stroke-linecap="round"/>
+  <path d="M38 64 Q50 70 62 64" fill="#D4A017" opacity="0.3" stroke="#D4A017" stroke-width="1"/>
+  <!-- Neck & Body -->
+  <rect x="43" y="71" width="14" height="9" rx="3" fill="#F1C27D"/>
+  <path d="M24 100 Q28 78 50 76 Q72 78 76 100Z" fill="#C9956C"/>
+</svg>

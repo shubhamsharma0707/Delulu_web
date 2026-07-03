@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="200" height="200">
+  <circle cx="50" cy="50" r="50" fill="#fdd4c0"/>
+  <path d="M50 18 Q30 20 29 42 Q28 58 32 68 Q40 72 50 72 Q60 72 68 68 Q72 58 71 42 Q70 20 50 18Z" fill="#D4A017"/>
+  <!-- Face -->
+  <ellipse cx="50" cy="52" rx="18" ry="20" fill="#E0A869"/>
+  <!-- Eyes -->
+  <ellipse cx="43" cy="49" rx="3" ry="3.5" fill="white"/>
+  <ellipse cx="57" cy="49" rx="3" ry="3.5" fill="white"/>
+  <circle cx="43" cy="50" r="2" fill="#2C1810"/>
+  <circle cx="57" cy="50" r="2" fill="#2C1810"/>
+  <circle cx="44" cy="49" r="0.7" fill="white"/>
+  <circle cx="58" cy="49" r="0.7" fill="white"/>
+  <!-- Eyebrows -->
+  <path d="M40 45.5 Q43 44 46 45.5" fill="none" stroke="#D4A017" stroke-width="1.5" stroke-linecap="round"/>
+  <path d="M54 45.5 Q57 44 60 45.5" fill="none" stroke="#D4A017" stroke-width="1.5" stroke-linecap="round"/>
+  <!-- Nose -->
+  <path d="M49 52 Q50 55 51 52" fill="none" stroke="#E0A869" stroke-width="1.2" stroke-linecap="round" filter="brightness(0.85)"/>
+  <circle cx="48" cy="54.5" r="1" fill="#E0A869" filter="brightness(0.88)"/>
+  <circle cx="52" cy="54.5" r="1" fill="#E0A869" filter="brightness(0.88)"/>
+  <!-- Mouth -->
+  <path d="M45 59 Q50 63 55 59" fill="none" stroke="#E07B54" stroke-width="1.8" stroke-linecap="round"/>
+  <path d="M46 59 Q50 62 54 59" fill="#E07B54" opacity="0.3"/>
+  <!-- Cheeks blush -->
+  <ellipse cx="39" cy="57" rx="4" ry="2.5" fill="#E07B54" opacity="0.15"/>
+  <ellipse cx="61" cy="57" rx="4" ry="2.5" fill="#E07B54" opacity="0.15"/>
+  <rect x="36" y="54" width="7" height="5" rx="2" fill="none" stroke="#E07B54" stroke-width="1.5"/>
+  <!-- Neck & Body -->
+  <rect x="44" y="71" width="12" height="8" rx="3" fill="#E0A869"/>
+  <path d="M28 100 Q30 80 50 78 Q70 80 72 100Z" fill="#E07B54"/>
+</svg>

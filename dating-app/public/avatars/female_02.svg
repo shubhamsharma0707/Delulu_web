@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="200" height="200">
+  <circle cx="50" cy="50" r="50" fill="#ffdbca"/>
+  <path d="M50 18 Q28 22 27 48 Q24 65 28 80 Q25 92 32 95 Q36 97 38 93 Q36 85 38 78 Q50 84 62 78 Q64 85 62 93 Q64 97 68 95 Q75 92 72 80 Q76 65 73 48 Q72 22 50 18Z" fill="#8B4513"/><path d="M30 55 Q26 62 29 68" fill="none" stroke="#8B4513" stroke-width="3" stroke-linecap="round"/><path d="M70 55 Q74 62 71 68" fill="none" stroke="#8B4513" stroke-width="3" stroke-linecap="round"/>
+  <!-- Face -->
+  <ellipse cx="50" cy="52" rx="18" ry="20" fill="#F1C27D"/>
+  <!-- Eyes -->
+  <ellipse cx="43" cy="49" rx="3" ry="3.5" fill="white"/>
+  <ellipse cx="57" cy="49" rx="3" ry="3.5" fill="white"/>
+  <circle cx="43" cy="50" r="2" fill="#2C1810"/>
+  <circle cx="57" cy="50" r="2" fill="#2C1810"/>
+  <circle cx="44" cy="49" r="0.7" fill="white"/>
+  <circle cx="58" cy="49" r="0.7" fill="white"/>
+  <!-- Eyebrows -->
+  <path d="M40 45.5 Q43 44 46 45.5" fill="none" stroke="#8B4513" stroke-width="1.5" stroke-linecap="round"/>
+  <path d="M54 45.5 Q57 44 60 45.5" fill="none" stroke="#8B4513" stroke-width="1.5" stroke-linecap="round"/>
+  <!-- Nose -->
+  <path d="M49 52 Q50 55 51 52" fill="none" stroke="#F1C27D" stroke-width="1.2" stroke-linecap="round" filter="brightness(0.85)"/>
+  <circle cx="48" cy="54.5" r="1" fill="#F1C27D" filter="brightness(0.88)"/>
+  <circle cx="52" cy="54.5" r="1" fill="#F1C27D" filter="brightness(0.88)"/>
+  <!-- Mouth -->
+  <path d="M45 59 Q50 63 55 59" fill="none" stroke="#765848" stroke-width="1.8" stroke-linecap="round"/>
+  <path d="M46 59 Q50 62 54 59" fill="#765848" opacity="0.3"/>
+  <!-- Cheeks blush -->
+  <ellipse cx="39" cy="57" rx="4" ry="2.5" fill="#765848" opacity="0.15"/>
+  <ellipse cx="61" cy="57" rx="4" ry="2.5" fill="#765848" opacity="0.15"/>
+  <circle cx="38" cy="57" r="2.5" fill="#765848"/><circle cx="62" cy="57" r="2.5" fill="#765848"/>
+  <!-- Neck & Body -->
+  <rect x="44" y="71" width="12" height="8" rx="3" fill="#F1C27D"/>
+  <path d="M28 100 Q30 80 50 78 Q70 80 72 100Z" fill="#765848"/>
+</svg>
