@@ -16,7 +16,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     let ticking = false;
     rail.addEventListener('scroll', () => {
       if (!ticking) {
-        requestAnimationFrame(update3DTransforms);
+        window.requestAnimationFrame(() => {
+          update3DTransforms();
+          ticking = false;
+        });
         ticking = true;
       }
     });
