@@ -296,7 +296,7 @@ function createParticles() {
 function updateSceneFromScroll(index) {
   const spacing = 3.2;
   const totalWidth = (avatarGroups.length - 1) * spacing;
-  const xOffset = -index * spacing;
+  const xOffset = totalWidth / 2 - index * spacing;
   
   avatarGroups.forEach((group, i) => {
     const baseX = i * spacing - totalWidth / 2;
@@ -305,9 +305,8 @@ function updateSceneFromScroll(index) {
     // Smooth interpolation
     group.position.x += (targetX - group.position.x) * 0.08;
     
-    // Calculate distance from center for effects
-    const centerX = index * spacing;
-    const distFromCenter = Math.abs(group.position.x - centerX);
+    // Calculate distance from center for effects (center is always X = 0)
+    const distFromCenter = Math.abs(group.position.x);
     const maxDist = 6;
     const ratio = Math.min(distFromCenter / maxDist, 1);
     
