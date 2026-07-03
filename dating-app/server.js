@@ -164,17 +164,6 @@ function requireAuth(req, res, next) {
   next();
 }
 
-// Mock Image Moderation
-async function moderateImage(imageUrl) {
-  // Simulate API delay
-  await new Promise(r => setTimeout(r, 300));
-  if (!imageUrl) return { safe: true };
-  if (imageUrl.toLowerCase().includes('nsfw') || imageUrl.toLowerCase().includes('inappropriate')) {
-    return { safe: false, reason: 'Image flagged by moderation system.' };
-  }
-  return { safe: true };
-}
-
 // Check if user is logged in
 app.get('/api/session', (req, res) => {
   if (req.session.userId) {
@@ -187,10 +176,10 @@ app.get('/api/session', (req, res) => {
   res.json({ authenticated: false });
 });
 
-// Create profile (signup)
+// Create profile (signup — legacy passcode flow)
 app.post('/api/users/create', async (req, res) => {
   try {
-    const { username, gender, passcode, bio, hobbies, profile_pic } = req.body;
+    const { username, gender, passcode, bio, hobbies, avatar } = req.body;
     
     if (!username || !gender || !passcode) {
       return res.status(400).json({ error: 'Username, gender, and passcode are required' });
@@ -202,14 +191,6 @@ app.post('/api/users/create', async (req, res) => {
       return res.status(400).json({ error: 'Passcode must be at least 6 characters' });
     }
 
-    // Check moderation
-    if (profile_pic) {
-      const modResult = await moderateImage(profile_pic);
-      if (!modResult.safe) {
-        return res.status(400).json({ error: modResult.reason });
-      }
-    }
-
     // Check username availability
     const existing = userOps.getByUsername(username);
     if (existing) {
@@ -217,7 +198,7 @@ app.post('/api/users/create', async (req, res) => {
     }
 
     const passcodeHash = await bcrypt.hash(passcode, 10);
-    const userId = userOps.create(username, gender, passcodeHash, bio, hobbies, profile_pic);
+    const userId = userOps.create(username, gender, passcodeHash, bio, hobbies, avatar);
     req.session.userId = Number(userId);
     
     const user = userOps.getById(userId);
@@ -364,7 +345,7 @@ app.post('/api/auth/verify-otp', async (req, res) => {
 // Complete profile for new users (after OTP verification)
 app.post('/api/auth/complete-profile', async (req, res) => {
   try {
-    const { email, username, gender, bio, hobbies, profile_pic } = req.body;
+    const { email, username, gender, bio, hobbies, avatar } = req.body;
 
     if (!email || !username || !gender) {
       return res.status(400).json({ error: 'Email, username, and gender are required' });
@@ -376,14 +357,6 @@ app.post('/api/auth/complete-profile', async (req, res) => {
     // Verify this email was recently OTP-verified (stored in session)
     if (req.session.pendingEmail !== email) {
       return res.status(401).json({ error: 'Please verify your email with OTP first' });
-    }
-
-    // Check moderation
-    if (profile_pic) {
-      const modResult = await moderateImage(profile_pic);
-      if (!modResult.safe) {
-        return res.status(400).json({ error: modResult.reason });
-      }
     }
 
     // Check username availability
@@ -398,7 +371,7 @@ app.post('/api/auth/complete-profile', async (req, res) => {
       return res.status(400).json({ error: 'Email already registered' });
     }
 
-    const userId = userOps.createWithEmail(username, gender, email, bio, hobbies, profile_pic);
+    const userId = userOps.createWithEmail(username, gender, email, bio, hobbies, avatar);
     
     req.session.userId = Number(userId);
     delete req.session.pendingEmail;
@@ -428,16 +401,8 @@ app.get('/api/users/me', requireAuth, (req, res) => {
 
 // Update profile
 app.put('/api/users/me', requireAuth, async (req, res) => {
-  const { bio, hobbies, profile_pic } = req.body;
-  
-  if (profile_pic) {
-    const modResult = await moderateImage(profile_pic);
-    if (!modResult.safe) {
-      return res.status(400).json({ error: modResult.reason });
-    }
-  }
-
-  userOps.update(req.session.userId, { bio, hobbies, profile_pic });
+  const { bio, hobbies, avatar } = req.body;
+  userOps.update(req.session.userId, { bio, hobbies, avatar });
   const user = userOps.getById(req.session.userId);
   const { passcode_hash, ...safeUser } = user;
   res.json({ success: true, user: safeUser });
@@ -474,7 +439,7 @@ app.get('/api/discover', requireAuth, (req, res) => {
       hobbies: profileHobbies,
       matching_hobbies: matchingHobbies,
       match_count: matchCount,
-      profile_pic: p.profile_pic,
+      avatar: p.avatar,
       gender: p.gender,
       total_count: p.total_count
     };
@@ -491,6 +456,17 @@ app.post('/api/connections/request', requireAuth, (req, res) => {
   const { to_user_id } = req.body;
   if (!to_user_id) return res.status(400).json({ error: 'Missing target user' });
   if (to_user_id === req.session.userId) return res.status(400).json({ error: 'Cannot request yourself' });
+
+  const user = userOps.getById(req.session.userId);
+  const target = userOps.getById(to_user_id);
+  if (!user || !target) return res.status(404).json({ error: 'User not found' });
+
+  if (user.gender === 'male' && target.gender !== 'female') {
+    return res.status(400).json({ error: 'Gender preference mismatch: Male accounts can only connect with Female accounts.' });
+  }
+  if (user.gender === 'female' && target.gender !== 'male') {
+    return res.status(400).json({ error: 'Gender preference mismatch: Female accounts can only connect with Male accounts.' });
+  }
 
   const result = connectionOps.sendRequest(req.session.userId, to_user_id);
   if (result.error) return res.status(400).json(result);
@@ -544,8 +520,10 @@ app.get('/api/connections/:id', requireAuth, (req, res) => {
   
   const now = new Date();
   res.json({
-    ...conn,
-    is_vibe_available: conn.vibe_available_at ? new Date(conn.vibe_available_at) <= now : false
+    connection: {
+      ...conn,
+      is_vibe_available: conn.vibe_available_at ? new Date(conn.vibe_available_at) <= now : false
+    }
   });
 });
 
