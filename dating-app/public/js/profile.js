@@ -48,7 +48,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     document.getElementById('prof-avatar').innerHTML = getAvatarHtml(currentUser.username, currentUser.avatar, {
-      className: 'w-full h-full object-cover scale-[2.2] origin-[center_15%]'
+      className: 'absolute w-[180%] max-w-none left-[-40%] top-[-25%]'
     });
     
     // Initial 3D avatar preview load
@@ -83,7 +83,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       currentUser.hobbies = hobbies;
       currentUser.avatar = avatar;
       document.getElementById('prof-avatar').innerHTML = getAvatarHtml(currentUser.username, currentUser.avatar, {
-        className: 'w-full h-full object-cover scale-[2.2] origin-[center_15%]'
+        className: 'absolute w-[180%] max-w-none left-[-40%] top-[-25%]'
       });
       updateHeaderAvatar();
       
