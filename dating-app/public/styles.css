@@ -3,7 +3,7 @@
   --header-h-md: 6rem;    /* 96px, matches md:pt-24 */
   --bottomnav-h: 4.5rem;  /* mobile bottom nav */
 }
-html, body { height: 100%; }
+html { height: 100%; }
 body {
     font-family: 'Plus Jakarta Sans', sans-serif;
     background-color: theme('colors.surface-bright');
