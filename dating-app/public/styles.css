@@ -153,16 +153,29 @@ body.discover-page #app-root, body.profile-page #app-root {
 }
 
 /* Profile 3D Preview Dynamic Dimensions */
+#profile-3d-preview-container {
+  position: absolute;
+  right: 0%;
+  top: 12%;
+  z-index: 0;
+  pointer-events: none;
+}
+
 #profile-3d-preview {
   position: relative;
-  height: min(40vh, 260px);
-  width: calc(min(40vh, 260px) * 0.75);
+  height: min(32vh, 210px);
+  width: calc(min(32vh, 210px) * 0.75);
 }
 
 @media (min-width: 768px) {
+  #profile-3d-preview-container {
+    right: 8%;
+    top: auto;
+    bottom: 4%;
+  }
   #profile-3d-preview {
-    height: min(45vh, 380px);
-    width: calc(min(45vh, 380px) * 0.75);
+    height: min(50vh, 400px);
+    width: calc(min(50vh, 400px) * 0.75);
   }
 }
 
