@@ -14,7 +14,6 @@ let profilesData = [];
 
 function loadAndProcessTexture(path, callback) {
   const img = new Image();
-  img.crossOrigin = "anonymous";
   img.onload = () => {
     const canvas = document.createElement('canvas');
     canvas.width = img.width;
@@ -240,8 +239,8 @@ function createAvatarCards(profiles) {
       idlePath = profile.avatar.idle;
       wavePath = profile.avatar.wave;
     } else if (profile.avatar) {
-      idlePath = `/avatars/${profile.gender || 'male'}/${profile.avatar}.jpeg`;
-      wavePath = `/avatars/${profile.gender || 'male'}/${profile.avatar}.jpeg`;
+      idlePath = `/avatars/${profile.avatar}.jpeg`;
+      wavePath = `/avatars/${profile.avatar}.jpeg`;
     }
 
     if (idlePath) {
