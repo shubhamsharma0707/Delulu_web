@@ -105,30 +105,7 @@ async function sendOTPEmail(email, otp) {
     </div>
   `;
 
-  if (process.env.BREVO_API_KEY) {
-    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
-      method: 'POST',
-      headers: {
-        'api-key': process.env.BREVO_API_KEY,
-        'content-type': 'application/json',
-        'accept': 'application/json'
-      },
-      body: JSON.stringify({
-        sender: {
-          name: 'Delulu',
-          email: process.env.GMAIL_USER || 'delulu.college.dating@gmail.com'
-        },
-        to: [{ email }],
-        subject: 'Your Delulu verification code',
-        htmlContent: emailContent
-      })
-    });
-
-    if (!response.ok) {
-      const errData = await response.json().catch(() => ({}));
-      throw new Error(`Brevo API Error: ${errData.message || response.statusText}`);
-    }
-  } else if (transporter) {
+  if (transporter) {
     await transporter.sendMail({
       from: `"Delulu" <${process.env.GMAIL_USER}>`,
       to: email,
