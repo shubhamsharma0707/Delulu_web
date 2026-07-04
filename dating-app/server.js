@@ -72,7 +72,10 @@ if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
     auth: {
       user: process.env.GMAIL_USER,
       pass: process.env.GMAIL_APP_PASSWORD
-    }
+    },
+    connectionTimeout: 5000, // 5 seconds connection timeout
+    greetingTimeout: 5000,   // 5 seconds greeting timeout
+    socketTimeout: 10000     // 10 seconds socket timeout
   });
   console.log('Nodemailer transporter ready');
 } else {
@@ -189,12 +192,11 @@ app.use('/api/', apiLimiter);
 app.use((req, res, next) => {
   if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) {
     const origin = req.get('origin') || req.get('referer') || '';
-    const host = req.get('host');
     // Allow requests with no origin (same-origin form submissions, server-to-server)
     if (origin) {
       try {
-        const originHost = new URL(origin).host;
-        if (originHost !== host) {
+        const originHostname = new URL(origin).hostname;
+        if (originHostname !== req.hostname) {
           return res.status(403).json({ error: 'Cross-origin request blocked' });
         }
       } catch (e) {
@@ -401,14 +403,13 @@ app.post('/api/auth/send-otp', otpLimiter, async (req, res) => {
     // Store OTP in SQLite
     otpOps.create(cleanEmail, otp, expiresAt);
 
-    // Send OTP via email
-    try {
-      await sendOTPEmail(cleanEmail, otp);
-    } catch (emailErr) {
-      console.error('Email send error:', emailErr);
-      // Still return success — OTP is stored and can be checked in console
-      // In production, you'd want to return an error here
-    }
+    // Log OTP to console for debugging/development logs (useful if email fails/hangs)
+    console.log(`[OTP] Generated OTP for ${cleanEmail}: ${otp}`);
+
+    // Send OTP via email (non-blocking to prevent SMTP delays/timeouts from hanging the API response)
+    sendOTPEmail(cleanEmail, otp).catch(emailErr => {
+      console.error(`Email send error for ${cleanEmail}:`, emailErr);
+    });
 
     res.json({ success: true, message: 'OTP sent to your email' });
   } catch (err) {
