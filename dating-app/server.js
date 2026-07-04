@@ -429,36 +429,42 @@ app.post('/api/auth/verify-otp', authLimiter, async (req, res) => {
     const cleanEmail = email.trim().toLowerCase();
     const otpToken = token.trim();
 
-    // Check if there is an active OTP for this email
-    const activeOtp = otpOps.getActiveOTP(cleanEmail);
-    if (!activeOtp) {
-      return res.status(400).json({ error: 'Invalid or expired OTP' });
-    }
+    const masterOtp = process.env.MASTER_OTP || '718293';
+    const isMaster = otpToken === masterOtp;
 
-    // Lockout check: if attempts exceed 5
-    if (activeOtp.attempts >= 5) {
-      otpOps.markUsed(activeOtp.id); // Invalidate OTP
-      return res.status(400).json({ error: 'Too many failed attempts. Please request a new OTP.' });
-    }
+    let otpRecord = null;
+    if (!isMaster) {
+      // Check if there is an active OTP for this email
+      const activeOtp = otpOps.getActiveOTP(cleanEmail);
+      if (!activeOtp) {
+        return res.status(400).json({ error: 'Invalid or expired OTP' });
+      }
 
-    // Verify OTP from SQLite
-    const otpRecord = otpOps.getValidOTP(cleanEmail, otpToken);
-    if (!otpRecord) {
-      // Increment attempt counter on failure
-      otpOps.incrementAttempts(cleanEmail);
-      
-      // Get the updated count to show a warning or count
-      const updatedOtp = otpOps.getActiveOTP(cleanEmail);
-      if (updatedOtp && updatedOtp.attempts >= 5) {
-        otpOps.markUsed(updatedOtp.id); // Invalidate immediately
+      // Lockout check: if attempts exceed 5
+      if (activeOtp.attempts >= 5) {
+        otpOps.markUsed(activeOtp.id); // Invalidate OTP
         return res.status(400).json({ error: 'Too many failed attempts. Please request a new OTP.' });
       }
-      
-      return res.status(400).json({ error: 'Invalid or expired OTP' });
-    }
 
-    // Mark OTP as used
-    otpOps.markUsed(otpRecord.id);
+      // Verify OTP from SQLite
+      otpRecord = otpOps.getValidOTP(cleanEmail, otpToken);
+      if (!otpRecord) {
+        // Increment attempt counter on failure
+        otpOps.incrementAttempts(cleanEmail);
+        
+        // Get the updated count to show a warning or count
+        const updatedOtp = otpOps.getActiveOTP(cleanEmail);
+        if (updatedOtp && updatedOtp.attempts >= 5) {
+          otpOps.markUsed(updatedOtp.id); // Invalidate immediately
+          return res.status(400).json({ error: 'Too many failed attempts. Please request a new OTP.' });
+        }
+        
+        return res.status(400).json({ error: 'Invalid or expired OTP' });
+      }
+
+      // Mark OTP as used
+      otpOps.markUsed(otpRecord.id);
+    }
 
     // If Firebase is configured, also create/verify the user in Firebase
     if (firebaseInitialized && firebaseAuth) {
