@@ -240,8 +240,8 @@ function createAvatarCards(profiles) {
       idlePath = profile.avatar.idle;
       wavePath = profile.avatar.wave;
     } else if (profile.avatar) {
-      idlePath = `/avatars/${profile.gender || 'male'}/${profile.avatar}/idle.jpeg`;
-      wavePath = `/avatars/${profile.gender || 'male'}/${profile.avatar}/wave.jpeg`;
+      idlePath = `/avatars/${profile.gender || 'male'}/${profile.avatar}.jpeg`;
+      wavePath = `/avatars/${profile.gender || 'male'}/${profile.avatar}.jpeg`;
     }
 
     if (idlePath) {
