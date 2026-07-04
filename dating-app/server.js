@@ -919,7 +919,7 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-server.listen(PORT, process.env.NODE_ENV === 'production' ? '127.0.0.1' : '0.0.0.0', () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`Delulu Dating App running at http://localhost:${PORT}`);
   console.log(`Open your browser to http://localhost:${PORT}`);
   console.log('');
