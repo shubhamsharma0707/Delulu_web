@@ -152,7 +152,7 @@ function backfillDemoAvatars() {
   ];
 
   try {
-    const update = db.prepare(`UPDATE users SET avatar = @avatar WHERE username = @username AND (avatar = '' OR avatar IS NULL)`);
+    const update = db.prepare(`UPDATE users SET avatar = @avatar WHERE username = @username`);
     const updateMany = db.transaction((users) => {
       for (const u of users) {
         update.run(u);
