@@ -135,6 +135,35 @@ function seedDemoUsers() {
   console.log(`Seeded ${demos.length} demo users`);
 }
 
+function backfillDemoAvatars() {
+  const demos = [
+    { username: 'wanderlust_amy', avatar: 'female_01' },
+    { username: 'art_vibes', avatar: 'female_02' },
+    { username: 'stellar_jay', avatar: 'male_01' },
+    { username: 'coffee_leo', avatar: 'male_02' },
+    { username: 'trailblazer', avatar: 'female_03' },
+    { username: 'pixel_wanderer', avatar: 'male_03' },
+    { username: 'bookish_bee', avatar: 'female_04' },
+    { username: 'green_mind', avatar: 'male_04' },
+    { username: 'melody_maker', avatar: 'female_05' },
+    { username: 'ocean_soul', avatar: 'male_05' },
+    { username: 'spice_queen', avatar: 'female_06' },
+    { username: 'zen_master', avatar: 'male_06' },
+  ];
+
+  try {
+    const update = db.prepare(`UPDATE users SET avatar = @avatar WHERE username = @username AND (avatar = '' OR avatar IS NULL)`);
+    const updateMany = db.transaction((users) => {
+      for (const u of users) {
+        update.run(u);
+      }
+    });
+    updateMany(demos);
+  } catch (e) {
+    console.error("Failed to backfill avatars:", e);
+  }
+}
+
 // User operations
 const userOps = {
   create(username, gender, passcodeHash, bio, hobbies, avatar) {
@@ -466,4 +495,12 @@ const otpOps = {
   }
 };
 
-module.exports = { getDB, initDB, seedDemoUsers, userOps, connectionOps, messageOps, otpOps };
+module.exports = {
+  getDB,
+  seedDemoUsers,
+  backfillDemoAvatars,
+  userOps,
+  connectionOps,
+  messageOps,
+  otpOps
+};

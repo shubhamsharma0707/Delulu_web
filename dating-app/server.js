@@ -12,7 +12,7 @@ const rateLimit = require('express-rate-limit');
 const nodemailer = require('nodemailer');
 const { initializeApp: firebaseInitializeApp, cert } = require('firebase-admin/app');
 const { getAuth: getFirebaseAuth } = require('firebase-admin/auth');
-const { getDB, seedDemoUsers, userOps, connectionOps, messageOps } = require('./database');
+const { getDB, seedDemoUsers, backfillDemoAvatars, userOps, connectionOps, messageOps } = require('./database');
 const multer = require('multer');
 const fs = require('fs');
 
@@ -742,6 +742,7 @@ app.get('/profile', (req, res) => {
 // Initialize database and start server
 getDB();
 seedDemoUsers();
+backfillDemoAvatars();
 
 // Scheduled Sweep for Expired Connections (every 1 minute)
 setInterval(() => {
