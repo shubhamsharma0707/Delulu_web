@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Environment variables
+.env
+
+# SQLite databases
+data/*.db
+data/*.db-shm
+data/*.db-wal
+*.sqlite
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Uploads (user-generated, don't track)
+public/uploads/voice/*
+!public/uploads/voice/.gitkeep

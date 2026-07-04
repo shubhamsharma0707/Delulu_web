@@ -1,5 +1,7 @@
 const express = require('express');
 const session = require('express-session');
+const SqliteStore = require('better-sqlite3-session-store')(session);
+const Database = require('better-sqlite3');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
@@ -79,7 +81,7 @@ if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
 
 // ===== OTP Helper Functions =====
 function generateOTP() {
-  return crypto.randomInt(100000, 999999).toString();
+  return crypto.randomInt(100000, 1000000).toString();
 }
 
 async function sendOTPEmail(email, otp) {
@@ -111,10 +113,9 @@ async function sendOTPEmail(email, otp) {
     console.log(`[OTP Email] To: ${email} | Code: ${otp}`);
   }
 }
-// Warn if SESSION_SECRET is not set
+// Hard-fail if SESSION_SECRET is not set — a dating app must never run with a guessable session secret
 if (!process.env.SESSION_SECRET) {
-  console.warn('⚠️  WARNING: SESSION_SECRET environment variable is not set! Using a development-only fallback.');
-  console.warn('   Set a strong random SESSION_SECRET in production: openssl rand -hex 32');
+  throw new Error('FATAL: SESSION_SECRET environment variable is not set. Generate one with: node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'hex\'))"');
 }
 
 // Trust proxy for when running behind nginx/render/heroku
@@ -155,9 +156,16 @@ const apiLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// Persistent SQLite session store — survives server restarts, no memory leaks
+const sessionsDb = new Database(path.join(__dirname, 'data', 'sessions.db'));
+
 // Session middleware
 const sessionMiddleware = session({
-  secret: process.env.SESSION_SECRET || 'delulu-dev-secret-do-not-use-in-prod',
+  store: new SqliteStore({
+    client: sessionsDb,
+    expired: { clear: true, intervalMs: 15 * 60 * 1000 } // auto-clear expired sessions every 15 min
+  }),
+  secret: process.env.SESSION_SECRET,
   resave: false,
   saveUninitialized: false, // Don't create sessions for unauthenticated visitors
   cookie: {
@@ -176,6 +184,26 @@ app.use(express.urlencoded({ extended: true }));
 
 // Apply general API rate limiter to all /api/ routes
 app.use('/api/', apiLimiter);
+
+// CSRF Origin/Referer check — defense-in-depth on top of sameSite: 'lax'
+app.use((req, res, next) => {
+  if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) {
+    const origin = req.get('origin') || req.get('referer') || '';
+    const host = req.get('host');
+    // Allow requests with no origin (same-origin form submissions, server-to-server)
+    if (origin) {
+      try {
+        const originHost = new URL(origin).host;
+        if (originHost !== host) {
+          return res.status(403).json({ error: 'Cross-origin request blocked' });
+        }
+      } catch (e) {
+        return res.status(403).json({ error: 'Invalid origin header' });
+      }
+    }
+  }
+  next();
+});
 
 // Static files
 app.use(express.static(path.join(__dirname, 'public')));
@@ -284,8 +312,19 @@ app.post('/api/users/create', async (req, res) => {
     if (!/^[a-zA-Z0-9_]+$/.test(usernameStr)) {
       return res.status(400).json({ error: 'Username can only contain letters, numbers, and underscores' });
     }
-    if (bio && bio.length > 500) {
-      return res.status(400).json({ error: 'Bio must be less than 500 characters' });
+    if (bio && bio.length > 300) {
+      return res.status(400).json({ error: 'Bio must be less than 300 characters' });
+    }
+    // Validate hobbies
+    if (hobbies && Array.isArray(hobbies)) {
+      if (hobbies.length > 10) {
+        return res.status(400).json({ error: 'Maximum 10 hobbies allowed' });
+      }
+      for (const h of hobbies) {
+        if (typeof h !== 'string' || h.length > 30) {
+          return res.status(400).json({ error: 'Each hobby must be a string under 30 characters' });
+        }
+      }
     }
 
     // Check username availability
@@ -317,10 +356,10 @@ app.post('/api/users/login', async (req, res) => {    const { username, passcode
   }
   
   const user = userOps.getByUsername(username);
-  if (!user) return res.status(404).json({ error: 'User not found' });
+  if (!user) return res.status(401).json({ error: 'Incorrect username or passcode' });
   
   const match = await bcrypt.compare(passcode, user.passcode_hash);
-  if (!match) return res.status(401).json({ error: 'Incorrect passcode' });
+  if (!match) return res.status(401).json({ error: 'Incorrect username or passcode' });
 
   req.session.userId = user.id;
   const safeUser = sanitizeUser(user);
@@ -389,9 +428,31 @@ app.post('/api/auth/verify-otp', authLimiter, async (req, res) => {
     const cleanEmail = email.trim().toLowerCase();
     const otpToken = token.trim();
 
+    // Check if there is an active OTP for this email
+    const activeOtp = otpOps.getActiveOTP(cleanEmail);
+    if (!activeOtp) {
+      return res.status(400).json({ error: 'Invalid or expired OTP' });
+    }
+
+    // Lockout check: if attempts exceed 5
+    if (activeOtp.attempts >= 5) {
+      otpOps.markUsed(activeOtp.id); // Invalidate OTP
+      return res.status(400).json({ error: 'Too many failed attempts. Please request a new OTP.' });
+    }
+
     // Verify OTP from SQLite
     const otpRecord = otpOps.getValidOTP(cleanEmail, otpToken);
     if (!otpRecord) {
+      // Increment attempt counter on failure
+      otpOps.incrementAttempts(cleanEmail);
+      
+      // Get the updated count to show a warning or count
+      const updatedOtp = otpOps.getActiveOTP(cleanEmail);
+      if (updatedOtp && updatedOtp.attempts >= 5) {
+        otpOps.markUsed(updatedOtp.id); // Invalidate immediately
+        return res.status(400).json({ error: 'Too many failed attempts. Please request a new OTP.' });
+      }
+      
       return res.status(400).json({ error: 'Invalid or expired OTP' });
     }
 
@@ -464,15 +525,15 @@ app.post('/api/auth/complete-profile', async (req, res) => {
     if (!/^[a-zA-Z0-9_]+$/.test(usernameStr)) {
       return res.status(400).json({ error: 'Username can only contain letters, numbers, and underscores' });
     }
-    if (bio && bio.length > 500) {
-      return res.status(400).json({ error: 'Bio must be less than 500 characters' });
+    if (bio && bio.length > 300) {
+      return res.status(400).json({ error: 'Bio must be less than 300 characters' });
     }
-    if (hobbies && Array.isArray(hobbies) && hobbies.length > 20) {
-      return res.status(400).json({ error: 'Maximum 20 hobbies allowed' });
+    if (hobbies && Array.isArray(hobbies) && hobbies.length > 10) {
+      return res.status(400).json({ error: 'Maximum 10 hobbies allowed' });
     }
     for (const h of (hobbies || [])) {
-      if (typeof h !== 'string' || h.length > 50) {
-        return res.status(400).json({ error: 'Each hobby must be under 50 characters' });
+      if (typeof h !== 'string' || h.length > 30) {
+        return res.status(400).json({ error: 'Each hobby must be a string under 30 characters' });
       }
     }
 
@@ -525,16 +586,16 @@ app.get('/api/users/me', requireAuth, (req, res) => {
 app.put('/api/users/me', requireAuth, async (req, res) => {
   const { bio, hobbies, avatar } = req.body;
   // Input validation
-  if (bio !== undefined && bio !== null && bio.length > 500) {
-    return res.status(400).json({ error: 'Bio must be less than 500 characters' });
+  if (bio !== undefined && bio !== null && bio.length > 300) {
+    return res.status(400).json({ error: 'Bio must be less than 300 characters' });
   }
   if (hobbies && Array.isArray(hobbies)) {
-    if (hobbies.length > 20) {
-      return res.status(400).json({ error: 'Maximum 20 hobbies allowed' });
+    if (hobbies.length > 10) {
+      return res.status(400).json({ error: 'Maximum 10 hobbies allowed' });
     }
     for (const h of hobbies) {
-      if (typeof h !== 'string' || h.length > 50) {
-        return res.status(400).json({ error: 'Each hobby must be under 50 characters' });
+      if (typeof h !== 'string' || h.length > 30) {
+        return res.status(400).json({ error: 'Each hobby must be a string under 30 characters' });
       }
     }
   }

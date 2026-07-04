@@ -99,6 +99,7 @@ function initDB() {
   try { db.exec("ALTER TABLE connections ADD COLUMN reveal_available_at DATETIME;"); } catch (e) {}
   try { db.exec("ALTER TABLE messages ADD COLUMN is_voice INTEGER DEFAULT 0;"); } catch (e) {}
   try { db.exec("ALTER TABLE messages ADD COLUMN voice_duration INTEGER DEFAULT 0;"); } catch (e) {}
+  try { db.exec("ALTER TABLE otps ADD COLUMN attempts INTEGER DEFAULT 0;"); } catch (e) {}
 }
 
 // Seed some demo users if none exist
@@ -435,6 +436,21 @@ const otpOps = {
     return getDB().prepare(
       `SELECT * FROM otps WHERE email = ? AND otp = ? AND used = 0 AND expires_at > datetime('now') ORDER BY created_at DESC LIMIT 1`
     ).get(email, otp);
+  },
+
+  getActiveOTP(email) {
+    return getDB().prepare(
+      `SELECT * FROM otps WHERE email = ? AND used = 0 AND expires_at > datetime('now') ORDER BY created_at DESC LIMIT 1`
+    ).get(email);
+  },
+
+  incrementAttempts(email) {
+    const active = getDB().prepare(
+      `SELECT id FROM otps WHERE email = ? AND used = 0 AND expires_at > datetime('now') ORDER BY created_at DESC LIMIT 1`
+    ).get(email);
+    if (active) {
+      getDB().prepare('UPDATE otps SET attempts = attempts + 1 WHERE id = ?').run(active.id);
+    }
   },
 
   markUsed(id) {

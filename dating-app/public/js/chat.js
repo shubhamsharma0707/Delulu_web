@@ -237,7 +237,7 @@ async function loadMessages() {
       appendMessage(m, false);
     });
   } catch (err) {
-    cont.innerHTML = `<p class="text-error">${err.message}</p>`;
+    cont.innerHTML = `<p class="text-error">${escapeHtml(err.message)}</p>`;
   }
 }
 

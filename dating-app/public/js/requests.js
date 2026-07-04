@@ -55,7 +55,7 @@ async function loadRequests(type = 'incoming') {
       `;
     }).join('');
   } catch (err) {
-    list.innerHTML = `<div class="p-4 text-error">${err.message}</div>`;
+    list.innerHTML = `<div class="p-4 text-error">${escapeHtml(err.message)}</div>`;
   }
 }
 
