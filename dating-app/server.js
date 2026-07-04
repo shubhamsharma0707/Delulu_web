@@ -68,16 +68,22 @@ if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && proc
 let transporter = null;
 if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
   transporter = nodemailer.createTransport({
-    service: 'gmail',
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true,
     auth: {
       user: process.env.GMAIL_USER,
       pass: process.env.GMAIL_APP_PASSWORD
     },
+    tls: {
+      rejectUnauthorized: false
+    },
+    family: 4, // Force IPv4 to prevent Render ENETUNREACH IPv6 errors
     connectionTimeout: 5000, // 5 seconds connection timeout
     greetingTimeout: 5000,   // 5 seconds greeting timeout
     socketTimeout: 10000     // 10 seconds socket timeout
   });
-  console.log('Nodemailer transporter ready');
+  console.log('Nodemailer transporter ready (IPv4 forced)');
 } else {
   console.log('Gmail not configured — OTP emails will be logged to console instead');
 }
