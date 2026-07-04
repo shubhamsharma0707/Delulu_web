@@ -125,40 +125,27 @@
         </form>
       </div>
 
-      <!-- ===== STAGE 2: OTP Input ===== -->
+      <!-- ===== STAGE 2: Magic Link Sent ===== -->
       <div id="stage-otp" class="hidden">
         <h2 class="text-xl font-bold text-on-surface mb-1">Check your email</h2>
-        <p class="text-sm text-on-surface-variant mb-2">We sent a 6-digit code to</p>
+        <p class="text-sm text-on-surface-variant mb-2">We sent a secure magic link to</p>
         <p id="otp-email-display" class="text-sm font-semibold text-primary mb-6"></p>
 
-        <form id="form-otp" class="flex flex-col gap-4">
-          <input 
-            id="input-otp" 
-            type="text" 
-            inputmode="numeric"
-            pattern="[0-9]*"
-            maxlength="6"
-            placeholder="000000" 
-            class="otp-input w-full bg-surface-container-low rounded-xl px-4 py-4 border-none focus:ring-2 focus:ring-primary/50 outline-none"
-            required
-            autocomplete="one-time-code"
-          >
-          <p id="otp-error" class="text-error text-sm font-semibold hidden"></p>
-          <button 
-            type="submit"
-            id="btn-verify-otp"
-            class="w-full bg-gradient-to-r from-primary to-primary-container text-white font-bold py-3 rounded-xl shadow-md hover:shadow-lg transition-all disabled:opacity-50"
-          >
-            Verify OTP
-          </button>
+        <div class="flex flex-col gap-4 text-center">
+          <div class="bg-surface-container-low rounded-xl px-4 py-6 border-none">
+            <span class="material-symbols-outlined text-4xl text-primary mb-2">mail</span>
+            <p class="text-sm text-on-surface-variant">Click the link in the email to instantly sign in.</p>
+            <p class="text-xs text-outline mt-2">You can close this tab if you open the link on another device.</p>
+          </div>
+          
           <button 
             type="button" 
             id="btn-back-email" 
-            class="text-sm text-on-surface-variant hover:text-primary transition-colors"
+            class="text-sm text-on-surface-variant hover:text-primary transition-colors mt-4"
           >
             ← Use a different email
           </button>
-        </form>
+        </div>
       </div>
 
       <!-- ===== STAGE 3: Complete Profile (new users only) ===== -->
@@ -213,6 +200,6 @@
   </main>
   
   <script src="/js/shared.js"></script>
-  <script src="/js/login.js"></script>
+  <script type="module" src="/js/login.js"></script>
 </body>
 </html>

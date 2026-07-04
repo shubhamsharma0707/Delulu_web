@@ -1,3 +1,18 @@
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, sendSignInLinkToEmail, isSignInWithEmailLink, signInWithEmailLink } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyA3ZqXEQrLirVjRv338T4q_ExjPlGN_06s",
+  authDomain: "delulu-final.firebaseapp.com",
+  projectId: "delulu-final",
+  storageBucket: "delulu-final.firebasestorage.app",
+  messagingSenderId: "547753348022",
+  appId: "1:547753348022:web:c5d0e6abd07bffecd08f17"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+
 document.addEventListener('DOMContentLoaded', async () => {
   // Check session; if logged in, redirect to /discover
   try {
@@ -9,7 +24,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   } catch (err) {}
 
   // State
-  let currentEmail = '';
+  let currentEmail = window.localStorage.getItem('emailForSignIn') || '';
   const errEl = document.getElementById('email-error');
 
   // DOM refs
@@ -68,64 +83,68 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const btn = document.getElementById('btn-send-otp');
     btn.disabled = true;
-    btn.textContent = 'Sending...';
+    btn.textContent = 'Sending Magic Link...';
+
+    const actionCodeSettings = {
+      // URL you want to redirect back to. The domain must be whitelisted in Firebase Console.
+      url: window.location.origin + '/login.html',
+      handleCodeInApp: true,
+    };
 
     try {
-      await apiCall('/api/auth/send-otp', 'POST', { email });
+      await sendSignInLinkToEmail(auth, email, actionCodeSettings);
+      window.localStorage.setItem('emailForSignIn', email);
       currentEmail = email;
       otpEmailDisplay.textContent = email;
-      inputOtp.value = '';
       showStage(stageOtp);
-      inputOtp.focus();
     } catch (err) {
-      errEl.textContent = err.message;
+      console.error(err);
+      errEl.textContent = 'Failed to send link. ' + err.message;
       errEl.classList.remove('hidden');
     } finally {
       btn.disabled = false;
-      btn.textContent = 'Send OTP';
+      btn.textContent = 'Send Magic Link';
     }
   };
 
-  // ===== STAGE 2: Verify OTP =====
-  document.getElementById('form-otp').onsubmit = async (e) => {
-    e.preventDefault();
-    const token = inputOtp.value.trim();
-
-    if (token.length !== 6 || !/^\d{6}$/.test(token)) {
-      document.getElementById('otp-error').textContent = 'Please enter a valid 6-digit OTP';
-      document.getElementById('otp-error').classList.remove('hidden');
-      return;
+  // ===== STAGE 2: Handle Magic Link Verification =====
+  // Check if the user is returning from a magic link click
+  if (isSignInWithEmailLink(auth, window.location.href)) {
+    let email = window.localStorage.getItem('emailForSignIn');
+    if (!email) {
+      // If opened on a different device, prompt for email
+      email = window.prompt('Please provide your email for confirmation');
     }
 
-    const btn = document.getElementById('btn-verify-otp');
-    btn.disabled = true;
-    btn.textContent = 'Verifying...';
-    document.getElementById('otp-error').classList.add('hidden');
+    if (email) {
+      try {
+        // Sign in with Firebase
+        const result = await signInWithEmailLink(auth, email, window.location.href);
+        window.localStorage.removeItem('emailForSignIn');
 
-    try {
-      const rememberMe = document.getElementById('remember-me').checked;
-      const data = await apiCall('/api/auth/verify-otp', 'POST', { 
-        email: currentEmail, 
-        token,
-        rememberMe
-      });
+        // Get the secure ID token to send to our backend
+        const idToken = await result.user.getIdToken();
 
-      if (data.isNewUser) {
-        // Show profile completion form
-        showStage(stageProfile);
-        document.getElementById('profile-username').focus();
-      } else {
-        // Existing user — redirect to discover
-        window.location.href = '/discover';
+        // Establish the session on our backend
+        const rememberMe = document.getElementById('remember-me')?.checked || true;
+        const data = await apiCall('/api/auth/verify-firebase-token', 'POST', { 
+          idToken,
+          rememberMe
+        });
+
+        if (data.isNewUser) {
+          showStage(stageProfile);
+          document.getElementById('profile-username').focus();
+        } else {
+          window.location.href = '/discover';
+        }
+      } catch (error) {
+        console.error("Error signing in with email link", error);
+        errEl.textContent = 'Link is invalid or has expired.';
+        errEl.classList.remove('hidden');
       }
-    } catch (err) {
-      document.getElementById('otp-error').textContent = err.message;
-      document.getElementById('otp-error').classList.remove('hidden');
-    } finally {
-      btn.disabled = false;
-      btn.textContent = 'Verify OTP';
     }
-  };
+  }
 
   // Back to email
   document.getElementById('btn-back-email').onclick = () => {

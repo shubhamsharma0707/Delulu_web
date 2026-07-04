@@ -12,7 +12,7 @@ const rateLimit = require('express-rate-limit');
 const nodemailer = require('nodemailer');
 const { initializeApp: firebaseInitializeApp, cert } = require('firebase-admin/app');
 const { getAuth: getFirebaseAuth } = require('firebase-admin/auth');
-const { getDB, seedDemoUsers, userOps, connectionOps, messageOps, otpOps } = require('./database');
+const { getDB, seedDemoUsers, userOps, connectionOps, messageOps } = require('./database');
 const multer = require('multer');
 const fs = require('fs');
 
@@ -64,64 +64,7 @@ if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && proc
   console.log('Firebase not configured — OTP endpoint will use local verification only');
 }
 
-// ===== Nodemailer Transporter (Gmail SMTP) =====
-let transporter = null;
-if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
-  transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 465,
-    secure: true,
-    auth: {
-      user: process.env.GMAIL_USER,
-      pass: process.env.GMAIL_APP_PASSWORD
-    },
-    tls: {
-      rejectUnauthorized: false
-    },
-    family: 4, // Force IPv4 to prevent Render ENETUNREACH IPv6 errors
-    connectionTimeout: 5000, // 5 seconds connection timeout
-    greetingTimeout: 5000,   // 5 seconds greeting timeout
-    socketTimeout: 10000     // 10 seconds socket timeout
-  });
-  console.log('Nodemailer transporter ready (IPv4 forced)');
-} else {
-  console.log('Gmail not configured — OTP emails will be logged to console instead');
-}
-
-// ===== OTP Helper Functions =====
-function generateOTP() {
-  return crypto.randomInt(100000, 1000000).toString();
-}
-
-async function sendOTPEmail(email, otp) {
-  const emailContent = `
-    <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
-      <div style="text-align: center; margin-bottom: 24px;">
-        <h1 style="color: #a53b29; font-size: 28px; margin: 0;">Delulu</h1>
-        <p style="color: #8b716d; font-size: 14px;">Connection before identity.</p>
-      </div>
-      <div style="background: #f5f3f2; border-radius: 16px; padding: 32px; text-align: center;">
-        <h2 style="color: #1b1c1c; font-size: 20px; margin: 0 0 8px;">Your verification code</h2>
-        <p style="color: #57423e; font-size: 14px; margin: 0 0 24px;">Use this code to sign in to Delulu</p>
-        <div style="background: #ffffff; border-radius: 12px; padding: 16px 32px; display: inline-block;">
-          <span style="font-size: 36px; font-weight: 800; letter-spacing: 8px; color: #a53b29;">${otp}</span>
-        </div>
-        <p style="color: #8b716d; font-size: 12px; margin-top: 24px;">This code expires in 10 minutes</p>
-      </div>
-    </div>
-  `;
-
-  if (transporter) {
-    await transporter.sendMail({
-      from: `"Delulu" <${process.env.GMAIL_USER}>`,
-      to: email,
-      subject: 'Your Delulu verification code',
-      html: emailContent
-    });
-  } else {
-    console.log(`[OTP Email] To: ${email} | Code: ${otp}`);
-  }
-}
+// Nodemailer and manual OTP generation replaced by Firebase Email Link Authentication
 // Hard-fail if SESSION_SECRET is not set — a dating app must never run with a guessable session secret
 if (!process.env.SESSION_SECRET) {
   throw new Error('FATAL: SESSION_SECRET environment variable is not set. Generate one with: node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'hex\'))"');
@@ -377,118 +320,21 @@ app.post('/api/users/login', async (req, res) => {    const { username, passcode
 // ===== EMAIL OTP AUTH ROUTES =====
 
 // Send OTP to email (rate limited separately)
-app.post('/api/auth/send-otp', otpLimiter, async (req, res) => {
+// Verify Firebase ID Token and login/register
+app.post('/api/auth/verify-firebase-token', authLimiter, async (req, res) => {
   try {
-    const { email } = req.body;
-    if (!email || !email.trim()) {
-      return res.status(400).json({ error: 'Email is required' });
+    const { idToken } = req.body;
+    if (!idToken) {
+      return res.status(400).json({ error: 'ID Token is required' });
     }
 
-    const cleanEmail = email.trim().toLowerCase();
-
-    // Validate email — domain must exactly match one of the allowed domains
-    const parts = cleanEmail.split('@');
-    if (parts.length !== 2 || !parts[1]) {
-      return res.status(400).json({ error: 'Invalid email address' });
-    }
-    const domain = parts[1];
-    const emailValid = ALLOWED_SUFFIXES.includes(domain);
-    if (!emailValid) {
-      return res.status(400).json({ 
-        error: 'Only emails from rishihood.edu.in, nst.rishihood.edu.in or vitbhopal.ac.in are allowed' 
-      });
+    if (!firebaseInitialized || !firebaseAuth) {
+      return res.status(500).json({ error: 'Firebase Auth is not configured on the server' });
     }
 
-    // Generate 6-digit OTP
-    const otp = generateOTP();
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 minutes
-
-    // Delete any previous OTPs for this email
-    otpOps.deleteByEmail(cleanEmail);
-
-    // Store OTP in SQLite
-    otpOps.create(cleanEmail, otp, expiresAt);
-
-    // Log OTP to console for debugging/development logs (useful if email fails/hangs)
-    console.log(`[OTP] Generated OTP for ${cleanEmail}: ${otp}`);
-
-    // Send OTP via email (non-blocking to prevent SMTP delays/timeouts from hanging the API response)
-    sendOTPEmail(cleanEmail, otp).catch(emailErr => {
-      console.error(`Email send error for ${cleanEmail}:`, emailErr);
-    });
-
-    res.json({ success: true, message: 'OTP sent to your email' });
-  } catch (err) {
-    console.error('Send OTP error:', err);
-    res.status(500).json({ error: 'Failed to send OTP' });
-  }
-});
-
-// Verify OTP and login/register (rate limited separately)
-app.post('/api/auth/verify-otp', authLimiter, async (req, res) => {
-  try {
-    const { email, token } = req.body;
-    if (!email || !token) {
-      return res.status(400).json({ error: 'Email and OTP are required' });
-    }
-
-    const cleanEmail = email.trim().toLowerCase();
-    const otpToken = token.trim();
-
-    const masterOtp = process.env.MASTER_OTP || '718293';
-    const isMaster = otpToken === masterOtp;
-
-    let otpRecord = null;
-    if (!isMaster) {
-      // Check if there is an active OTP for this email
-      const activeOtp = otpOps.getActiveOTP(cleanEmail);
-      if (!activeOtp) {
-        return res.status(400).json({ error: 'Invalid or expired OTP' });
-      }
-
-      // Lockout check: if attempts exceed 5
-      if (activeOtp.attempts >= 5) {
-        otpOps.markUsed(activeOtp.id); // Invalidate OTP
-        return res.status(400).json({ error: 'Too many failed attempts. Please request a new OTP.' });
-      }
-
-      // Verify OTP from SQLite
-      otpRecord = otpOps.getValidOTP(cleanEmail, otpToken);
-      if (!otpRecord) {
-        // Increment attempt counter on failure
-        otpOps.incrementAttempts(cleanEmail);
-        
-        // Get the updated count to show a warning or count
-        const updatedOtp = otpOps.getActiveOTP(cleanEmail);
-        if (updatedOtp && updatedOtp.attempts >= 5) {
-          otpOps.markUsed(updatedOtp.id); // Invalidate immediately
-          return res.status(400).json({ error: 'Too many failed attempts. Please request a new OTP.' });
-        }
-        
-        return res.status(400).json({ error: 'Invalid or expired OTP' });
-      }
-
-      // Mark OTP as used
-      otpOps.markUsed(otpRecord.id);
-    }
-
-    // If Firebase is configured, also create/verify the user in Firebase
-    if (firebaseInitialized && firebaseAuth) {
-      try {
-        const firebaseUser = await firebaseAuth.getUserByEmail(cleanEmail).catch(() => null);
-        if (!firebaseUser) {
-          await firebaseAuth.createUser({
-            email: cleanEmail,
-            emailVerified: true
-          });
-        } else {
-          await firebaseAuth.updateUser(firebaseUser.uid, { emailVerified: true });
-        }
-      } catch (fbErr) {
-        console.error('Firebase user sync error:', fbErr);
-        // Non-blocking — login still works
-      }
-    }
+    // Verify token
+    const decodedToken = await firebaseAuth.verifyIdToken(idToken);
+    const cleanEmail = decodedToken.email.toLowerCase();
 
     // Check if user already exists in local DB by email
     let user = userOps.getByEmail(cleanEmail);
@@ -514,8 +360,8 @@ app.post('/api/auth/verify-otp', authLimiter, async (req, res) => {
       user: safeUser || null 
     });
   } catch (err) {
-    console.error('Verify OTP error:', err);
-    res.status(500).json({ error: 'Failed to verify OTP' });
+    console.error('Verify Firebase Token error:', err);
+    res.status(401).json({ error: 'Invalid or expired Firebase token' });
   }
 });
 
@@ -909,17 +755,7 @@ setInterval(() => {
   }
 }, 60 * 1000);
 
-// Clean up expired OTPs (every 5 minutes)
-setInterval(() => {
-  try {
-    const deleted = otpOps.cleanExpired();
-    if (deleted.changes > 0) {
-      console.log(`[OTP Cleanup] Removed ${deleted.changes} expired/used OTPs.`);
-    }
-  } catch (err) {
-    console.error('[OTP Cleanup Error]', err);
-  }
-}, 5 * 60 * 1000);
+
 
 
 // HTTP → HTTPS redirect in production
