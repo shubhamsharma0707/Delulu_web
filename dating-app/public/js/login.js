@@ -2,7 +2,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/fireba
 import { getAuth, sendSignInLinkToEmail, isSignInWithEmailLink, signInWithEmailLink } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyA3ZqXEQrLirVjRv338T4q_ExjPlGN_06s",
+  apiKey: "AIzaSyA3ZqXEQrLirVjRv338T4q_EXjPlGN_06s",
   authDomain: "delulu-final.firebaseapp.com",
   projectId: "delulu-final",
   storageBucket: "delulu-final.firebasestorage.app",
