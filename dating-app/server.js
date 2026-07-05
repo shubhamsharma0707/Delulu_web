@@ -559,7 +559,7 @@ app.post('/api/connections/dismiss', requireAuth, async (req, res) => {
 });
 
 // Get pending requests (incoming)
-app.get('/api/connections/pending', requireAuth, async (req, res) => {
+app.get('/api/connections/incoming', requireAuth, async (req, res) => {
   const requests = await connectionOps.getPendingForUser(req.session.userId);
   res.json({ requests });
 });
