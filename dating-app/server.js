@@ -281,7 +281,14 @@ app.post('/api/auth/send-verification-email', authLimiter, async (req, res) => {
 
   const cleanEmail = email.toLowerCase().trim();
   const domain = cleanEmail.split('@')[1];
-  const allowedDomains = ['rishihood.edu.in', 'vitbhopal.ac.in', 'nst.rishihood.edu.in', 'psy.rishihood.edu.in'];
+  const allowedDomains = [
+    'rishihood.edu.in', 
+    'vitbhopal.ac.in', 
+    'nst.rishihood.edu.in', 
+    'psy.rishihood.edu.in',
+    'csds.rishihood.edu.in',
+    'makers.rishihood.edu.in'
+  ];
   
   if (!domain || !allowedDomains.includes(domain)) {
     return res.status(400).json({ error: 'Only authorized university emails are allowed' });
