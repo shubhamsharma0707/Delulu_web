@@ -174,7 +174,10 @@ io.on('connection', (socket) => {
   // Join user to their personal room
   socket.join(`user:${userId}`);
 
-  socket.on('join-chat', (connectionId) => {
+  socket.on('join-chat', async (connectionId) => {
+    if (!connectionId) return;
+    const conn = await connectionOps.getConnection(connectionId, userId);
+    if (!conn) return;
     socket.join(`chat:${connectionId}`);
   });
 
