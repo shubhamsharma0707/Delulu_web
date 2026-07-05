@@ -303,7 +303,7 @@ app.post('/api/auth/send-link', authLimiter, async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('Send Link Error:', err);
-    res.status(500).json({ error: 'Failed to send verification email' });
+    res.status(500).json({ error: 'Server Error: ' + (err.message || 'Unknown error') });
   }
 });
 
