@@ -170,6 +170,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   };
 
+  document.getElementById('btn-record-stop').onclick = () => {
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+      mediaRecorder.stop();
+    }
+  };
+
   document.getElementById('btn-record-cancel').onclick = () => {
     if (mediaRecorder && mediaRecorder.state === 'recording') {
       mediaRecorder.onstop = () => {
