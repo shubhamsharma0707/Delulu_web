@@ -9,12 +9,44 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
-// Ensure we have user data on protected routes
+// Ensure we have user data on protected routes (Optimistic Session Cache)
 async function requireAuth() {
+  const cachedUserStr = window.localStorage.getItem('cached_user');
+  
+  if (cachedUserStr) {
+    try {
+      currentUser = JSON.parse(cachedUserStr);
+      initGlobalSocket();
+      updateHeaderAvatar();
+      
+      // Perform session verification in background
+      apiCall('/api/session').then(data => {
+        if (data.authenticated) {
+          currentUser = data.user;
+          window.localStorage.setItem('cached_user', JSON.stringify(data.user));
+          updateHeaderAvatar();
+        } else {
+          // If server says session expired, clear cache and redirect
+          window.localStorage.removeItem('cached_user');
+          window.localStorage.removeItem('e2ee_private_key');
+          window.location.href = '/';
+        }
+      }).catch(err => {
+        console.error('Background session check failed:', err);
+      });
+      
+      return; // Resolve instantly!
+    } catch (e) {
+      window.localStorage.removeItem('cached_user');
+    }
+  }
+
+  // Fallback: blocking check if no cache exists
   try {
     const data = await apiCall('/api/session');
     if (data.authenticated) {
       currentUser = data.user;
+      window.localStorage.setItem('cached_user', JSON.stringify(data.user));
       initGlobalSocket();
       updateHeaderAvatar();
     } else {
@@ -90,11 +122,23 @@ function setupLogout() {
   const btn = document.getElementById('logout-btn');
   if (btn) {
     btn.onclick = async () => {
+      window.localStorage.removeItem('cached_user');
+      window.localStorage.removeItem('e2ee_private_key');
       await apiCall('/api/users/logout', 'POST');
       if (socket) socket.disconnect();
       window.location.href = '/';
     };
   }
+}
+
+// Prefetch a page template in the background
+function prefetchPage(url) {
+  if (!url || url === '#' || url.startsWith('javascript:')) return;
+  if (document.querySelector(`link[href="${url}"]`)) return;
+  const link = document.createElement('link');
+  link.rel = 'prefetch';
+  link.href = url;
+  document.head.appendChild(link);
 }
 
 function initHeartBackground() {
@@ -107,4 +151,11 @@ function initHeartBackground() {
 document.addEventListener('DOMContentLoaded', () => {
   setupLogout();
   initHeartBackground();
+
+  // Prefetch navigation tabs on hover
+  document.querySelectorAll('a').forEach(link => {
+    link.addEventListener('mouseenter', () => {
+      prefetchPage(link.getAttribute('href'));
+    });
+  });
 });

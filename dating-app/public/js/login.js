@@ -98,6 +98,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const data = await apiCall('/api/users/login', 'POST', { usernameOrEmail, password });
       if (data.success) {
         const user = data.user;
+        window.localStorage.setItem('cached_user', JSON.stringify(user));
         // If E2EE keys exist, decrypt and store the private key locally
         if (user.encrypted_private_key && user.email) {
           try {
@@ -285,7 +286,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       window.localStorage.setItem('e2ee_private_key', JSON.stringify(privateKeyJwk));
 
       // 5. Submit profile fields and E2EE keys to server
-      await apiCall('/api/auth/complete-profile', 'POST', {
+      const data = await apiCall('/api/auth/complete-profile', 'POST', {
         email: currentEmail,
         username,
         password,
@@ -296,6 +297,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         public_key: publicKeyJwk,
         encrypted_private_key: encryptedPrivateKey
       });
+      if (data && data.user) {
+        window.localStorage.setItem('cached_user', JSON.stringify(data.user));
+      }
       window.location.href = '/discover';
     } catch (err) {
       document.getElementById('profile-error').textContent = err.message || 'Failed to initialize E2EE keys';

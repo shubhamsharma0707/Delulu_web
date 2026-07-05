@@ -91,32 +91,64 @@ document.addEventListener('DOMContentLoaded', async () => {
     const content = chatInput.value.trim();
     if (!content) return;
     
-    try {
-      const payload = { connection_id: currentConnId, content };
-      if (isE2EEActive && sharedSecretKey) {
-        const encrypted = await E2EECrypto.encryptMessage(content, sharedSecretKey);
-        payload.content = encrypted.ciphertext;
-        payload.is_encrypted = 1;
-        payload.iv = encrypted.iv;
-      }
+    const tempId = 'temp-' + Date.now();
 
-      await apiCall('/api/messages/send', 'POST', payload);
-      chatInput.value = '';
-      chatSendBtn.classList.add('hidden');
-      chatMicBtn.classList.remove('hidden');
-      
-      // Locally display the plain message immediately
-      appendMessage({ 
-        sender_id: currentUser.id, 
-        content, 
-        is_encrypted: 0, 
-        created_at: new Date().toISOString() 
-      }, true);
-      
-      if (socket) {
-        socket.emit('typing', { connectionId: currentConnId, isTyping: false });
+    // Clear input & buttons instantly
+    chatInput.value = '';
+    chatSendBtn.classList.add('hidden');
+    chatMicBtn.classList.remove('hidden');
+
+    // Append message to UI instantly (Optimistic UI)
+    appendMessage({
+      tempId,
+      is_sending: true,
+      sender_id: currentUser.id,
+      content,
+      is_encrypted: 0,
+      created_at: new Date().toISOString()
+    }, true);
+
+    if (socket) {
+      socket.emit('typing', { connectionId: currentConnId, isTyping: false });
+    }
+
+    // Process encryption & API request in the background
+    (async () => {
+      try {
+        const payload = { connection_id: currentConnId, content };
+        if (isE2EEActive && sharedSecretKey) {
+          const encrypted = await E2EECrypto.encryptMessage(content, sharedSecretKey);
+          payload.content = encrypted.ciphertext;
+          payload.is_encrypted = 1;
+          payload.iv = encrypted.iv;
+        }
+
+        await apiCall('/api/messages/send', 'POST', payload);
+        
+        // Remove sending state on success
+        const msgEl = document.getElementById(tempId);
+        if (msgEl) {
+          msgEl.classList.remove('opacity-60');
+          msgEl.removeAttribute('id');
+        }
+      } catch (err) {
+        console.error('Failed to send message:', err);
+        const msgEl = document.getElementById(tempId);
+        if (msgEl) {
+          msgEl.classList.remove('opacity-60');
+          const innerEl = msgEl.querySelector('div');
+          if (innerEl) {
+            innerEl.classList.remove('bg-primary');
+            innerEl.classList.add('bg-error/10', 'border', 'border-error/30', 'text-error');
+          }
+          const timeEl = msgEl.querySelector('.text-\\[10px\\]');
+          if (timeEl) {
+            timeEl.className = 'text-[10px] mt-1 text-right text-error font-bold flex items-center justify-end gap-0.5';
+            timeEl.innerHTML = '<span class="material-symbols-outlined text-[12px]">error</span> Failed';
+          }
+        }
       }
-    } catch(err) { alert(err.message); }
+    })();
   };
   
   // Voice Recording Implementation
@@ -300,6 +332,8 @@ async function appendMessage(m, scrollToBottom = true) {
   
   const div = document.createElement('div');
   div.className = `flex ${isMe ? 'justify-end' : 'justify-start'} w-full fade-in`;
+  if (m.tempId) div.id = m.tempId;
+  if (m.is_sending) div.classList.add('opacity-60');
   
   const inner = document.createElement('div');
   inner.className = `max-w-[75%] rounded-2xl p-3 ${isMe ? 'bg-primary text-white rounded-tr-sm shadow-sm' : 'bg-surface-container-low text-on-surface rounded-tl-sm shadow-sm border border-outline-variant/10'}`;
