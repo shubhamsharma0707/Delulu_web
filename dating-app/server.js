@@ -35,7 +35,17 @@ const storage = multer.diskStorage({
     cb(null, 'voice-' + uniqueSuffix + '.webm');
   }
 });
-const upload = multer({ storage: storage });
+const upload = multer({
+  storage: storage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+  fileFilter: (req, file, cb) => {
+    // Allow standard audio files and encrypted octet-stream files (needed for client-side E2EE voice notes)
+    if (!file.mimetype.startsWith('audio/') && file.mimetype !== 'application/octet-stream') {
+      return cb(new Error('Only audio files are allowed'), false);
+    }
+    cb(null, true);
+  }
+});
 
 const PORT = process.env.PORT || 3000;
 
@@ -725,7 +735,14 @@ app.post('/api/messages/send', requireAuth, async (req, res) => {
 });
 
 // Send voice message
-app.post('/api/messages/upload-voice', requireAuth, upload.single('audio'), async (req, res) => {
+app.post('/api/messages/upload-voice', requireAuth, (req, res, next) => {
+  upload.single('audio')(req, res, (err) => {
+    if (err) {
+      return res.status(400).json({ error: err.message || 'File upload failed' });
+    }
+    next();
+  });
+}, async (req, res) => {
   try {
     const { connection_id, duration, is_encrypted, iv } = req.body;
     if (!req.file || !connection_id) {
