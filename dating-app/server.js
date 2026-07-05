@@ -245,13 +245,22 @@ app.get('/api/session', (req, res) => {
 let transporter = null;
 if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
   transporter = nodemailer.createTransport({
-    service: 'gmail',
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true,
     auth: {
       user: process.env.GMAIL_USER,
       pass: process.env.GMAIL_APP_PASSWORD
-    }
+    },
+    tls: {
+      rejectUnauthorized: false
+    },
+    family: 4, // Force IPv4 to prevent Render ENETUNREACH IPv6 errors
+    connectionTimeout: 5000,
+    greetingTimeout: 5000,
+    socketTimeout: 10000
   });
-  console.log('Nodemailer transporter ready');
+  console.log('Nodemailer transporter ready (IPv4 forced)');
 }
 
 // Generate Firebase Magic Link and send via Nodemailer (Bypasses Spam)
