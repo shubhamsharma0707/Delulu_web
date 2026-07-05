@@ -239,7 +239,7 @@ async function loadMessages() {
   try {
     const data = await apiCall(`/api/messages/${currentConnId}`);
     cont.innerHTML = '';
-    data.messages.reverse().forEach(m => {
+    data.messages.forEach(m => {
       appendMessage(m, false);
     });
   } catch (err) {
