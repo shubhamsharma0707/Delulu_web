@@ -12,7 +12,7 @@ const rateLimit = require('express-rate-limit');
 const nodemailer = require('nodemailer');
 const { initializeApp: firebaseInitializeApp, cert } = require('firebase-admin/app');
 const { getAuth: getFirebaseAuth } = require('firebase-admin/auth');
-const { getDB, seedDemoUsers, backfillDemoAvatars, userOps, connectionOps, messageOps } = require('./database');
+const { getDB, seedDemoUsers, backfillDemoAvatars, userOps, connectionOps, messageOps, otpOps } = require('./database');
 const multer = require('multer');
 const fs = require('fs');
 
