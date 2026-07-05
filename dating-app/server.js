@@ -173,6 +173,9 @@ const apiLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// Ensure data folder exists
+fs.mkdirSync(path.join(__dirname, 'data'), { recursive: true });
+
 // Persistent SQLite session store — survives server restarts, no memory leaks
 const sessionsDb = new Database(path.join(__dirname, 'data', 'sessions.db'));
 
