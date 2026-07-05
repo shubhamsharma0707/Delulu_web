@@ -52,6 +52,11 @@ function getEcosystem(email) {
 
 // Seed demo users if none exist in Cloud Firestore
 async function seedDemoUsers() {
+  if (process.env.NODE_ENV === 'production') {
+    console.log('Skipping demo user seeding in production.');
+    return;
+  }
+
   const firestore = getDB();
   const usersColl = firestore.collection('users');
   const snapshot = await usersColl.limit(1).get();
