@@ -83,10 +83,18 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-// Security headers via Helmet
-// CSP is disabled to allow our CDN-loaded libraries (Tailwind, Three.js, Socket.io, Google Fonts)
+// Security headers via Helmet with Content Security Policy allowlist
 app.use(helmet({
-  contentSecurityPolicy: false,
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "cdn.tailwindcss.com", "cdn.socket.io", "cdnjs.cloudflare.com", "cdn.jsdelivr.net"],
+      styleSrc: ["'self'", "'unsafe-inline'", "fonts.googleapis.com", "cdn.tailwindcss.com"],
+      fontSrc: ["'self'", "fonts.gstatic.com"],
+      imgSrc: ["'self'", "data:", "blob:"],
+      connectSrc: ["'self'", "wss:", "ws:"],
+    },
+  },
   crossOriginEmbedderPolicy: false,
 }));
 
