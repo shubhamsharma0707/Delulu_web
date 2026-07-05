@@ -1,350 +1,466 @@
-const Database = require('better-sqlite3');
-const path = require('path');
-const fs = require('fs');
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const bcrypt = require('bcrypt');
 
-const DB_PATH = path.join(__dirname, 'data', 'delulu.db');
-
-// Ensure data directory exists
-const dataDir = path.dirname(DB_PATH);
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
-}
-
 let db;
-
 function getDB() {
   if (!db) {
-    db = new Database(DB_PATH);
-    db.pragma('journal_mode = WAL');
-    db.pragma('foreign_keys = ON');
-    initDB();
+    let app;
+    if (getApps().length === 0) {
+      app = initializeApp({
+        credential: cert({
+          projectId: process.env.FIREBASE_PROJECT_ID,
+          clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+          privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/^"|"$/g, '').replace(/\\n/g, '\n')
+        })
+      });
+    } else {
+      app = getApps()[0];
+    }
+    db = getFirestore(app);
   }
   return db;
 }
 
-function initDB() {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT UNIQUE NOT NULL,
-      email TEXT DEFAULT NULL,
-      gender TEXT NOT NULL CHECK(gender IN ('male', 'female', 'other')),
-      passcode_hash TEXT NOT NULL DEFAULT '',
-      bio TEXT DEFAULT '',
-      hobbies TEXT DEFAULT '[]',
-      profile_pic TEXT DEFAULT '',
-      avatar TEXT DEFAULT '',
-      is_onboarded INTEGER DEFAULT 0,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS connections (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      from_user_id INTEGER NOT NULL,
-      to_user_id INTEGER NOT NULL,
-      status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'accepted', 'rejected', 'expired', 'revealed')),
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      chat_started_at DATETIME,
-      vibe_available_at DATETIME,
-      reveal_available_at DATETIME,
-      from_vibe INTEGER DEFAULT 0 CHECK(from_vibe IN (0, 1, 2)),
-      to_vibe INTEGER DEFAULT 0 CHECK(to_vibe IN (0, 1, 2)),
-      reveal_from INTEGER DEFAULT 0 CHECK(reveal_from IN (0, 1)),
-      reveal_to INTEGER DEFAULT 0 CHECK(reveal_to IN (0, 1)),
-      UNIQUE(from_user_id, to_user_id)
-    );
-
-    CREATE TABLE IF NOT EXISTS messages (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      connection_id INTEGER NOT NULL,
-      sender_id INTEGER NOT NULL,
-      content TEXT NOT NULL,
-      is_voice INTEGER DEFAULT 0,
-      voice_duration INTEGER DEFAULT 0,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (connection_id) REFERENCES connections(id) ON DELETE CASCADE,
-      FOREIGN KEY (sender_id) REFERENCES users(id)
-    );
-    
-    CREATE TABLE IF NOT EXISTS blocked_users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      from_user_id INTEGER NOT NULL,
-      to_user_id INTEGER NOT NULL,
-      reason TEXT DEFAULT '',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(from_user_id, to_user_id)
-    );
-
-    CREATE TABLE IF NOT EXISTS otps (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      email TEXT NOT NULL,
-      otp TEXT NOT NULL,
-      used INTEGER DEFAULT 0,
-      expires_at DATETIME NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_connections_from ON connections(from_user_id);
-    CREATE INDEX IF NOT EXISTS idx_connections_to ON connections(to_user_id);
-    CREATE INDEX IF NOT EXISTS idx_connections_status ON connections(status);
-    CREATE INDEX IF NOT EXISTS idx_messages_connection ON messages(connection_id);
-    CREATE INDEX IF NOT EXISTS idx_otps_email ON otps(email);
-  `);
-
-  try { db.exec("ALTER TABLE users ADD COLUMN passcode_hash TEXT NOT NULL DEFAULT '';"); } catch (e) {}
-  try { db.exec("ALTER TABLE users ADD COLUMN email TEXT DEFAULT NULL;"); } catch (e) {}
-  try { db.exec("ALTER TABLE users ADD COLUMN is_onboarded INTEGER DEFAULT 0;"); } catch (e) {}
-  try { db.exec("ALTER TABLE users ADD COLUMN avatar TEXT DEFAULT '';"); } catch (e) {}
-  try { db.exec("ALTER TABLE connections ADD COLUMN reveal_available_at DATETIME;"); } catch (e) {}
-  try { db.exec("ALTER TABLE messages ADD COLUMN is_voice INTEGER DEFAULT 0;"); } catch (e) {}
-  try { db.exec("ALTER TABLE messages ADD COLUMN voice_duration INTEGER DEFAULT 0;"); } catch (e) {}
-  try { db.exec("ALTER TABLE otps ADD COLUMN attempts INTEGER DEFAULT 0;"); } catch (e) {}
-}
-
-// Seed some demo users if none exist
-function seedDemoUsers() {
-  const count = db.prepare('SELECT COUNT(*) as count FROM users').get();
-  if (count.count > 0) return;
-
-  const defaultHash = bcrypt.hashSync('123456', 10);
-
-  const demos = [
-    { username: 'wanderlust_amy', gender: 'female', bio: 'Dog mom, amateur pasta maker, and weekend hiker. Love finding obscure coffee shops.', hobbies: JSON.stringify(['hiking', 'photography', 'coffee', 'cooking', 'travel']), avatar: 'female_01' },
-    { username: 'art_vibes', gender: 'female', bio: 'Art enthusiast and gallery hopper. Always on the lookout for the next great exhibition.', hobbies: JSON.stringify(['art', 'photography', 'reading', 'music']), avatar: 'female_02' },
-    { username: 'stellar_jay', gender: 'male', bio: 'Astronomy nerd and weekend astronomer. Love stargazing and deep conversations.', hobbies: JSON.stringify(['photography', 'hiking', 'reading', 'movies', 'camping']), avatar: 'male_01' },
-    { username: 'coffee_leo', gender: 'male', bio: 'Barista by day, musician by night. Looking for someone to share a latte and a laugh.', hobbies: JSON.stringify(['coffee', 'music', 'cooking', 'baking', 'writing']), avatar: 'male_02' },
-    { username: 'trailblazer', gender: 'female', bio: "Trail runner and outdoor enthusiast. Summited 12 peaks last year! Let's explore together.", hobbies: JSON.stringify(['hiking', 'running', 'yoga', 'travel', 'camping']), avatar: 'female_03' },
-    { username: 'pixel_wanderer', gender: 'male', bio: 'Digital nomad and travel photographer. Capturing moments one frame at a time.', hobbies: JSON.stringify(['photography', 'travel', 'hiking', 'coffee', 'writing']), avatar: 'male_03' },
-    { username: 'bookish_bee', gender: 'female', bio: 'Bookworm with an indie soul. Bibliophile, poet, and curator of cozy corners.', hobbies: JSON.stringify(['reading', 'writing', 'coffee', 'music', 'gardening']), avatar: 'female_04' },
-    { username: 'green_mind', gender: 'male', bio: 'Plant dad and sustainability advocate. Growing my own food and building a better world.', hobbies: JSON.stringify(['gardening', 'cooking', 'yoga', 'reading', 'cycling']), avatar: 'male_04' },
-    { username: 'melody_maker', gender: 'female', bio: 'Indie musician and vinyl collector. Music is my love language.', hobbies: JSON.stringify(['music', 'writing', 'art', 'coffee', 'dancing']), avatar: 'female_05' },
-    { username: 'ocean_soul', gender: 'male', bio: 'Surfer, sailor, and beach bum. The ocean is my happy place.', hobbies: JSON.stringify(['swimming', 'travel', 'photography', 'yoga', 'running']), avatar: 'male_05' },
-    { username: 'spice_queen', gender: 'female', bio: 'Home chef and spice collector. Cooking my way around the world from my tiny kitchen.', hobbies: JSON.stringify(['cooking', 'travel', 'baking', 'gardening', 'dancing']), avatar: 'female_06' },
-    { username: 'zen_master', gender: 'male', bio: 'Yoga instructor and mindfulness coach. Finding balance in a chaotic world.', hobbies: JSON.stringify(['yoga', 'meditation', 'hiking', 'reading', 'gardening']), avatar: 'male_06' },
-  ];
-
-  const insert = db.prepare(`INSERT INTO users (username, gender, passcode_hash, bio, hobbies, avatar) VALUES (@username, @gender, @passcode_hash, @bio, @hobbies, @avatar)`);
-  const insertMany = db.transaction((users) => {
-    for (const u of users) {
-      u.passcode_hash = defaultHash;
-      insert.run(u);
+// Thread-safe auto-incrementing ID generator using transactions
+async function getNextId(collectionName) {
+  const firestore = getDB();
+  const counterRef = firestore.collection('counters').doc(collectionName);
+  let nextId;
+  await firestore.runTransaction(async (transaction) => {
+    const doc = await transaction.get(counterRef);
+    if (!doc.exists) {
+      nextId = 1;
+      transaction.set(counterRef, { current: 1 });
+    } else {
+      nextId = doc.data().current + 1;
+      transaction.update(counterRef, { current: nextId });
     }
   });
-  insertMany(demos);
-  console.log(`Seeded ${demos.length} demo users`);
+  return nextId;
 }
 
-function backfillDemoAvatars() {
+// Seed demo users if none exist in Cloud Firestore
+async function seedDemoUsers() {
+  const firestore = getDB();
+  const usersColl = firestore.collection('users');
+  const snapshot = await usersColl.limit(1).get();
+  
+  if (!snapshot.empty) {
+    console.log('Database already seeded or users exist.');
+    return;
+  }
+
+  const defaultHash = bcrypt.hashSync('123456', 10);
   const demos = [
-    { username: 'wanderlust_amy', avatar: 'female_01' },
-    { username: 'art_vibes', avatar: 'female_02' },
-    { username: 'stellar_jay', avatar: 'male_01' },
-    { username: 'coffee_leo', avatar: 'male_02' },
-    { username: 'trailblazer', avatar: 'female_03' },
-    { username: 'pixel_wanderer', avatar: 'male_03' },
-    { username: 'bookish_bee', avatar: 'female_04' },
-    { username: 'green_mind', avatar: 'male_04' },
-    { username: 'melody_maker', avatar: 'female_05' },
-    { username: 'ocean_soul', avatar: 'male_05' },
-    { username: 'spice_queen', avatar: 'female_06' },
-    { username: 'zen_master', avatar: 'male_06' },
+    { id: 1, username: 'wanderlust_amy', gender: 'female', bio: 'Dog mom, amateur pasta maker, and weekend hiker. Love finding obscure coffee shops.', hobbies: ['hiking', 'photography', 'coffee', 'cooking', 'travel'], avatar: 'female_01' },
+    { id: 2, username: 'art_vibes', gender: 'female', bio: 'Art enthusiast and gallery hopper. Always on the lookout for the next great exhibition.', hobbies: ['art', 'photography', 'reading', 'music'], avatar: 'female_02' },
+    { id: 3, username: 'stellar_jay', gender: 'male', bio: 'Astronomy nerd and weekend astronomer. Love stargazing and deep conversations.', hobbies: ['photography', 'hiking', 'reading', 'movies', 'camping'], avatar: 'male_01' },
+    { id: 4, username: 'coffee_leo', gender: 'male', bio: 'Barista by day, musician by night. Looking for someone to share a latte and a laugh.', hobbies: ['coffee', 'music', 'cooking', 'baking', 'writing'], avatar: 'male_02' },
+    { id: 5, username: 'trailblazer', gender: 'female', bio: "Trail runner and outdoor enthusiast. Summited 12 peaks last year! Let's explore together.", hobbies: ['hiking', 'running', 'yoga', 'travel', 'camping'], avatar: 'female_03' },
+    { id: 6, username: 'pixel_wanderer', gender: 'male', bio: 'Digital nomad and travel photographer. Capturing moments one frame at a time.', hobbies: ['photography', 'travel', 'hiking', 'coffee', 'writing'], avatar: 'male_03' },
+    { id: 7, username: 'bookish_bee', gender: 'female', bio: 'Bookworm with an indie soul. Bibliophile, poet, and curator of cozy corners.', hobbies: ['reading', 'writing', 'coffee', 'music', 'gardening'], avatar: 'female_04' },
+    { id: 8, username: 'green_mind', gender: 'male', bio: 'Plant dad and sustainability advocate. Growing my own food and building a better world.', hobbies: ['gardening', 'cooking', 'yoga', 'reading', 'cycling'], avatar: 'male_04' },
+    { id: 9, username: 'melody_maker', gender: 'female', bio: 'Indie musician and vinyl collector. Music is my love language.', hobbies: ['music', 'writing', 'art', 'coffee', 'dancing'], avatar: 'female_05' },
+    { id: 10, username: 'ocean_soul', gender: 'male', bio: 'Surfer, sailor, and beach bum. The ocean is my happy place.', hobbies: ['swimming', 'travel', 'photography', 'yoga', 'running'], avatar: 'male_05' },
+    { id: 11, username: 'spice_queen', gender: 'female', bio: 'Home chef and spice collector. Cooking my way around the world from my tiny kitchen.', hobbies: ['cooking', 'travel', 'baking', 'gardening', 'dancing'], avatar: 'female_06' },
+    { id: 12, username: 'zen_master', gender: 'male', bio: 'Yoga instructor and mindfulness coach. Finding balance in a chaotic world.', hobbies: ['yoga', 'meditation', 'hiking', 'reading', 'gardening'], avatar: 'male_06' },
   ];
 
-  try {
-    const update = db.prepare(`UPDATE users SET avatar = @avatar WHERE username = @username`);
-    const updateMany = db.transaction((users) => {
-      for (const u of users) {
-        update.run(u);
-      }
+  const batch = firestore.batch();
+  for (const u of demos) {
+    const docRef = usersColl.doc(String(u.id));
+    batch.set(docRef, {
+      ...u,
+      passcode_hash: defaultHash,
+      is_onboarded: 1,
+      email: `${u.username}@nst.rishihood.edu.in`,
+      created_at: new Date().toISOString()
     });
-    updateMany(demos);
-  } catch (e) {
-    console.error("Failed to backfill avatars:", e);
   }
+
+  // Set counter document
+  const counterRef = firestore.collection('counters').doc('users');
+  batch.set(counterRef, { current: 12 });
+
+  await batch.commit();
+  console.log(`Seeded ${demos.length} demo users in Firestore`);
 }
+
+// Kept for compatibility
+function backfillDemoAvatars() {}
 
 // User operations
 const userOps = {
-  create(username, gender, passcodeHash, bio, hobbies, avatar) {
-    const stmt = getDB().prepare(`INSERT INTO users (username, gender, passcode_hash, bio, hobbies, avatar) VALUES (?, ?, ?, ?, ?, ?)`);
-    const result = stmt.run(username, gender, passcodeHash, bio || '', JSON.stringify(hobbies || []), avatar || '');
-    return result.lastInsertRowid;
+  async create(username, gender, passcodeHash, bio, hobbies, avatar) {
+    const userId = await getNextId('users');
+    const userDocRef = getDB().collection('users').doc(String(userId));
+    await userDocRef.set({
+      id: userId,
+      username,
+      gender,
+      passcode_hash: passcodeHash,
+      bio: bio || '',
+      hobbies: hobbies || [],
+      avatar: avatar || '',
+      is_onboarded: 0,
+      email: null,
+      created_at: new Date().toISOString()
+    });
+    return userId;
   },
 
-  createWithEmail(username, gender, email, bio, hobbies, avatar) {
-    const stmt = getDB().prepare(`INSERT INTO users (username, gender, email, bio, hobbies, avatar, is_onboarded) VALUES (?, ?, ?, ?, ?, ?, 1)`);
-    const result = stmt.run(username, gender, email, bio || '', JSON.stringify(hobbies || []), avatar || '');
-    return result.lastInsertRowid;
+  async createWithEmail(username, gender, email, passwordHash, bio, hobbies, avatar) {
+    const userId = await getNextId('users');
+    const userDocRef = getDB().collection('users').doc(String(userId));
+    await userDocRef.set({
+      id: userId,
+      username,
+      gender,
+      email,
+      passcode_hash: passwordHash,
+      bio: bio || '',
+      hobbies: hobbies || [],
+      avatar: avatar || '',
+      is_onboarded: 1,
+      created_at: new Date().toISOString()
+    });
+    return userId;
   },
 
-  getById(id) {
-    return getDB().prepare('SELECT * FROM users WHERE id = ?').get(id);
+  async getById(id) {
+    if (!id) return null;
+    const doc = await getDB().collection('users').doc(String(id)).get();
+    return doc.exists ? doc.data() : null;
   },
   
-  getByUsername(username) {
-    return getDB().prepare('SELECT * FROM users WHERE username = ?').get(username);
+  async getByUsername(username) {
+    if (!username) return null;
+    const snapshot = await getDB().collection('users').where('username', '==', username).limit(1).get();
+    return snapshot.empty ? null : snapshot.docs[0].data();
   },
 
-  getByEmail(email) {
-    return getDB().prepare('SELECT * FROM users WHERE email = ?').get(email);
+  async getByEmail(email) {
+    if (!email) return null;
+    const snapshot = await getDB().collection('users').where('email', '==', email).limit(1).get();
+    return snapshot.empty ? null : snapshot.docs[0].data();
   },
 
-  linkEmailToUser(userId, email) {
-    getDB().prepare('UPDATE users SET email = ?, is_onboarded = 1 WHERE id = ?').run(email, userId);
+  async linkEmailToUser(userId, email) {
+    await getDB().collection('users').doc(String(userId)).update({
+      email: email,
+      is_onboarded: 1
+    });
   },
 
-  update(id, fields) {
+  async update(id, fields) {
     const allowed = ['bio', 'hobbies', 'avatar'];
-    const updates = [];
-    const values = [];
+    const updatePayload = {};
     for (const key of allowed) {
       if (fields[key] !== undefined) {
-        updates.push(`${key} = ?`);
-        values.push(key === 'hobbies' ? JSON.stringify(fields[key]) : fields[key]);
+        updatePayload[key] = fields[key];
       }
     }
-    if (updates.length === 0) return;
-    values.push(id);
-    getDB().prepare(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+    if (Object.keys(updatePayload).length === 0) return;
+    await getDB().collection('users').doc(String(id)).update(updatePayload);
   },
 
-  // Get discoverable profiles: opposite gender (or all for 'other'), not already connected
-  getDiscoverable(userId, gender, excludeIds = []) {
-    // We need to fetch blocked_users as well
-    const blocked = getDB().prepare('SELECT to_user_id as blocked_id FROM blocked_users WHERE from_user_id = ? UNION SELECT from_user_id as blocked_id FROM blocked_users WHERE to_user_id = ?').all(userId, userId);
-    const blockedIds = blocked.map(b => b.blocked_id);
-    const allExclude = [...new Set([...excludeIds, ...blockedIds])];
+  // Get discoverable profiles
+  async getDiscoverable(userId, gender, excludeIds = []) {
+    const firestore = getDB();
     
-    let genderFilter;
+    // Fetch blocked users involving this user
+    const blockedSnapshotFrom = await firestore.collection('blocked_users').where('from_user_id', '==', Number(userId)).get();
+    const blockedSnapshotTo = await firestore.collection('blocked_users').where('to_user_id', '==', Number(userId)).get();
+    
+    const blockedIds = [];
+    blockedSnapshotFrom.forEach(doc => blockedIds.push(doc.data().to_user_id));
+    blockedSnapshotTo.forEach(doc => blockedIds.push(doc.data().from_user_id));
+    
+    const allExclude = [...new Set([...excludeIds, ...blockedIds, Number(userId)])];
+    
+    let genderFilter = null;
     if (gender === 'male') {
       genderFilter = 'female';
     } else if (gender === 'female') {
       genderFilter = 'male';
-    } else {
-      // 'other' can see both genders, excluding their own
-      genderFilter = null;
     }
-    const placeholders = allExclude.length > 0 ? allExclude.map(() => '?').join(',') : '0';
-    let sql;
-    let params;
+
+    let query = firestore.collection('users');
     if (genderFilter) {
-      sql = `
-        SELECT u.id, u.username, u.bio, u.hobbies, u.avatar, u.gender
-        FROM users u
-        WHERE u.gender = ? AND u.id != ?
-          AND u.id NOT IN (${placeholders})
-        ORDER BY RANDOM()
-      `;
-      params = [genderFilter, userId, ...allExclude];
-    } else {
-      sql = `
-        SELECT u.id, u.username, u.bio, u.hobbies, u.avatar, u.gender
-        FROM users u
-        WHERE u.id != ?
-          AND u.id NOT IN (${placeholders})
-        ORDER BY RANDOM()
-      `;
-      params = [userId, ...allExclude];
+      query = query.where('gender', '==', genderFilter);
     }
-    return getDB().prepare(sql).all(...params);
+    
+    const snapshot = await query.get();
+    const discoverable = [];
+    snapshot.forEach(doc => {
+      const u = doc.data();
+      if (!allExclude.includes(u.id)) {
+        discoverable.push({
+          id: u.id,
+          username: u.username,
+          bio: u.bio,
+          hobbies: u.hobbies,
+          avatar: u.avatar,
+          gender: u.gender
+        });
+      }
+    });
+
+    // Random shuffle
+    return discoverable.sort(() => Math.random() - 0.5);
   }
 };
 
 // Connection operations
 const connectionOps = {
-  sendRequest(fromId, toId) {
-    // Check if connection already exists
-    const existing = getDB().prepare(
-      'SELECT id, status FROM connections WHERE (from_user_id = ? AND to_user_id = ?) OR (from_user_id = ? AND to_user_id = ?)'
-    ).get(fromId, toId, toId, fromId);
-    if (existing) return { error: 'Connection already exists', status: existing.status };
+  async sendRequest(fromId, toId) {
+    const firestore = getDB();
     
-    getDB().prepare('INSERT INTO connections (from_user_id, to_user_id) VALUES (?, ?)').run(fromId, toId);
+    // Check if connection already exists
+    const snap1 = await firestore.collection('connections')
+      .where('from_user_id', '==', Number(fromId))
+      .where('to_user_id', '==', Number(toId))
+      .limit(1).get();
+      
+    const snap2 = await firestore.collection('connections')
+      .where('from_user_id', '==', Number(toId))
+      .where('to_user_id', '==', Number(fromId))
+      .limit(1).get();
+      
+    const doc = !snap1.empty ? snap1.docs[0].data() : (!snap2.empty ? snap2.docs[0].data() : null);
+    if (doc) {
+      return { error: 'Connection already exists', status: doc.status };
+    }
+    
+    const connId = await getNextId('connections');
+    await firestore.collection('connections').doc(String(connId)).set({
+      id: connId,
+      from_user_id: Number(fromId),
+      to_user_id: Number(toId),
+      status: 'pending',
+      created_at: new Date().toISOString(),
+      chat_started_at: null,
+      vibe_available_at: null,
+      reveal_available_at: null,
+      from_vibe: 0,
+      to_vibe: 0,
+      reveal_from: 0,
+      reveal_to: 0
+    });
+    
     return { success: true };
   },
 
-  getPendingForUser(userId) {
-    return getDB().prepare(`
-      SELECT c.*, u.username, u.bio, u.hobbies, u.avatar, u.gender
-      FROM connections c
-      JOIN users u ON c.from_user_id = u.id
-      WHERE c.to_user_id = ? AND c.status = 'pending'
-      ORDER BY c.created_at DESC
-    `).all(userId);
+  async dismiss(fromId, toId) {
+    const firestore = getDB();
+    const snap1 = await firestore.collection('connections')
+      .where('from_user_id', '==', Number(fromId))
+      .where('to_user_id', '==', Number(toId))
+      .limit(1).get();
+    const snap2 = await firestore.collection('connections')
+      .where('from_user_id', '==', Number(toId))
+      .where('to_user_id', '==', Number(fromId))
+      .limit(1).get();
+    const doc = !snap1.empty ? snap1.docs[0] : (!snap2.empty ? snap2.docs[0] : null);
+    if (doc) {
+      await doc.ref.update({ status: 'rejected' });
+    } else {
+      const connId = await getNextId('connections');
+      await firestore.collection('connections').doc(String(connId)).set({
+        id: connId,
+        from_user_id: Number(fromId),
+        to_user_id: Number(toId),
+        status: 'rejected',
+        created_at: new Date().toISOString(),
+        chat_started_at: null,
+        vibe_available_at: null,
+        reveal_available_at: null,
+        from_vibe: 0,
+        to_vibe: 0,
+        reveal_from: 0,
+        reveal_to: 0
+      });
+    }
+    return { success: true };
   },
 
-  getSentRequests(userId) {
-    return getDB().prepare(`
-      SELECT c.*, u.username, u.bio, u.hobbies, u.avatar, u.gender
-      FROM connections c
-      JOIN users u ON c.to_user_id = u.id
-      WHERE c.from_user_id = ? AND c.status = 'pending'
-      ORDER BY c.created_at DESC
-    `).all(userId);
+  async revoke(connectionId, userId) {
+    const firestore = getDB();
+    const docRef = firestore.collection('connections').doc(String(connectionId));
+    const doc = await docRef.get();
+    if (!doc.exists) return { error: 'Connection not found' };
+    const conn = doc.data();
+    if (conn.from_user_id !== Number(userId)) {
+      return { error: 'Not authorized to revoke this request' };
+    }
+    if (conn.status !== 'pending') {
+      return { error: 'Cannot revoke a request that is not pending' };
+    }
+    await docRef.delete();
+    return { success: true };
   },
 
-  respond(connectionId, userId, action) {
-    const conn = getDB().prepare('SELECT * FROM connections WHERE id = ?').get(connectionId);
-    if (!conn || conn.to_user_id !== userId) return { error: 'Not authorized' };
+  async getConnectedUserIds(userId) {
+    const firestore = getDB();
+    const snap1 = await firestore.collection('connections').where('from_user_id', '==', Number(userId)).get();
+    const snap2 = await firestore.collection('connections').where('to_user_id', '==', Number(userId)).get();
+    
+    const ids = [];
+    snap1.forEach(doc => ids.push(doc.data().to_user_id));
+    snap2.forEach(doc => ids.push(doc.data().from_user_id));
+    return [...new Set(ids)];
+  },
+
+  async getPendingForUser(userId) {
+    const snapshot = await getDB().collection('connections')
+      .where('to_user_id', '==', Number(userId))
+      .where('status', '==', 'pending')
+      .get();
+      
+    const connections = [];
+    for (const doc of snapshot.docs) {
+      const conn = doc.data();
+      const sender = await userOps.getById(conn.from_user_id);
+      if (sender) {
+        connections.push({
+          ...conn,
+          username: sender.username,
+          bio: sender.bio,
+          hobbies: sender.hobbies,
+          avatar: sender.avatar,
+          gender: sender.gender
+        });
+      }
+    }
+    return connections.sort((a, b) => b.created_at.localeCompare(a.created_at));
+  },
+
+  async getSentRequests(userId) {
+    const snapshot = await getDB().collection('connections')
+      .where('from_user_id', '==', Number(userId))
+      .where('status', '==', 'pending')
+      .get();
+      
+    const connections = [];
+    for (const doc of snapshot.docs) {
+      const conn = doc.data();
+      const receiver = await userOps.getById(conn.to_user_id);
+      if (receiver) {
+        connections.push({
+          ...conn,
+          username: receiver.username,
+          bio: receiver.bio,
+          hobbies: receiver.hobbies,
+          avatar: receiver.avatar,
+          gender: receiver.gender
+        });
+      }
+    }
+    return connections.sort((a, b) => b.created_at.localeCompare(a.created_at));
+  },
+
+  async respond(connectionId, userId, action) {
+    const firestore = getDB();
+    const connDocRef = firestore.collection('connections').doc(String(connectionId));
+    const doc = await connDocRef.get();
+    
+    if (!doc.exists) return { error: 'Connection not found' };
+    const conn = doc.data();
+    if (conn.to_user_id !== Number(userId)) return { error: 'Not authorized' };
     if (conn.status !== 'pending') return { error: 'Already responded' };
 
     if (action === 'accept') {
       const now = new Date().toISOString();
       const vibeDate = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
-      getDB().prepare(
-        'UPDATE connections SET status = ?, chat_started_at = ?, vibe_available_at = ? WHERE id = ?'
-      ).run('accepted', now, vibeDate, connectionId);
+      await connDocRef.update({
+        status: 'accepted',
+        chat_started_at: now,
+        vibe_available_at: vibeDate
+      });
       return { success: true, chat_started_at: now, vibe_available_at: vibeDate };
     } else {
-      getDB().prepare('UPDATE connections SET status = ? WHERE id = ?').run('rejected', connectionId);
+      await connDocRef.update({ status: 'rejected' });
       return { success: true, status: 'rejected' };
     }
   },
 
-  getActiveConnections(userId) {
-    return getDB().prepare(`
-      SELECT c.*, 
-        CASE WHEN c.from_user_id = ? THEN u2.username ELSE u1.username END as other_username,
-        CASE WHEN c.from_user_id = ? THEN u2.bio ELSE u1.bio END as other_bio,
-        CASE WHEN c.from_user_id = ? THEN u2.hobbies ELSE u1.hobbies END as other_hobbies,
-        CASE WHEN c.from_user_id = ? THEN u2.avatar ELSE u1.avatar END as other_avatar,
-        CASE WHEN c.from_user_id = ? THEN u2.id ELSE u1.id END as other_user_id
-      FROM connections c
-      JOIN users u1 ON c.from_user_id = u1.id
-      JOIN users u2 ON c.to_user_id = u2.id
-      WHERE (c.from_user_id = ? OR c.to_user_id = ?) AND c.status IN ('accepted', 'revealed')
-      ORDER BY c.chat_started_at DESC
-    `).all(userId, userId, userId, userId, userId, userId, userId);
+  async getActiveConnections(userId) {
+    const firestore = getDB();
+    const snap1 = await firestore.collection('connections')
+      .where('from_user_id', '==', Number(userId))
+      .get();
+    const snap2 = await firestore.collection('connections')
+      .where('to_user_id', '==', Number(userId))
+      .get();
+      
+    const active = [];
+    const pushActive = async (conn) => {
+      if (['accepted', 'revealed'].includes(conn.status)) {
+        const otherId = conn.from_user_id === Number(userId) ? conn.to_user_id : conn.from_user_id;
+        const otherUser = await userOps.getById(otherId);
+        if (otherUser) {
+          active.push({
+            ...conn,
+            other_username: otherUser.username,
+            other_bio: otherUser.bio,
+            other_hobbies: otherUser.hobbies,
+            other_avatar: otherUser.avatar,
+            other_user_id: otherUser.id
+          });
+        }
+      }
+    };
+
+    for (const doc of snap1.docs) await pushActive(doc.data());
+    for (const doc of snap2.docs) await pushActive(doc.data());
+    
+    return active.sort((a, b) => b.chat_started_at.localeCompare(a.chat_started_at));
   },
 
-  getConnection(connectionId, userId) {
-    return getDB().prepare(`
-      SELECT c.*, 
-        CASE WHEN c.from_user_id = ? THEN u2.username ELSE u1.username END as other_username,
-        CASE WHEN c.from_user_id = ? THEN u2.gender ELSE u1.gender END as other_gender,
-        CASE WHEN c.from_user_id = ? THEN u2.bio ELSE u1.bio END as other_bio,
-        CASE WHEN c.from_user_id = ? THEN u2.hobbies ELSE u1.hobbies END as other_hobbies,
-        CASE WHEN c.from_user_id = ? THEN u2.avatar ELSE u1.avatar END as other_avatar,
-        CASE WHEN c.from_user_id = ? THEN u2.id ELSE u1.id END as other_user_id,
-        CASE WHEN c.from_user_id = ? THEN u1.id ELSE u2.id END as my_user_id
-      FROM connections c
-      JOIN users u1 ON c.from_user_id = u1.id
-      JOIN users u2 ON c.to_user_id = u2.id
-      WHERE c.id = ? AND (c.from_user_id = ? OR c.to_user_id = ?)
-    `).get(userId, userId, userId, userId, userId, userId, userId, connectionId, userId, userId);
+  async getConnection(connectionId, userId) {
+    const firestore = getDB();
+    const doc = await firestore.collection('connections').doc(String(connectionId)).get();
+    if (!doc.exists) return null;
+    const conn = doc.data();
+    
+    if (conn.from_user_id !== Number(userId) && conn.to_user_id !== Number(userId)) {
+      return null;
+    }
+    
+    const otherId = conn.from_user_id === Number(userId) ? conn.to_user_id : conn.from_user_id;
+    const myId = conn.from_user_id === Number(userId) ? conn.from_user_id : conn.to_user_id;
+    
+    const otherUser = await userOps.getById(otherId);
+    const myUser = await userOps.getById(myId);
+    
+    if (!otherUser || !myUser) return null;
+    
+    return {
+      ...conn,
+      other_username: otherUser.username,
+      other_gender: otherUser.gender,
+      other_bio: otherUser.bio,
+      other_hobbies: otherUser.hobbies,
+      other_avatar: otherUser.avatar,
+      other_user_id: otherUser.id,
+      my_user_id: myUser.id
+    };
   },
 
-  submitVibe(connectionId, userId, vibe) {
-    const conn = getDB().prepare('SELECT * FROM connections WHERE id = ?').get(connectionId);
-    if (!conn) return { error: 'Connection not found' };
+  async submitVibe(connectionId, userId, vibe) {
+    const firestore = getDB();
+    const connDocRef = firestore.collection('connections').doc(String(connectionId));
+    const doc = await connDocRef.get();
+    
+    if (!doc.exists) return { error: 'Connection not found' };
+    const conn = doc.data();
     if (conn.status !== 'accepted') return { error: 'Connection not active' };
 
-    const isFrom = conn.from_user_id === userId;
+    const isFrom = conn.from_user_id === Number(userId);
     
-    // If either person selects Not Vibe at any point -> chat ends immediately
     if (vibe === 2) {
-      getDB().prepare('UPDATE connections SET status = ? WHERE id = ?').run('rejected', connectionId);
+      await connDocRef.update({ status: 'rejected' });
       return { success: true, match: false, bothVibe: false };
     }
 
@@ -352,146 +468,255 @@ const connectionOps = {
     if (!isFrom && conn.to_vibe !== 0) return { error: 'Already voted' };
 
     const field = isFrom ? 'from_vibe' : 'to_vibe';
-    getDB().prepare(`UPDATE connections SET ${field} = ? WHERE id = ?`).run(vibe, connectionId);
+    await connDocRef.update({ [field]: vibe });
 
-    // Check if both have voted
-    const updated = getDB().prepare('SELECT * FROM connections WHERE id = ?').get(connectionId);
+    const updatedDoc = await connDocRef.get();
+    const updated = updatedDoc.data();
     const bothVoted = updated.from_vibe > 0 && updated.to_vibe > 0;
 
     if (bothVoted) {
       const bothVibe = updated.from_vibe === 1 && updated.to_vibe === 1;
       if (bothVibe) {
         const revealDate = new Date(Date.now() + 4 * 24 * 60 * 60 * 1000).toISOString();
-        getDB().prepare('UPDATE connections SET reveal_from = 0, reveal_to = 0, reveal_available_at = ? WHERE id = ?').run(revealDate, connectionId);
+        await connDocRef.update({
+          reveal_from: 0,
+          reveal_to: 0,
+          reveal_available_at: revealDate
+        });
         return { success: true, match: true, bothVibe: true, reveal_available_at: revealDate };
       } else {
-        // Technically this branch shouldn't hit if we reject instantly on vibe=2, but keeping for safety
-        getDB().prepare('UPDATE connections SET status = ? WHERE id = ?').run('expired', connectionId);
+        await connDocRef.update({ status: 'expired' });
         return { success: true, match: false, bothVibe: false };
       }
     }
     return { success: true, bothVote: false };
   },
 
-  submitReveal(connectionId, userId) {
-    const conn = getDB().prepare('SELECT * FROM connections WHERE id = ?').get(connectionId);
-    if (!conn) return { error: 'Connection not found' };
-
-    const isFrom = conn.from_user_id === userId;
+  async submitReveal(connectionId, userId) {
+    const firestore = getDB();
+    const connDocRef = firestore.collection('connections').doc(String(connectionId));
+    const doc = await connDocRef.get();
+    
+    if (!doc.exists) return { error: 'Connection not found' };
+    const conn = doc.data();
+    
+    const isFrom = conn.from_user_id === Number(userId);
     const field = isFrom ? 'reveal_from' : 'reveal_to';
-    getDB().prepare(`UPDATE connections SET ${field} = 1 WHERE id = ?`).run(connectionId);
+    await connDocRef.update({ [field]: 1 });
 
-    const updated = getDB().prepare('SELECT * FROM connections WHERE id = ?').get(connectionId);
+    const updatedDoc = await connDocRef.get();
+    const updated = updatedDoc.data();
     const bothRevealed = updated.reveal_from === 1 && updated.reveal_to === 1;
 
     if (bothRevealed) {
-      // Identity revealed — get other user's real info
-      const otherUser = isFrom 
-        ? getDB().prepare('SELECT id, username, avatar FROM users WHERE id = ?').get(conn.to_user_id)
-        : getDB().prepare('SELECT id, username, avatar FROM users WHERE id = ?').get(conn.from_user_id);
-      getDB().prepare('UPDATE connections SET status = ? WHERE id = ?').run('revealed', connectionId);
-      return { success: true, bothRevealed: true, otherUser };
+      const otherId = isFrom ? conn.to_user_id : conn.from_user_id;
+      const otherUser = await userOps.getById(otherId);
+      await connDocRef.update({ status: 'revealed' });
+      return { 
+        success: true, 
+        bothRevealed: true, 
+        otherUser: { id: otherUser.id, username: otherUser.username, avatar: otherUser.avatar } 
+      };
     }
     return { success: true, bothRevealed: false };
   },
   
-  blockUser(fromId, toId, reason = '') {
+  async blockUser(fromId, toId, reason = '') {
+    const firestore = getDB();
     try {
-      getDB().prepare('INSERT INTO blocked_users (from_user_id, to_user_id, reason) VALUES (?, ?, ?)').run(fromId, toId, reason);
-      // Immediately reject any active connection
-      getDB().prepare('UPDATE connections SET status = "rejected" WHERE (from_user_id = ? AND to_user_id = ?) OR (from_user_id = ? AND to_user_id = ?)').run(fromId, toId, toId, fromId);
+      const blockId = `${fromId}_${toId}`;
+      await firestore.collection('blocked_users').doc(blockId).set({
+        from_user_id: Number(fromId),
+        to_user_id: Number(toId),
+        reason: reason || '',
+        created_at: new Date().toISOString()
+      });
+      
+      // Update any active connections to rejected
+      const snap1 = await firestore.collection('connections')
+        .where('from_user_id', '==', Number(fromId))
+        .where('to_user_id', '==', Number(toId))
+        .get();
+      const snap2 = await firestore.collection('connections')
+        .where('from_user_id', '==', Number(toId))
+        .where('to_user_id', '==', Number(fromId))
+        .get();
+        
+      const batch = firestore.batch();
+      snap1.forEach(doc => batch.update(doc.ref, { status: 'rejected' }));
+      snap2.forEach(doc => batch.update(doc.ref, { status: 'rejected' }));
+      await batch.commit();
+      
       return { success: true };
     } catch(err) {
       return { error: 'Already blocked or error occurred' };
     }
   },
   
-  sweepExpired() {
+  async sweepExpired() {
+    const firestore = getDB();
     const now = new Date().toISOString();
+    const snapshot = await firestore.collection('connections')
+      .where('status', '==', 'accepted')
+      .get();
+      
+    let vibeExpired = 0;
+    let revealsExpired = 0;
+    const batch = firestore.batch();
     
-    // Expire pending vibe checks where vibe_available_at has passed and someone hasn't voted
-    // We treat missing vote as auto Not Vibe (rejected)
-    const expiredVibes = getDB().prepare(`
-      UPDATE connections 
-      SET status = 'rejected' 
-      WHERE status = 'accepted' 
-        AND vibe_available_at < ? 
-        AND (from_vibe = 0 OR to_vibe = 0)
-    `).run(now);
-
-    // Expire reveals where reveal_available_at has passed and someone hasn't revealed
-    const expiredReveals = getDB().prepare(`
-      UPDATE connections 
-      SET status = 'expired' 
-      WHERE status = 'accepted' 
-        AND reveal_available_at < ? 
-        AND (reveal_from = 0 OR reveal_to = 0)
-    `).run(now);
-
-    return { vibeExpired: expiredVibes.changes, revealsExpired: expiredReveals.changes };
+    snapshot.forEach(doc => {
+      const conn = doc.data();
+      if (conn.vibe_available_at && conn.vibe_available_at < now && (conn.from_vibe === 0 || conn.to_vibe === 0)) {
+        batch.update(doc.ref, { status: 'rejected' });
+        vibeExpired++;
+      } else if (conn.reveal_available_at && conn.reveal_available_at < now && (conn.reveal_from === 0 || conn.reveal_to === 0)) {
+        batch.update(doc.ref, { status: 'expired' });
+        revealsExpired++;
+      }
+    });
+    
+    await batch.commit();
+    return { vibeExpired, revealsExpired };
   },
 
-  getConnectionById(connectionId) {
-    return getDB().prepare('SELECT * FROM connections WHERE id = ?').get(connectionId);
+  async getConnectionById(connectionId) {
+    const doc = await getDB().collection('connections').doc(String(connectionId)).get();
+    return doc.exists ? doc.data() : null;
   }
 };
 
 // Message operations
 const messageOps = {
-  send(connectionId, senderId, content, isVoice = 0, voiceDuration = 0) {
-    const stmt = getDB().prepare('INSERT INTO messages (connection_id, sender_id, content, is_voice, voice_duration) VALUES (?, ?, ?, ?, ?)');
-    const result = stmt.run(connectionId, senderId, content, isVoice, voiceDuration);
-    return getDB().prepare('SELECT * FROM messages WHERE id = ?').get(result.lastInsertRowid);
+  async send(connectionId, senderId, content, isVoice = 0, voiceDuration = 0) {
+    const firestore = getDB();
+    const msgId = await getNextId('messages');
+    const msgDocRef = firestore.collection('messages').doc(String(msgId));
+    const payload = {
+      id: msgId,
+      connection_id: Number(connectionId),
+      sender_id: Number(senderId),
+      content,
+      is_voice: Number(isVoice),
+      voice_duration: Number(voiceDuration),
+      created_at: new Date().toISOString()
+    };
+    await msgDocRef.set(payload);
+    return payload;
   },
 
-  getForConnection(connectionId) {
-    return getDB().prepare('SELECT * FROM messages WHERE connection_id = ? ORDER BY created_at ASC').all(connectionId);
+  async getForConnection(connectionId) {
+    const snapshot = await getDB().collection('messages')
+      .where('connection_id', '==', Number(connectionId))
+      .get();
+      
+    const messages = [];
+    snapshot.forEach(doc => messages.push(doc.data()));
+    return messages.sort((a, b) => a.created_at.localeCompare(b.created_at));
   },
 
-  getRecentForConnection(connectionId, limit = 50) {
-    return getDB().prepare('SELECT * FROM messages WHERE connection_id = ? ORDER BY created_at DESC LIMIT ?').all(connectionId, limit).reverse();
+  async getRecentForConnection(connectionId, limit = 50) {
+    const snapshot = await getDB().collection('messages')
+      .where('connection_id', '==', Number(connectionId))
+      .orderBy('created_at', 'desc')
+      .limit(limit)
+      .get();
+      
+    const messages = [];
+    snapshot.forEach(doc => messages.push(doc.data()));
+    return messages.reverse();
   }
 };
 
-// OTP operations
+// OTP operations (Mapped for signup tokens)
 const otpOps = {
-  create(email, otp, expiresAt) {
-    const stmt = getDB().prepare(`INSERT INTO otps (email, otp, expires_at) VALUES (?, ?, ?)`);
-    const result = stmt.run(email, otp, expiresAt);
-    return result.lastInsertRowid;
+  async create(email, otp, expiresAt) {
+    const firestore = getDB();
+    const otpId = await getNextId('otps');
+    await firestore.collection('otps').doc(String(otpId)).set({
+      id: otpId,
+      email,
+      otp,
+      used: 0,
+      expires_at: new Date(expiresAt).toISOString(),
+      created_at: new Date().toISOString(),
+      attempts: 0
+    });
+    return otpId;
   },
 
-  getValidOTP(email, otp) {
-    return getDB().prepare(
-      `SELECT * FROM otps WHERE email = ? AND otp = ? AND used = 0 AND expires_at > datetime('now') ORDER BY created_at DESC LIMIT 1`
-    ).get(email, otp);
+  async getValidOTP(email, otp) {
+    const now = new Date().toISOString();
+    const snapshot = await getDB().collection('otps')
+      .where('email', '==', email)
+      .where('otp', '==', otp)
+      .where('used', '==', 0)
+      .get();
+      
+    let valid = null;
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      if (data.expires_at > now) {
+        valid = data;
+      }
+    });
+    return valid;
   },
 
-  getActiveOTP(email) {
-    return getDB().prepare(
-      `SELECT * FROM otps WHERE email = ? AND used = 0 AND expires_at > datetime('now') ORDER BY created_at DESC LIMIT 1`
-    ).get(email);
+  async getActiveOTP(email) {
+    const now = new Date().toISOString();
+    const snapshot = await getDB().collection('otps')
+      .where('email', '==', email)
+      .where('used', '==', 0)
+      .get();
+      
+    let active = null;
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      if (data.expires_at > now) {
+        active = data;
+      }
+    });
+    return active;
   },
 
-  incrementAttempts(email) {
-    const active = getDB().prepare(
-      `SELECT id FROM otps WHERE email = ? AND used = 0 AND expires_at > datetime('now') ORDER BY created_at DESC LIMIT 1`
-    ).get(email);
+  async incrementAttempts(email) {
+    const firestore = getDB();
+    const active = await this.getActiveOTP(email);
     if (active) {
-      getDB().prepare('UPDATE otps SET attempts = attempts + 1 WHERE id = ?').run(active.id);
+      await firestore.collection('otps').doc(String(active.id)).update({
+        attempts: FieldValue.increment(1)
+      });
     }
   },
 
-  markUsed(id) {
-    getDB().prepare('UPDATE otps SET used = 1 WHERE id = ?').run(id);
+  async markUsed(id) {
+    await getDB().collection('otps').doc(String(id)).update({ used: 1 });
   },
 
-  cleanExpired() {
-    return getDB().prepare("DELETE FROM otps WHERE expires_at < datetime('now') OR used = 1").run();
+  async cleanExpired() {
+    const firestore = getDB();
+    const now = new Date().toISOString();
+    const snapshot = await firestore.collection('otps').get();
+    const batch = firestore.batch();
+    let count = 0;
+    
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      if (data.expires_at < now || data.used === 1) {
+        batch.delete(doc.ref);
+        count++;
+      }
+    });
+    await batch.commit();
+    return { deletedCount: count };
   },
 
-  deleteByEmail(email) {
-    getDB().prepare('DELETE FROM otps WHERE email = ?').run(email);
+  async deleteByEmail(email) {
+    const firestore = getDB();
+    const snapshot = await firestore.collection('otps').where('email', '==', email).get();
+    const batch = firestore.batch();
+    snapshot.forEach(doc => batch.delete(doc.ref));
+    await batch.commit();
   }
 };
 

@@ -24,27 +24,28 @@ document.addEventListener('DOMContentLoaded', async () => {
   } catch (err) {}
 
   // State
-  let currentEmail = window.localStorage.getItem('emailForSignIn') || '';
+  let currentEmail = '';
   const errEl = document.getElementById('email-error');
+  const loginErrEl = document.getElementById('login-error');
 
   // DOM refs
+  const stageLogin = document.getElementById('stage-login');
   const stageEmail = document.getElementById('stage-email');
   const stageOtp = document.getElementById('stage-otp');
   const stageProfile = document.getElementById('stage-profile');
+  
   const inputEmail = document.getElementById('input-email');
   const otpEmailDisplay = document.getElementById('otp-email-display');
-  const inputOtp = document.getElementById('input-otp');
 
   const stepDots = [1, 2, 3].map(i => document.getElementById(`step-dot-${i}`));
   const stepLines = [1, 2].map(i => document.getElementById(`step-line-${i}`));
 
   function showStage(stage) {
-    [stageEmail, stageOtp, stageProfile].forEach(s => {
+    [stageLogin, stageEmail, stageOtp, stageProfile].forEach(s => {
       s.classList.add('hidden');
       s.classList.remove('stage-enter');
     });
-    // RequestAnimationFrame ensures the browser registers the hidden state
-    // before we apply the animation class, so the fade-in plays properly
+    
     requestAnimationFrame(() => {
       stage.classList.remove('hidden');
       requestAnimationFrame(() => {
@@ -66,7 +67,49 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // ===== STAGE 1: Send OTP =====
+  // Toggle buttons
+  document.getElementById('btn-go-signup').onclick = () => {
+    showStage(stageEmail);
+    inputEmail.focus();
+  };
+
+  document.getElementById('btn-go-login').onclick = () => {
+    showStage(stageLogin);
+    document.getElementById('login-username').focus();
+  };
+
+  document.getElementById('btn-back-email').onclick = () => {
+    showStage(stageEmail);
+    inputEmail.focus();
+  };
+
+  // ===== STAGE 0: Email/Username + Password Login =====
+  document.getElementById('form-login').onsubmit = async (e) => {
+    e.preventDefault();
+    const usernameOrEmail = document.getElementById('login-username').value.trim();
+    const password = document.getElementById('login-password').value;
+
+    const btn = document.getElementById('btn-login');
+    btn.disabled = true;
+    btn.textContent = 'Signing In...';
+    loginErrEl.classList.add('hidden');
+
+    try {
+      const data = await apiCall('/api/users/login', 'POST', { usernameOrEmail, password });
+      if (data.success) {
+        window.location.href = '/discover';
+      }
+    } catch (err) {
+      console.error(err);
+      loginErrEl.textContent = err.message || 'Incorrect credentials';
+      loginErrEl.classList.remove('hidden');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Sign In';
+    }
+  };
+
+  // ===== STAGE 1: Send Signup Email (Verification link via Brevo) =====
   document.getElementById('form-email').onsubmit = async (e) => {
     e.preventDefault();
     const email = inputEmail.value.trim().toLowerCase();
@@ -83,84 +126,53 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const btn = document.getElementById('btn-send-otp');
     btn.disabled = true;
-    btn.textContent = 'Sending Magic Link...';
+    btn.textContent = 'Sending link...';
 
     try {
-      // Use our backend to generate the link directly (bypasses Firebase sending quota)
-      const res = await fetch('/api/auth/send-link', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email })
-      });
-      
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to generate link');
-
-      window.localStorage.setItem('emailForSignIn', email);
-      currentEmail = email;
-      
-      // Instantly log the user in using the developer bypass link!
-      if (data.devLink) {
-        window.location.href = data.devLink;
-        return;
+      const data = await apiCall('/api/auth/send-verification-email', 'POST', { email });
+      if (data.success) {
+        currentEmail = email;
+        otpEmailDisplay.textContent = email;
+        showStage(stageOtp);
       }
-
-      otpEmailDisplay.textContent = email;
-      showStage(stageOtp);
     } catch (err) {
       console.error(err);
-      errEl.textContent = 'Failed to send link. ' + err.message;
+      errEl.textContent = err.message || 'Failed to send verification link';
       errEl.classList.remove('hidden');
     } finally {
       btn.disabled = false;
-      btn.textContent = 'Send Magic Link';
+      btn.textContent = 'Send Verification Email';
     }
   };
 
-  // ===== STAGE 2: Handle Magic Link Verification =====
-  // Check if the user is returning from a magic link click
-  if (isSignInWithEmailLink(auth, window.location.href)) {
-    let email = window.localStorage.getItem('emailForSignIn');
-    if (!email) {
-      // If opened on a different device, prompt for email
-      email = window.prompt('Please provide your email for confirmation');
-    }
+  // ===== Check Verification Token on page load =====
+  const urlParams = new URLSearchParams(window.location.search);
+  const token = urlParams.get('token');
+  const emailParam = urlParams.get('email');
 
-    if (email) {
-      try {
-        // Sign in with Firebase
-        const result = await signInWithEmailLink(auth, email, window.location.href);
-        window.localStorage.removeItem('emailForSignIn');
-
-        // Get the secure ID token to send to our backend
-        const idToken = await result.user.getIdToken();
-
-        // Establish the session on our backend
-        const rememberMe = document.getElementById('remember-me')?.checked || true;
-        const data = await apiCall('/api/auth/verify-firebase-token', 'POST', { 
-          idToken,
-          rememberMe
-        });
-
+  if (token && emailParam) {
+    showStage(stageOtp);
+    otpEmailDisplay.textContent = emailParam;
+    
+    // Auto-verify token
+    try {
+      const data = await apiCall('/api/auth/verify-token', 'POST', { token, email: emailParam });
+      if (data.success) {
+        currentEmail = emailParam;
         if (data.isNewUser) {
           showStage(stageProfile);
           document.getElementById('profile-username').focus();
         } else {
+          // If already registered, redirect straight to discover since session is set
           window.location.href = '/discover';
         }
-      } catch (error) {
-        console.error("Error signing in with email link", error);
-        errEl.textContent = 'Link is invalid or has expired.';
-        errEl.classList.remove('hidden');
       }
+    } catch (err) {
+      console.error(err);
+      alert('Verification link is invalid or has expired.');
+      showStage(stageLogin);
     }
   }
-
-  // Back to email
-  document.getElementById('btn-back-email').onclick = () => {
-    showStage(stageEmail);
-    inputEmail.focus();
-  };
 
   // ===== STAGE 3: Complete Profile (new users) =====
   const profileGender = document.getElementById('profile-gender');
@@ -208,6 +220,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     e.preventDefault();
 
     const username = document.getElementById('profile-username').value.trim();
+    const password = document.getElementById('profile-password').value;
     const gender = profileGender.value;
     const bio = document.getElementById('profile-bio').value.trim();
     const hobbiesStr = document.getElementById('profile-hobbies').value;
@@ -233,6 +246,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       await apiCall('/api/auth/complete-profile', 'POST', {
         email: currentEmail,
         username,
+        password,
         gender,
         bio,
         hobbies,

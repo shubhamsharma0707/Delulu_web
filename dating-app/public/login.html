@@ -93,9 +93,51 @@
 
     <div class="glass-panel rounded-3xl p-8 w-full max-w-md ambient-shadow mx-auto min-h-[320px]">
 
-      <!-- ===== STAGE 1: Email Input ===== -->
-      <div id="stage-email" class="stage-enter">
-        <h2 class="text-xl font-bold text-on-surface mb-1">Sign in with your college email</h2>
+      <!-- ===== STAGE 0: Login (Default) ===== -->
+      <div id="stage-login" class="stage-enter">
+        <h2 class="text-xl font-bold text-on-surface mb-1">Sign In</h2>
+        <p class="text-sm text-on-surface-variant mb-6">Enter your username or college email and password</p>
+
+        <form id="form-login" class="flex flex-col gap-4">
+          <div class="relative">
+            <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline text-lg">person</span>
+            <input 
+              id="login-username" 
+              type="text" 
+              placeholder="Username or College Email" 
+              class="w-full bg-surface-container-low rounded-xl pl-10 pr-4 py-3 border-none focus:ring-2 focus:ring-primary/50 outline-none"
+              required
+            >
+          </div>
+          <div class="relative">
+            <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline text-lg">lock</span>
+            <input 
+              id="login-password" 
+              type="password" 
+              placeholder="Password" 
+              class="w-full bg-surface-container-low rounded-xl pl-10 pr-4 py-3 border-none focus:ring-2 focus:ring-primary/50 outline-none"
+              required
+            >
+          </div>
+          <p id="login-error" class="text-error text-sm font-semibold hidden"></p>
+          <button 
+            type="submit" 
+            id="btn-login"
+            class="w-full bg-gradient-to-r from-primary to-primary-container text-white font-bold py-3 rounded-xl shadow-md hover:shadow-lg transition-all"
+          >
+            Sign In
+          </button>
+          <div class="text-center mt-2">
+            <button type="button" id="btn-go-signup" class="text-sm text-primary hover:underline font-semibold">
+              New here? Verify college email to Sign Up
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <!-- ===== STAGE 1: Email Signup (Verification link) ===== -->
+      <div id="stage-email" class="hidden">
+        <h2 class="text-xl font-bold text-on-surface mb-1">Sign up with college email</h2>
         <p class="text-sm text-on-surface-variant mb-6">Only @rishihood.edu.in, @nst.rishihood.edu.in and @vitbhopal.ac.in emails are accepted</p>
 
         <form id="form-email" class="flex flex-col gap-4">
@@ -110,31 +152,32 @@
               autocomplete="email"
             >
           </div>
-          <div class="flex items-center mt-2 pl-1">
-            <input type="checkbox" id="remember-me" class="w-4 h-4 text-primary bg-surface-container border-outline rounded focus:ring-primary/50" checked>
-            <label for="remember-me" class="ml-2 text-sm text-on-surface-variant">Remember me on this device</label>
-          </div>
           <p id="email-error" class="text-error text-sm font-semibold hidden"></p>
           <button 
             type="submit" 
             id="btn-send-otp"
             class="w-full bg-gradient-to-r from-primary to-primary-container text-white font-bold py-3 rounded-xl shadow-md hover:shadow-lg transition-all disabled:opacity-50"
           >
-            Send OTP
+            Send Verification Email
           </button>
+          <div class="text-center mt-2">
+            <button type="button" id="btn-go-login" class="text-sm text-primary hover:underline font-semibold">
+              Already have an account? Sign In
+            </button>
+          </div>
         </form>
       </div>
 
       <!-- ===== STAGE 2: Magic Link Sent ===== -->
       <div id="stage-otp" class="hidden">
         <h2 class="text-xl font-bold text-on-surface mb-1">Check your email</h2>
-        <p class="text-sm text-on-surface-variant mb-2">We sent a secure magic link to</p>
+        <p class="text-sm text-on-surface-variant mb-2">We sent a secure verification link to</p>
         <p id="otp-email-display" class="text-sm font-semibold text-primary mb-6"></p>
 
         <div class="flex flex-col gap-4 text-center">
           <div class="bg-surface-container-low rounded-xl px-4 py-6 border-none">
             <span class="material-symbols-outlined text-4xl text-primary mb-2">mail</span>
-            <p class="text-sm text-on-surface-variant">Click the link in the email to instantly sign in.</p>
+            <p class="text-sm text-on-surface-variant">Click the link in the email to complete registration.</p>
             <p class="text-xs text-outline mt-2">You can close this tab if you open the link on another device.</p>
           </div>
           
@@ -161,6 +204,14 @@
             class="w-full bg-surface-container-low rounded-xl px-4 py-3 border-none focus:ring-2 focus:ring-primary/50 outline-none"
             required
             minlength="3"
+          >
+          <input 
+            id="profile-password" 
+            type="password" 
+            placeholder="Choose a password (min 6 chars)" 
+            class="w-full bg-surface-container-low rounded-xl px-4 py-3 border-none focus:ring-2 focus:ring-primary/50 outline-none"
+            required
+            minlength="6"
           >
           <select id="profile-gender" class="w-full bg-surface-container-low rounded-xl px-4 py-3 border-none focus:ring-2 focus:ring-primary/50 outline-none" required>
             <option value="" disabled selected>I identify as...</option>
