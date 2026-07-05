@@ -1,4 +1,39 @@
 const express = require('express');
+const pino = require('pino')({
+  level: process.env.LOG_LEVEL || 'info'
+});
+const pinoHttp = require('pino-http')({ 
+  logger: pino,
+  autoLogging: {
+    ignore: (req) => req.url.startsWith('/uploads/') || req.url.startsWith('/avatars/')
+  }
+});
+
+// Override console methods to direct output to structured pino
+console.log = (...args) => {
+  if (args.length === 1 && typeof args[0] === 'string') {
+    pino.info(args[0]);
+  } else {
+    pino.info({ args });
+  }
+};
+console.error = (...args) => {
+  if (args.length === 1 && args[0] instanceof Error) {
+    pino.error(args[0]);
+  } else if (args.length === 1 && typeof args[0] === 'string') {
+    pino.error(args[0]);
+  } else {
+    pino.error({ args });
+  }
+};
+console.warn = (...args) => {
+  if (args.length === 1 && typeof args[0] === 'string') {
+    pino.warn(args[0]);
+  } else {
+    pino.warn({ args });
+  }
+};
+
 const session = require('express-session');
 const SqliteStore = require('better-sqlite3-session-store')(session);
 const Database = require('better-sqlite3');
@@ -20,6 +55,8 @@ const fs = require('fs');
 require('dotenv').config();
 
 const app = express();
+app.use(pinoHttp);
+
 const server = http.createServer(app);
 const io = new Server(server);
 
