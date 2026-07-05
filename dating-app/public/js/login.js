@@ -85,16 +85,26 @@ document.addEventListener('DOMContentLoaded', async () => {
     btn.disabled = true;
     btn.textContent = 'Sending Magic Link...';
 
-    const actionCodeSettings = {
-      // URL you want to redirect back to. The domain must be whitelisted in Firebase Console.
-      url: window.location.origin + '/login.html',
-      handleCodeInApp: true,
-    };
-
     try {
-      await sendSignInLinkToEmail(auth, email, actionCodeSettings);
+      // Use our backend to generate the link directly (bypasses Firebase sending quota)
+      const res = await fetch('/api/auth/send-link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      });
+      
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to generate link');
+
       window.localStorage.setItem('emailForSignIn', email);
       currentEmail = email;
+      
+      // Instantly log the user in using the developer bypass link!
+      if (data.devLink) {
+        window.location.href = data.devLink;
+        return;
+      }
+
       otpEmailDisplay.textContent = email;
       showStage(stageOtp);
     } catch (err) {

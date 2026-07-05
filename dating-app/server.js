@@ -241,33 +241,11 @@ app.get('/api/session', (req, res) => {
   res.json({ authenticated: false });
 });
 
-// Configure Nodemailer transporter
-let transporter = null;
-if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
-  transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 465,
-    secure: true,
-    auth: {
-      user: process.env.GMAIL_USER,
-      pass: process.env.GMAIL_APP_PASSWORD
-    },
-    tls: {
-      rejectUnauthorized: false
-    },
-    family: 4, // Force IPv4 to prevent Render ENETUNREACH IPv6 errors
-    connectionTimeout: 5000,
-    greetingTimeout: 5000,
-    socketTimeout: 10000
-  });
-  console.log('Nodemailer transporter ready (IPv4 forced)');
-}
-
-// Generate Firebase Magic Link and send via Nodemailer (Bypasses Spam)
+// Generate Firebase Magic Link and return directly to bypass Quota/SMTP issues
 app.post('/api/auth/send-link', authLimiter, async (req, res) => {
   const { email } = req.body;
-  if (!email || !transporter || !firebaseInitialized) {
-    return res.status(400).json({ error: 'Email sending is not configured on the server' });
+  if (!email || !firebaseInitialized) {
+    return res.status(400).json({ error: 'Server not configured for Auth' });
   }
 
   const allowedDomains = ['rishihood.edu.in', 'vitbhopal.ac.in', 'nst.rishihood.edu.in'];
@@ -282,27 +260,13 @@ app.post('/api/auth/send-link', authLimiter, async (req, res) => {
   };
 
   try {
+    // Generate the link on the backend. This does NOT use the Firebase Email Sending quota!
     const link = await getFirebaseAuth().generateSignInWithEmailLink(email, actionCodeSettings);
     
-    const mailOptions = {
-      from: `"Delulu Dating App" <${process.env.GMAIL_USER}>`,
-      to: email,
-      subject: 'Sign in to Delulu',
-      text: `Hello!\n\nClick the secure link below to sign in to Delulu:\n\n${link}\n\nThis link will expire in a few minutes.`,
-      html: `
-        <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; text-align: center;">
-          <h2 style="color: #731709;">Welcome to Delulu!</h2>
-          <p>Click the button below to securely sign in to your account. No password required.</p>
-          <a href="${link}" style="display: inline-block; margin: 20px 0; padding: 14px 28px; background-color: #731709; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px;">Sign In to Delulu</a>
-          <p style="color: #666; font-size: 12px;">This link will expire in 10 minutes. If you did not request this link, you can safely ignore this email.</p>
-        </div>
-      `
-    };
-    
-    await transporter.sendMail(mailOptions);
-    res.json({ success: true });
+    // Return the link directly to the frontend so the user can click it to instantly log in
+    res.json({ success: true, devLink: link });
   } catch (err) {
-    console.error('Send Link Error:', err);
+    console.error('Generate Link Error:', err);
     res.status(500).json({ error: 'Server Error: ' + (err.message || 'Unknown error') });
   }
 });
