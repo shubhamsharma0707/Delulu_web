@@ -40,6 +40,16 @@ async function getNextId(collectionName) {
   return nextId;
 }
 
+// Ecosystem mapping based on email domain
+function getEcosystem(email) {
+  if (!email) return 'rishihood'; // Default fallback
+  const domain = email.toLowerCase().trim().split('@')[1];
+  if (domain === 'vitbhopal.ac.in') {
+    return 'vitbhopal';
+  }
+  return 'rishihood';
+}
+
 // Seed demo users if none exist in Cloud Firestore
 async function seedDemoUsers() {
   const firestore = getDB();
@@ -53,18 +63,25 @@ async function seedDemoUsers() {
 
   const defaultHash = bcrypt.hashSync('123456', 10);
   const demos = [
-    { id: 1, username: 'wanderlust_amy', gender: 'female', bio: 'Dog mom, amateur pasta maker, and weekend hiker. Love finding obscure coffee shops.', hobbies: ['hiking', 'photography', 'coffee', 'cooking', 'travel'], avatar: 'female_01' },
-    { id: 2, username: 'art_vibes', gender: 'female', bio: 'Art enthusiast and gallery hopper. Always on the lookout for the next great exhibition.', hobbies: ['art', 'photography', 'reading', 'music'], avatar: 'female_02' },
-    { id: 3, username: 'stellar_jay', gender: 'male', bio: 'Astronomy nerd and weekend astronomer. Love stargazing and deep conversations.', hobbies: ['photography', 'hiking', 'reading', 'movies', 'camping'], avatar: 'male_01' },
-    { id: 4, username: 'coffee_leo', gender: 'male', bio: 'Barista by day, musician by night. Looking for someone to share a latte and a laugh.', hobbies: ['coffee', 'music', 'cooking', 'baking', 'writing'], avatar: 'male_02' },
-    { id: 5, username: 'trailblazer', gender: 'female', bio: "Trail runner and outdoor enthusiast. Summited 12 peaks last year! Let's explore together.", hobbies: ['hiking', 'running', 'yoga', 'travel', 'camping'], avatar: 'female_03' },
-    { id: 6, username: 'pixel_wanderer', gender: 'male', bio: 'Digital nomad and travel photographer. Capturing moments one frame at a time.', hobbies: ['photography', 'travel', 'hiking', 'coffee', 'writing'], avatar: 'male_03' },
-    { id: 7, username: 'bookish_bee', gender: 'female', bio: 'Bookworm with an indie soul. Bibliophile, poet, and curator of cozy corners.', hobbies: ['reading', 'writing', 'coffee', 'music', 'gardening'], avatar: 'female_04' },
-    { id: 8, username: 'green_mind', gender: 'male', bio: 'Plant dad and sustainability advocate. Growing my own food and building a better world.', hobbies: ['gardening', 'cooking', 'yoga', 'reading', 'cycling'], avatar: 'male_04' },
-    { id: 9, username: 'melody_maker', gender: 'female', bio: 'Indie musician and vinyl collector. Music is my love language.', hobbies: ['music', 'writing', 'art', 'coffee', 'dancing'], avatar: 'female_05' },
-    { id: 10, username: 'ocean_soul', gender: 'male', bio: 'Surfer, sailor, and beach bum. The ocean is my happy place.', hobbies: ['swimming', 'travel', 'photography', 'yoga', 'running'], avatar: 'male_05' },
-    { id: 11, username: 'spice_queen', gender: 'female', bio: 'Home chef and spice collector. Cooking my way around the world from my tiny kitchen.', hobbies: ['cooking', 'travel', 'baking', 'gardening', 'dancing'], avatar: 'female_06' },
-    { id: 12, username: 'zen_master', gender: 'male', bio: 'Yoga instructor and mindfulness coach. Finding balance in a chaotic world.', hobbies: ['yoga', 'meditation', 'hiking', 'reading', 'gardening'], avatar: 'male_06' },
+    // Rishihood Ecosystem
+    { id: 1, username: 'wanderlust_amy', gender: 'female', bio: 'Dog mom, amateur pasta maker, and weekend hiker. Love finding obscure coffee shops.', hobbies: ['hiking', 'photography', 'coffee', 'cooking', 'travel'], avatar: 'female_01', ecosystem: 'rishihood', email: 'wanderlust_amy@nst.rishihood.edu.in' },
+    { id: 2, username: 'art_vibes', gender: 'female', bio: 'Art enthusiast and gallery hopper. Always on the lookout for the next great exhibition.', hobbies: ['art', 'photography', 'reading', 'music'], avatar: 'female_02', ecosystem: 'rishihood', email: 'art_vibes@nst.rishihood.edu.in' },
+    { id: 3, username: 'stellar_jay', gender: 'male', bio: 'Astronomy nerd and weekend astronomer. Love stargazing and deep conversations.', hobbies: ['photography', 'hiking', 'reading', 'movies', 'camping'], avatar: 'male_01', ecosystem: 'rishihood', email: 'stellar_jay@nst.rishihood.edu.in' },
+    { id: 4, username: 'coffee_leo', gender: 'male', bio: 'Barista by day, musician by night. Looking for someone to share a latte and a laugh.', hobbies: ['coffee', 'music', 'cooking', 'baking', 'writing'], avatar: 'male_02', ecosystem: 'rishihood', email: 'coffee_leo@nst.rishihood.edu.in' },
+    { id: 5, username: 'trailblazer', gender: 'female', bio: "Trail runner and outdoor enthusiast. Summited 12 peaks last year! Let's explore together.", hobbies: ['hiking', 'running', 'yoga', 'travel', 'camping'], avatar: 'female_03', ecosystem: 'rishihood', email: 'trailblazer@nst.rishihood.edu.in' },
+    { id: 6, username: 'pixel_wanderer', gender: 'male', bio: 'Digital nomad and travel photographer. Capturing moments one frame at a time.', hobbies: ['photography', 'travel', 'hiking', 'coffee', 'writing'], avatar: 'male_03', ecosystem: 'rishihood', email: 'pixel_wanderer@nst.rishihood.edu.in' },
+    { id: 7, username: 'bookish_bee', gender: 'female', bio: 'Bookworm with an indie soul. Bibliophile, poet, and curator of cozy corners.', hobbies: ['reading', 'writing', 'coffee', 'music', 'gardening'], avatar: 'female_04', ecosystem: 'rishihood', email: 'bookish_bee@nst.rishihood.edu.in' },
+    { id: 8, username: 'green_mind', gender: 'male', bio: 'Plant dad and sustainability advocate. Growing my own food and building a better world.', hobbies: ['gardening', 'cooking', 'yoga', 'reading', 'cycling'], avatar: 'male_04', ecosystem: 'rishihood', email: 'green_mind@nst.rishihood.edu.in' },
+    { id: 9, username: 'melody_maker', gender: 'female', bio: 'Indie musician and vinyl collector. Music is my love language.', hobbies: ['music', 'writing', 'art', 'coffee', 'dancing'], avatar: 'female_05', ecosystem: 'rishihood', email: 'melody_maker@nst.rishihood.edu.in' },
+    { id: 10, username: 'ocean_soul', gender: 'male', bio: 'Surfer, sailor, and beach bum. The ocean is my happy place.', hobbies: ['swimming', 'travel', 'photography', 'yoga', 'running'], avatar: 'male_05', ecosystem: 'rishihood', email: 'ocean_soul@nst.rishihood.edu.in' },
+    { id: 11, username: 'spice_queen', gender: 'female', bio: 'Home chef and spice collector. Cooking my way around the world from my tiny kitchen.', hobbies: ['cooking', 'travel', 'baking', 'gardening', 'dancing'], avatar: 'female_06', ecosystem: 'rishihood', email: 'spice_queen@nst.rishihood.edu.in' },
+    { id: 12, username: 'zen_master', gender: 'male', bio: 'Yoga instructor and mindfulness coach. Finding balance in a chaotic world.', hobbies: ['yoga', 'meditation', 'hiking', 'reading', 'gardening'], avatar: 'male_06', ecosystem: 'rishihood', email: 'zen_master@nst.rishihood.edu.in' },
+    
+    // VIT Bhopal Ecosystem
+    { id: 13, username: 'vit_lily', gender: 'female', bio: 'Tech enthusiast, coder, and late-night gamer. Always up for a hackathon or a movie night.', hobbies: ['gaming', 'music', 'travel', 'coffee'], avatar: 'female_01', ecosystem: 'vitbhopal', email: 'vit_lily@vitbhopal.ac.in' },
+    { id: 14, username: 'vit_alex', gender: 'male', bio: 'Photography enthusiast, nature lover, and street food hunter. Capturing the moments that matter.', hobbies: ['photography', 'hiking', 'travel', 'cooking'], avatar: 'male_01', ecosystem: 'vitbhopal', email: 'vit_alex@vitbhopal.ac.in' },
+    { id: 15, username: 'vit_sara', gender: 'female', bio: 'Book lover, poet, and classical dancer. Seeking interesting conversations over tea.', hobbies: ['reading', 'writing', 'dancing', 'art'], avatar: 'female_02', ecosystem: 'vitbhopal', email: 'vit_sara@vitbhopal.ac.in' },
+    { id: 16, username: 'vit_ryan', gender: 'male', bio: 'Fitness junkie, runner, and amateur guitarist. Striving to stay active and creative every day.', hobbies: ['running', 'music', 'yoga', 'cycling'], avatar: 'male_02', ecosystem: 'vitbhopal', email: 'vit_ryan@vitbhopal.ac.in' }
   ];
 
   const batch = firestore.batch();
@@ -74,14 +91,13 @@ async function seedDemoUsers() {
       ...u,
       passcode_hash: defaultHash,
       is_onboarded: 1,
-      email: `${u.username}@nst.rishihood.edu.in`,
       created_at: new Date().toISOString()
     });
   }
 
   // Set counter document
   const counterRef = firestore.collection('counters').doc('users');
-  batch.set(counterRef, { current: 12 });
+  batch.set(counterRef, { current: 16 });
 
   await batch.commit();
   console.log(`Seeded ${demos.length} demo users in Firestore`);
@@ -105,6 +121,7 @@ const userOps = {
       avatar: avatar || '',
       is_onboarded: 0,
       email: null,
+      ecosystem: 'rishihood', // Default fallback
       created_at: new Date().toISOString()
     });
     return userId;
@@ -113,6 +130,7 @@ const userOps = {
   async createWithEmail(username, gender, email, passwordHash, bio, hobbies, avatar) {
     const userId = await getNextId('users');
     const userDocRef = getDB().collection('users').doc(String(userId));
+    const ecosystem = getEcosystem(email);
     await userDocRef.set({
       id: userId,
       username,
@@ -123,6 +141,7 @@ const userOps = {
       hobbies: hobbies || [],
       avatar: avatar || '',
       is_onboarded: 1,
+      ecosystem,
       created_at: new Date().toISOString()
     });
     return userId;
@@ -165,9 +184,11 @@ const userOps = {
     await getDB().collection('users').doc(String(id)).update(updatePayload);
   },
 
-  // Get discoverable profiles
+  // Get discoverable profiles (filtered by ecosystem)
   async getDiscoverable(userId, gender, excludeIds = []) {
     const firestore = getDB();
+    const userDoc = await this.getById(userId);
+    const userEcosystem = userDoc?.ecosystem || 'rishihood';
     
     // Fetch blocked users involving this user
     const blockedSnapshotFrom = await firestore.collection('blocked_users').where('from_user_id', '==', Number(userId)).get();
@@ -186,7 +207,7 @@ const userOps = {
       genderFilter = 'male';
     }
 
-    let query = firestore.collection('users');
+    let query = firestore.collection('users').where('ecosystem', '==', userEcosystem);
     if (genderFilter) {
       query = query.where('gender', '==', genderFilter);
     }
