@@ -85,14 +85,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     btn.disabled = true;
     btn.textContent = 'Sending Magic Link...';
 
-    const actionCodeSettings = {
-      // URL you want to redirect back to. The domain must be whitelisted in Firebase Console.
-      url: window.location.origin + '/login.html',
-      handleCodeInApp: true,
-    };
-
     try {
-      await sendSignInLinkToEmail(auth, email, actionCodeSettings);
+      // Use our backend to generate and send the Firebase Link via Nodemailer
+      const res = await fetch('/api/auth/send-link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      });
+      
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to send link');
+
       window.localStorage.setItem('emailForSignIn', email);
       currentEmail = email;
       otpEmailDisplay.textContent = email;
