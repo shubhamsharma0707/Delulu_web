@@ -276,7 +276,7 @@ async function sendBrevoEmail(email, subject, htmlContent) {
 }
 
 // Generate secure verification token and send email via Brevo
-app.post('/api/auth/send-verification-email', authLimiter, async (req, res) => {
+app.post('/api/auth/send-verification-email', otpLimiter, async (req, res) => {
   const { email } = req.body;
   if (!email) {
     return res.status(400).json({ error: 'Email is required' });
@@ -325,7 +325,7 @@ app.post('/api/auth/send-verification-email', authLimiter, async (req, res) => {
 });
 
 // Verify sign-up/login link token
-app.post('/api/auth/verify-token', async (req, res) => {
+app.post('/api/auth/verify-token', authLimiter, async (req, res) => {
   const { token, email } = req.body;
   if (!token || !email) {
     return res.status(400).json({ error: 'Token and email are required' });
@@ -358,7 +358,7 @@ app.post('/api/auth/verify-token', async (req, res) => {
 });
 
 // Username/Email + Password Login
-app.post('/api/users/login', async (req, res) => {
+app.post('/api/users/login', authLimiter, async (req, res) => {
   const { usernameOrEmail, password } = req.body;
   if (!usernameOrEmail || !password) {
     return res.status(400).json({ error: 'Username/Email and password are required' });
