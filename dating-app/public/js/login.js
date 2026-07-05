@@ -116,9 +116,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     const domain = email.split('@')[1];
 
     // Client-side validation
-    const allowedDomains = ['rishihood.edu.in', 'vitbhopal.ac.in', 'nst.rishihood.edu.in'];
+    const allowedDomains = ['rishihood.edu.in', 'vitbhopal.ac.in', 'nst.rishihood.edu.in', 'psy.rishihood.edu.in'];
     if (!domain || !allowedDomains.includes(domain)) {
-      errEl.textContent = 'Only @rishihood.edu.in, @nst.rishihood.edu.in and @vitbhopal.ac.in email addresses are allowed';
+      errEl.textContent = 'Only @rishihood.edu.in, @nst.rishihood.edu.in, @psy.rishihood.edu.in and @vitbhopal.ac.in email addresses are allowed';
       errEl.classList.remove('hidden');
       return;
     }
