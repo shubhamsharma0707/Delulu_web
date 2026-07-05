@@ -73,6 +73,16 @@ if (!process.env.SESSION_SECRET) {
 // Trust proxy for when running behind nginx/render/heroku
 app.set('trust proxy', 1);
 
+// HTTP → HTTPS redirect in production (must run before helmet or any route)
+if (process.env.NODE_ENV === 'production') {
+  app.use((req, res, next) => {
+    if (req.headers['x-forwarded-proto'] !== 'https') {
+      return res.redirect('https://' + req.headers.host + req.url);
+    }
+    next();
+  });
+}
+
 // Security headers via Helmet
 // CSP is disabled to allow our CDN-loaded libraries (Tailwind, Three.js, Socket.io, Google Fonts)
 app.use(helmet({
@@ -794,15 +804,7 @@ setInterval(async () => {
 
 
 
-// HTTP → HTTPS redirect in production
-if (process.env.NODE_ENV === 'production') {
-  app.use((req, res, next) => {
-    if (req.headers['x-forwarded-proto'] !== 'https') {
-      return res.redirect('https://' + req.headers.host + req.url);
-    }
-    next();
-  });
-}
+
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Delulu Dating App running at http://localhost:${PORT}`);
