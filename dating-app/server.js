@@ -395,7 +395,7 @@ app.post('/api/users/login', async (req, res) => {
 // Complete profile for new users (signs up user with password in Firestore)
 app.post('/api/auth/complete-profile', async (req, res) => {
   try {
-    const { email, username, password, gender, bio, hobbies, avatar } = req.body;
+    const { email, username, password, gender, bio, hobbies, avatar, public_key, encrypted_private_key } = req.body;
 
     if (!email || !username || !password || !gender) {
       return res.status(400).json({ error: 'Email, username, password, and gender are required' });
@@ -438,7 +438,17 @@ app.post('/api/auth/complete-profile', async (req, res) => {
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
-    const userId = await userOps.createWithEmail(usernameStr, gender, email.toLowerCase().trim(), passwordHash, bio, hobbies, avatar);
+    const userId = await userOps.createWithEmail(
+      usernameStr, 
+      gender, 
+      email.toLowerCase().trim(), 
+      passwordHash, 
+      bio, 
+      hobbies, 
+      avatar,
+      public_key || null,
+      encrypted_private_key || null
+    );
     
     req.session.userId = Number(userId);
     delete req.session.pendingEmail;
@@ -666,7 +676,7 @@ app.get('/api/messages/:connectionId', requireAuth, async (req, res) => {
 
 // Send normal text message
 app.post('/api/messages/send', requireAuth, async (req, res) => {
-  const { connection_id, content } = req.body;
+  const { connection_id, content, is_encrypted, iv } = req.body;
   if (!connection_id || !content?.trim()) {
     return res.status(400).json({ error: 'Missing connection_id or content' });
   }
@@ -674,7 +684,15 @@ app.post('/api/messages/send', requireAuth, async (req, res) => {
   const conn = await connectionOps.getConnection(connection_id, req.session.userId);
   if (!conn) return res.status(404).json({ error: 'Connection not found' });
 
-  const msg = await messageOps.send(connection_id, req.session.userId, content.trim(), 0, 0);
+  const msg = await messageOps.send(
+    connection_id, 
+    req.session.userId, 
+    content.trim(), 
+    0, 
+    0, 
+    is_encrypted || 0, 
+    iv || null
+  );
 
   // Emit socket event for real-time receipt
   io.to(`chat:${connection_id}`).emit('new-message', {
@@ -688,7 +706,7 @@ app.post('/api/messages/send', requireAuth, async (req, res) => {
 // Send voice message
 app.post('/api/messages/upload-voice', requireAuth, upload.single('audio'), async (req, res) => {
   try {
-    const { connection_id, duration } = req.body;
+    const { connection_id, duration, is_encrypted, iv } = req.body;
     if (!req.file || !connection_id) {
       return res.status(400).json({ error: 'Missing audio file or connection_id' });
     }
@@ -698,7 +716,15 @@ app.post('/api/messages/upload-voice', requireAuth, upload.single('audio'), asyn
 
     // Store the file path relative to public/
     const content = `/uploads/voice/${req.file.filename}`;
-    const msg = await messageOps.send(connection_id, req.session.userId, content, 1, Math.round(duration || 0));
+    const msg = await messageOps.send(
+      connection_id, 
+      req.session.userId, 
+      content, 
+      1, 
+      Math.round(duration || 0),
+      is_encrypted || 0,
+      iv || null
+    );
 
     // Emit socket event for real-time receipt
     io.to(`chat:${connection_id}`).emit('new-message', {

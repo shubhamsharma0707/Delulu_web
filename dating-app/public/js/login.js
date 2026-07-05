@@ -97,6 +97,26 @@ document.addEventListener('DOMContentLoaded', async () => {
     try {
       const data = await apiCall('/api/users/login', 'POST', { usernameOrEmail, password });
       if (data.success) {
+        const user = data.user;
+        // If E2EE keys exist, decrypt and store the private key locally
+        if (user.encrypted_private_key && user.email) {
+          try {
+            const pbkdf2Key = await E2EECrypto.deriveKeyFromPassword(password, user.email);
+            const privateKey = await E2EECrypto.decryptPrivateKey(
+              user.encrypted_private_key.ciphertext,
+              user.encrypted_private_key.iv,
+              pbkdf2Key
+            );
+            const jwk = await E2EECrypto.exportKeyToJwk(privateKey);
+            window.localStorage.setItem('e2ee_private_key', JSON.stringify(jwk));
+          } catch (cryptoErr) {
+            console.error('Failed to decrypt private key:', cryptoErr);
+            alert('Security warning: Could not decrypt your E2EE chat keys. Your chat history may be unreadable on this device.');
+          }
+        } else {
+          // Clear any old key if logging in as a legacy user
+          window.localStorage.removeItem('e2ee_private_key');
+        }
         window.location.href = '/discover';
       }
     } catch (err) {
@@ -250,6 +270,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('profile-error').classList.add('hidden');
 
     try {
+      // 1. Generate E2EE ECDH Keypair
+      const keypair = await E2EECrypto.generateECDHKeypair();
+      
+      // 2. Derive local key from password to encrypt private key
+      const pbkdf2Key = await E2EECrypto.deriveKeyFromPassword(password, currentEmail);
+      const encryptedPrivateKey = await E2EECrypto.encryptPrivateKey(keypair.privateKey, pbkdf2Key);
+      
+      // 3. Export public key as JWK
+      const publicKeyJwk = await E2EECrypto.exportKeyToJwk(keypair.publicKey);
+      
+      // 4. Save raw private key JWK in local storage for the current session
+      const privateKeyJwk = await E2EECrypto.exportKeyToJwk(keypair.privateKey);
+      window.localStorage.setItem('e2ee_private_key', JSON.stringify(privateKeyJwk));
+
+      // 5. Submit profile fields and E2EE keys to server
       await apiCall('/api/auth/complete-profile', 'POST', {
         email: currentEmail,
         username,
@@ -257,11 +292,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         gender,
         bio,
         hobbies,
-        avatar
+        avatar,
+        public_key: publicKeyJwk,
+        encrypted_private_key: encryptedPrivateKey
       });
       window.location.href = '/discover';
     } catch (err) {
-      document.getElementById('profile-error').textContent = err.message;
+      document.getElementById('profile-error').textContent = err.message || 'Failed to initialize E2EE keys';
       document.getElementById('profile-error').classList.remove('hidden');
     } finally {
       btn.disabled = false;

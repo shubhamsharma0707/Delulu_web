@@ -2,6 +2,10 @@ let currentConnId = null;
 let currentChatOther = '';
 let currentPlayingAudio = null;
 let currentPlayingBtn = null;
+let myPrivateKey = null;
+let otherPublicKey = null;
+let sharedSecretKey = null;
+let isE2EEActive = false;
 
 document.addEventListener('DOMContentLoaded', async () => {
   await requireAuth();
@@ -88,11 +92,26 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!content) return;
     
     try {
-      await apiCall('/api/messages/send', 'POST', { connection_id: currentConnId, content });
+      const payload = { connection_id: currentConnId, content };
+      if (isE2EEActive && sharedSecretKey) {
+        const encrypted = await E2EECrypto.encryptMessage(content, sharedSecretKey);
+        payload.content = encrypted.ciphertext;
+        payload.is_encrypted = 1;
+        payload.iv = encrypted.iv;
+      }
+
+      await apiCall('/api/messages/send', 'POST', payload);
       chatInput.value = '';
       chatSendBtn.classList.add('hidden');
       chatMicBtn.classList.remove('hidden');
-      appendMessage({ sender_id: currentUser.id, content, created_at: new Date().toISOString() }, true);
+      
+      // Locally display the plain message immediately
+      appendMessage({ 
+        sender_id: currentUser.id, 
+        content, 
+        is_encrypted: 0, 
+        created_at: new Date().toISOString() 
+      }, true);
       
       if (socket) {
         socket.emit('typing', { connectionId: currentConnId, isTyping: false });
@@ -134,11 +153,19 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
         const formData = new FormData();
-        formData.append('audio', audioBlob);
         formData.append('connection_id', currentConnId);
         formData.append('duration', duration);
 
         try {
+          if (isE2EEActive && sharedSecretKey) {
+            const encrypted = await E2EECrypto.encryptBlob(audioBlob, sharedSecretKey);
+            formData.append('audio', encrypted.encryptedBlob);
+            formData.append('is_encrypted', 1);
+            formData.append('iv', encrypted.iv);
+          } else {
+            formData.append('audio', audioBlob);
+          }
+
           const res = await fetch('/api/messages/upload-voice', {
             method: 'POST',
             body: formData
@@ -200,7 +227,25 @@ async function loadChatInfo() {
     const c = data.connection;
     currentChatOther = c.other_username;
     
-    document.getElementById('chat-name').textContent = c.other_username;
+    // E2EE Key Agreement setup
+    const privateKeyJwkStr = window.localStorage.getItem('e2ee_private_key');
+    if (privateKeyJwkStr && c.other_public_key) {
+      try {
+        const privateKeyJwk = JSON.parse(privateKeyJwkStr);
+        myPrivateKey = await E2EECrypto.importPrivateKeyFromJwk(privateKeyJwk);
+        otherPublicKey = await E2EECrypto.importPublicKeyFromJwk(c.other_public_key);
+        sharedSecretKey = await E2EECrypto.deriveSharedSecret(myPrivateKey, otherPublicKey);
+        isE2EEActive = true;
+        console.log('E2EE is active for this chat!');
+      } catch (cryptoErr) {
+        console.error('Failed to establish E2EE key agreement:', cryptoErr);
+      }
+    } else {
+      console.log('E2EE fallback: Missing keys. Chatting in plain text.');
+    }
+    
+    // Display lock icon next to name if encrypted
+    document.getElementById('chat-name').innerHTML = `${escapeHtml(c.other_username)} ${isE2EEActive ? '<span class="material-symbols-outlined text-[15px] text-green-600 align-middle ml-1" title="End-to-End Encrypted" style="font-variation-settings: \'FILL\' 1">lock</span>' : ''}`;
     document.getElementById('chat-avatar').innerHTML = getAvatarHtml(c.other_username, c.other_avatar);
     
     updateChatStatus(c);
@@ -239,15 +284,16 @@ async function loadMessages() {
   try {
     const data = await apiCall(`/api/messages/${currentConnId}`);
     cont.innerHTML = '';
-    data.messages.forEach(m => {
-      appendMessage(m, false);
-    });
+    // Use for...of to process message prepending in sequential async steps
+    for (const m of data.messages) {
+      await appendMessage(m, false);
+    }
   } catch (err) {
     cont.innerHTML = `<p class="text-error">${escapeHtml(err.message)}</p>`;
   }
 }
 
-function appendMessage(m, scrollToBottom = true) {
+async function appendMessage(m, scrollToBottom = true) {
   const cont = document.getElementById('chat-messages');
   const isMe = m.sender_id === currentUser.id;
   const time = formatTime(m.created_at);
@@ -258,7 +304,24 @@ function appendMessage(m, scrollToBottom = true) {
   const inner = document.createElement('div');
   inner.className = `max-w-[75%] rounded-2xl p-3 ${isMe ? 'bg-primary text-white rounded-tr-sm shadow-sm' : 'bg-surface-container-low text-on-surface rounded-tl-sm shadow-sm border border-outline-variant/10'}`;
   
-  if (m.is_voice || (m.content && m.content.startsWith('/uploads/voice/'))) {
+  // Decrypt content if it is E2EE encrypted
+  const isEncrypted = Number(m.is_encrypted) === 1;
+  let displayContent = m.content || '';
+  
+  if (isEncrypted && displayContent) {
+    if (isE2EEActive && sharedSecretKey && m.iv) {
+      try {
+        displayContent = await E2EECrypto.decryptMessage(displayContent, m.iv, sharedSecretKey);
+      } catch (decErr) {
+        console.error('Decryption failed:', decErr);
+        displayContent = '🔒 [Unable to decrypt message on this device]';
+      }
+    } else {
+      displayContent = '🔒 [Encrypted message]';
+    }
+  }
+
+  if (m.is_voice || (displayContent && displayContent.startsWith('/uploads/voice/'))) {
     // Custom audio player
     const voiceContainer = document.createElement('div');
     voiceContainer.className = `flex items-center gap-3 p-0.5 ${isMe ? 'text-white' : 'text-on-surface'}`;
@@ -267,15 +330,15 @@ function appendMessage(m, scrollToBottom = true) {
     playBtn.className = `w-9 h-9 rounded-full flex items-center justify-center shadow-sm shrink-0 transition-transform hover:scale-105 active:scale-95 ${isMe ? 'bg-white text-primary' : 'bg-primary text-white'}`;
     playBtn.innerHTML = `<span class="material-symbols-outlined text-lg">play_arrow</span>`;
     playBtn.onclick = () => {
-      window.playVoiceNote(playBtn, m.content);
+      window.playVoiceNote(playBtn, displayContent, m.is_encrypted, m.iv);
     };
 
     const details = document.createElement('div');
     details.className = 'flex flex-col';
     
     const label = document.createElement('span');
-    label.className = 'text-xs font-bold';
-    label.textContent = 'Voice Note';
+    label.className = 'text-xs font-bold flex items-center gap-0.5';
+    label.innerHTML = `Voice Note ${isEncrypted ? '<span class="material-symbols-outlined text-[10px] text-green-600 align-middle">lock</span>' : ''}`;
     
     const dur = document.createElement('span');
     dur.className = 'text-[9px] opacity-70';
@@ -289,8 +352,11 @@ function appendMessage(m, scrollToBottom = true) {
     inner.appendChild(voiceContainer);
   } else {
     const p = document.createElement('p');
-    p.className = 'text-[15px] leading-relaxed break-words';
-    p.textContent = m.content || '';
+    p.className = 'text-[15px] leading-relaxed break-words flex items-end gap-1.5';
+    p.textContent = displayContent;
+    if (isEncrypted) {
+      p.innerHTML += ` <span class="material-symbols-outlined text-[12px] text-green-600 self-center" title="End-to-End Encrypted">lock</span>`;
+    }
     inner.appendChild(p);
   }
   
@@ -307,7 +373,7 @@ function appendMessage(m, scrollToBottom = true) {
   }
 }
 
-window.playVoiceNote = (btn, url) => {
+window.playVoiceNote = async (btn, url, isEncrypted = 0, iv = null) => {
   const icon = btn.querySelector('span');
   
   if (currentPlayingAudio) {
@@ -316,28 +382,49 @@ window.playVoiceNote = (btn, url) => {
       currentPlayingBtn.querySelector('span').textContent = 'play_arrow';
     }
     
-    if (currentPlayingAudio.src.endsWith(url)) {
+    if (currentPlayingAudio._originalUrl === url) {
       currentPlayingAudio = null;
       currentPlayingBtn = null;
       return;
     }
   }
 
-  const audio = new Audio(url);
-  currentPlayingAudio = audio;
-  currentPlayingBtn = btn;
-  icon.textContent = 'pause';
+  icon.textContent = 'hourglass_bottom';
   
-  audio.play().catch(err => {
+  try {
+    let playUrl = url;
+    
+    // Decrypt the voice note blob dynamically in memory if encrypted
+    if (Number(isEncrypted) === 1 && iv && isE2EEActive && sharedSecretKey) {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('Failed to fetch encrypted voice note file');
+      const encryptedBuffer = await res.arrayBuffer();
+      const decryptedBlob = await E2EECrypto.decryptBlob(encryptedBuffer, iv, sharedSecretKey);
+      playUrl = URL.createObjectURL(decryptedBlob);
+    }
+
+    const audio = new Audio(playUrl);
+    audio._originalUrl = url;
+    currentPlayingAudio = audio;
+    currentPlayingBtn = btn;
+    
+    audio.onplay = () => { icon.textContent = 'pause'; };
+    audio.onpause = () => { icon.textContent = 'play_arrow'; };
+    audio.onended = () => {
+      icon.textContent = 'play_arrow';
+      currentPlayingAudio = null;
+      currentPlayingBtn = null;
+      if (playUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(playUrl); // Clean up memory
+      }
+    };
+    
+    await audio.play();
+  } catch (err) {
     console.error('Audio play failed:', err);
     icon.textContent = 'play_arrow';
-  });
-  
-  audio.onended = () => {
-    icon.textContent = 'play_arrow';
-    currentPlayingAudio = null;
-    currentPlayingBtn = null;
-  };
+    alert('Failed to play voice note: ' + err.message);
+  }
 };
 
 window.openModal = function(id) {

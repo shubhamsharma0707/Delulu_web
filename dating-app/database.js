@@ -127,7 +127,7 @@ const userOps = {
     return userId;
   },
 
-  async createWithEmail(username, gender, email, passwordHash, bio, hobbies, avatar) {
+  async createWithEmail(username, gender, email, passwordHash, bio, hobbies, avatar, publicKey = null, encryptedPrivateKey = null) {
     const userId = await getNextId('users');
     const userDocRef = getDB().collection('users').doc(String(userId));
     const ecosystem = getEcosystem(email);
@@ -142,6 +142,8 @@ const userOps = {
       avatar: avatar || '',
       is_onboarded: 1,
       ecosystem,
+      public_key: publicKey || null,
+      encrypted_private_key: encryptedPrivateKey || null,
       created_at: new Date().toISOString()
     });
     return userId;
@@ -465,6 +467,7 @@ const connectionOps = {
       other_hobbies: otherUser.hobbies,
       other_avatar: otherUser.avatar,
       other_user_id: otherUser.id,
+      other_public_key: otherUser.public_key || null,
       my_user_id: myUser.id
     };
   },
@@ -608,7 +611,7 @@ const connectionOps = {
 
 // Message operations
 const messageOps = {
-  async send(connectionId, senderId, content, isVoice = 0, voiceDuration = 0) {
+  async send(connectionId, senderId, content, isVoice = 0, voiceDuration = 0, isEncrypted = 0, iv = null) {
     const firestore = getDB();
     const msgId = await getNextId('messages');
     const msgDocRef = firestore.collection('messages').doc(String(msgId));
@@ -619,6 +622,8 @@ const messageOps = {
       content,
       is_voice: Number(isVoice),
       voice_duration: Number(voiceDuration),
+      is_encrypted: Number(isEncrypted),
+      iv: iv || null,
       created_at: new Date().toISOString()
     };
     await msgDocRef.set(payload);
