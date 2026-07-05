@@ -224,8 +224,18 @@ app.use((req, res, next) => {
   next();
 });
 
-// Static files
-app.use(express.static(path.join(__dirname, 'public')));
+// Static files with aggressive Cache-Control headers
+app.use(express.static(path.join(__dirname, 'public'), {
+  maxAge: '1d', // Cache local static assets (CSS, JS, images) for 1 day
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.html')) {
+      // Never cache HTML files to ensure code updates are picked up instantly
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    } else {
+      res.setHeader('Cache-Control', 'public, max-age=86400, must-revalidate');
+    }
+  }
+}));
 
 // Share session with Socket.io
 io.use((socket, next) => {
