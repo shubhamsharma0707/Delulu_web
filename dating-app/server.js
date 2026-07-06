@@ -35,6 +35,7 @@ console.warn = (...args) => {
 };
 
 const session = require('express-session');
+const compression = require('compression');
 const SqliteStore = require('better-sqlite3-session-store')(session);
 const Database = require('better-sqlite3');
 const http = require('http');
@@ -119,6 +120,9 @@ if (!process.env.SESSION_SECRET) {
 
 // Trust proxy for when running behind nginx/render/heroku
 app.set('trust proxy', 1);
+
+// Enable Gzip/Brotli response compression
+app.use(compression());
 
 // HTTP → HTTPS redirect in production (must run before helmet or any route)
 if (process.env.NODE_ENV === 'production') {
@@ -227,13 +231,14 @@ app.use((req, res, next) => {
 
 // Static files with aggressive Cache-Control headers
 app.use(express.static(path.join(__dirname, 'public'), {
-  maxAge: '1d', // Cache local static assets (CSS, JS, images) for 1 day
+  maxAge: '365d',
   setHeaders: (res, filePath) => {
     if (filePath.endsWith('.html')) {
       // Never cache HTML files to ensure code updates are picked up instantly
       res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     } else {
-      res.setHeader('Cache-Control', 'public, max-age=86400, must-revalidate');
+      // Cache-bustable static assets (JS, CSS, images, fonts) are cached aggressively for 1 year
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     }
   }
 }));
@@ -313,10 +318,14 @@ function sanitizeUser(user) {
 
 // Check if user is logged in
 app.get('/api/session', async (req, res) => {
+  if (req.session.user) {
+    return res.json({ authenticated: true, user: req.session.user });
+  }
   if (req.session.userId) {
     const user = await userOps.getById(req.session.userId);
     if (user) {
       const safeUser = sanitizeUser(user);
+      req.session.user = safeUser;
       return res.json({ authenticated: true, user: safeUser });
     }
   }
@@ -467,6 +476,7 @@ app.post('/api/users/login', authLimiter, async (req, res) => {
 
     req.session.userId = user.id;
     const safeUser = sanitizeUser(user);
+    req.session.user = safeUser;
     res.json({ success: true, user: safeUser });
   } catch (err) {
     console.error('Login error:', err);
@@ -537,6 +547,7 @@ app.post('/api/auth/complete-profile', async (req, res) => {
 
     const user = await userOps.getById(userId);
     const safeUser = sanitizeUser(user);
+    req.session.user = safeUser;
     res.json({ success: true, user: safeUser });
   } catch (err) {
     console.error('Complete profile error:', err);
@@ -552,9 +563,13 @@ app.post('/api/users/logout', (req, res) => {
 
 // Get current user
 app.get('/api/users/me', requireAuth, async (req, res) => {
+  if (req.session.user) {
+    return res.json(req.session.user);
+  }
   const user = await userOps.getById(req.session.userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
   const safeUser = sanitizeUser(user);
+  req.session.user = safeUser;
   res.json(safeUser);
 });
 
@@ -578,6 +593,7 @@ app.put('/api/users/me', requireAuth, async (req, res) => {
   await userOps.update(req.session.userId, { bio, hobbies, avatar });
   const user = await userOps.getById(req.session.userId);
   const safeUser = sanitizeUser(user);
+  req.session.user = safeUser;
   res.json({ success: true, user: safeUser });
 });
 

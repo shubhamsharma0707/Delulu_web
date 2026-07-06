@@ -41,6 +41,34 @@
       }
     };
   </script>
+  <script type="speculationrules">
+    {
+      "prefetch": [
+        {
+          "where": {
+            "and": [
+              { "href_matches": "/*" },
+              { "not": { "href_matches": "/logout" } },
+              { "not": { "href_matches": "/api/*" } }
+            ]
+          },
+          "eagerness": "eager"
+        }
+      ],
+      "prerender": [
+        {
+          "where": {
+            "and": [
+              { "href_matches": "/*" },
+              { "not": { "href_matches": "/logout" } },
+              { "not": { "href_matches": "/api/*" } }
+            ]
+          },
+          "eagerness": "moderate"
+        }
+      ]
+    }
+  </script>
   <link rel="stylesheet" href="/styles.css?v=3">
   <style>
     #nav-messages, #mnav-messages {
