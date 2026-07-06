@@ -367,15 +367,28 @@ async function loadChatInfo() {
     loadMessages();
   } catch (err) {
     console.error('loadChatInfo caught error:', err);
-    // Log caught error to server before redirecting
-    await fetch('/api/log-error', {
+    fetch('/api/log-error', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: err.message, stack: err.stack, path: window.location.href, context: 'loadChatInfo catch' })
     }).catch(() => {});
     
-    alert(err.message);
-    window.location.href = '/messages';
+    const chatNameEl = document.getElementById('chat-name');
+    if (chatNameEl) chatNameEl.textContent = 'Chat unavailable';
+    const statusEl = document.getElementById('chat-status');
+    if (statusEl) statusEl.textContent = err.message || 'Something went wrong loading this chat.';
+    const cont = document.getElementById('chat-messages');
+    if (cont) {
+      cont.innerHTML = `
+        <div class="flex flex-col items-center justify-center h-full text-center p-6 gap-3">
+          <p class="text-on-surface-variant text-sm">${escapeHtml(err.message || 'This chat could not be loaded.')}</p>
+          <a href="/messages" class="text-primary font-semibold text-sm hover:underline">← Back to Messages</a>
+        </div>`;
+    }
+    const chatForm = document.getElementById('chat-form');
+    if (chatForm) {
+      chatForm.querySelectorAll('input, button').forEach(el => el.disabled = true);
+    }
   }
 }
 

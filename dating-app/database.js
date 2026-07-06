@@ -473,7 +473,10 @@ const connectionOps = {
     const otherUser = await userOps.getById(otherId);
     const myUser = await userOps.getById(myId);
     
-    if (!otherUser || !myUser) return null;
+    if (!otherUser || !myUser) {
+      console.error(`getConnection: connection ${connectionId} exists but user lookup failed — otherId=${otherId} found=${!!otherUser}, myId=${myId} found=${!!myUser}`);
+      return { _dataIntegrityError: true, connectionId };
+    }
     
     return {
       ...conn,

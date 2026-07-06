@@ -256,7 +256,7 @@ io.on('connection', (socket) => {
   socket.on('join-chat', async (connectionId) => {
     if (!connectionId) return;
     const conn = await connectionOps.getConnection(connectionId, userId);
-    if (!conn) return;
+    if (!conn || conn._dataIntegrityError) return;
     socket.join(`chat:${connectionId}`);
   });
 
@@ -270,7 +270,7 @@ io.on('connection', (socket) => {
 
     // Verify user is part of this connection
     const conn = await connectionOps.getConnection(connectionId, userId);
-    if (!conn) return;
+    if (!conn || conn._dataIntegrityError) return;
 
     const msg = await messageOps.send(connectionId, userId, content.trim());
     // Emit to both users in the chat
@@ -707,14 +707,13 @@ app.get('/api/connections/active', requireAuth, async (req, res) => {
 // Get single connection details
 app.get('/api/connections/:id', requireAuth, async (req, res) => {
   const conn = await connectionOps.getConnection(req.params.id, req.session.userId);
+  if (conn && conn._dataIntegrityError) {
+    return res.status(410).json({ error: 'This chat is no longer available — one of the accounts involved no longer exists.' });
+  }
   if (!conn) return res.status(404).json({ error: 'Connection not found' });
   
-  const now = new Date();
   res.json({
-    connection: {
-      ...conn,
-      is_vibe_available: conn.vibe_available_at ? new Date(conn.vibe_available_at) <= now : false
-    }
+    connection: conn
   });
 });
 
@@ -750,6 +749,9 @@ app.post('/api/connections/reveal', requireAuth, async (req, res) => {
 // Get messages for a connection
 app.get('/api/messages/:connectionId', requireAuth, async (req, res) => {
   const conn = await connectionOps.getConnection(req.params.connectionId, req.session.userId);
+  if (conn && conn._dataIntegrityError) {
+    return res.status(410).json({ error: 'This chat is no longer available — one of the accounts involved no longer exists.' });
+  }
   if (!conn) return res.status(404).json({ error: 'Connection not found' });
   
   const messages = await messageOps.getRecentForConnection(req.params.connectionId);
@@ -764,6 +766,9 @@ app.post('/api/messages/send', requireAuth, async (req, res) => {
   }
 
   const conn = await connectionOps.getConnection(connection_id, req.session.userId);
+  if (conn && conn._dataIntegrityError) {
+    return res.status(410).json({ error: 'This chat is no longer available — one of the accounts involved no longer exists.' });
+  }
   if (!conn) return res.status(404).json({ error: 'Connection not found' });
 
   const msg = await messageOps.send(
@@ -801,6 +806,9 @@ app.post('/api/messages/upload-voice', requireAuth, (req, res, next) => {
     }
 
     const conn = await connectionOps.getConnection(connection_id, req.session.userId);
+    if (conn && conn._dataIntegrityError) {
+      return res.status(410).json({ error: 'This chat is no longer available — one of the accounts involved no longer exists.' });
+    }
     if (!conn) return res.status(404).json({ error: 'Connection not found' });
 
     // Store the file path relative to public/
@@ -851,6 +859,9 @@ app.post('/api/messages/:id/react', requireAuth, async (req, res) => {
   const { connection_id, emoji } = req.body;
   if (!connection_id || !emoji) return res.status(400).json({ error: 'Missing connection_id or emoji' });
   const conn = await connectionOps.getConnection(connection_id, req.session.userId);
+  if (conn && conn._dataIntegrityError) {
+    return res.status(410).json({ error: 'This chat is no longer available — one of the accounts involved no longer exists.' });
+  }
   if (!conn) return res.status(404).json({ error: 'Connection not found' });
 
   const result = await messageOps.toggleReaction(req.params.id, req.session.userId, connection_id, emoji);
