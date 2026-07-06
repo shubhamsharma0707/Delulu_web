@@ -322,6 +322,15 @@ async function initializeChat() {
       }
     }
   }, 60000);
+
+  // Bind all close buttons programmatically for maximum compatibility
+  document.querySelectorAll('[onclick="closeModal()"]').forEach(btn => {
+    btn.removeAttribute('onclick');
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      closeModal();
+    });
+  });
 }
 
 if (document.readyState === 'loading') {
@@ -748,13 +757,19 @@ window.openModal = function(id) {
 };
 
 window.closeModal = function() {
-  document.getElementById('modal-overlay').classList.add('hidden');
+  console.log('closeModal invoked');
+  const overlay = document.getElementById('modal-overlay');
+  if (overlay) {
+    overlay.classList.add('hidden');
+  }
   ['modal-vibe', 'modal-reveal', 'modal-profile-peek'].forEach(id => {
     const m = document.getElementById(id);
     if (m) {
       m.classList.remove('scale-100');
       m.classList.add('scale-95');
-      setTimeout(() => m.classList.add('hidden'), 200);
+      setTimeout(() => {
+        m.classList.add('hidden');
+      }, 200);
     }
   });
 };
