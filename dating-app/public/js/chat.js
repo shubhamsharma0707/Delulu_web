@@ -352,19 +352,140 @@ async function loadMessages() {
   }
 }
 
+function renderReactions(m, parentContainer) {
+  // Remove existing reactions container if any
+  const existing = parentContainer.querySelector('.reactions-container');
+  if (existing) existing.remove();
+
+  const reactions = m.reactions || {};
+  const emojis = Object.keys(reactions);
+  if (emojis.length === 0) return;
+
+  const container = document.createElement('div');
+  container.className = 'reactions-container flex flex-wrap gap-1 mt-1.5';
+  emojis.forEach(emoji => {
+    const userIds = reactions[emoji] || [];
+    if (userIds.length === 0) return;
+    const hasReacted = userIds.includes(currentUser.id);
+    
+    const pill = document.createElement('div');
+    pill.className = `inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold border transition-all cursor-pointer ${
+      hasReacted 
+        ? 'bg-primary-container/20 text-primary border-primary/30' 
+        : 'bg-surface-container-low text-on-surface-variant border-outline-variant/30 hover:bg-surface-container-high'
+    }`;
+    pill.innerHTML = `<span>${emoji}</span><span class="text-[10px] opacity-80">${userIds.length}</span>`;
+    
+    pill.onclick = async (e) => {
+      e.stopPropagation();
+      try {
+        await apiCall(`/api/messages/${m.id}/react`, 'POST', { connection_id: currentConnId, emoji });
+      } catch (err) { alert(err.message); }
+    };
+    container.appendChild(pill);
+  });
+  parentContainer.appendChild(container);
+}
+
+function showMessageMenu(e, msg, bubbleEl) {
+  const existing = document.getElementById('message-action-menu');
+  if (existing) existing.remove();
+
+  const menu = document.createElement('div');
+  menu.id = 'message-action-menu';
+  menu.className = 'fixed bg-surface shadow-lg rounded-2xl p-2 border border-outline-variant/30 z-50 flex flex-col gap-2 scale-95 opacity-0 transition-all duration-150 ease-out';
+  
+  const rect = e.currentTarget.getBoundingClientRect();
+  menu.style.top = `${rect.bottom + window.scrollY + 5}px`;
+  if (msg.sender_id === currentUser.id) {
+    menu.style.right = `${window.innerWidth - rect.right}px`;
+  } else {
+    menu.style.left = `${rect.left}px`;
+  }
+
+  const emojiRow = document.createElement('div');
+  emojiRow.className = 'flex gap-1 border-b border-outline-variant/20 pb-2 px-1';
+  const emojis = ['😂', '😢', '❤️', '👍', '😮'];
+  emojis.forEach(emoji => {
+    const btn = document.createElement('button');
+    btn.className = 'text-lg hover:scale-125 transition-transform p-1 cursor-pointer';
+    btn.textContent = emoji;
+    btn.onclick = async () => {
+      try {
+        await apiCall(`/api/messages/${msg.id}/react`, 'POST', { connection_id: currentConnId, emoji });
+        menu.remove();
+      } catch (err) { alert(err.message); }
+    };
+    emojiRow.appendChild(btn);
+  });
+  menu.appendChild(emojiRow);
+
+  if (msg.sender_id === currentUser.id) {
+    const delBtn = document.createElement('button');
+    delBtn.className = 'w-full text-left px-3 py-1.5 text-error text-xs font-bold hover:bg-error/10 rounded-lg transition-colors flex items-center gap-2 cursor-pointer';
+    delBtn.innerHTML = '<span class="material-symbols-outlined text-sm">delete</span> Delete Message';
+    delBtn.onclick = async () => {
+      if (confirm('Are you sure you want to delete this message? This cannot be undone.')) {
+        try {
+          await apiCall(`/api/messages/${msg.id}`, 'DELETE', { connection_id: currentConnId });
+          menu.remove();
+        } catch (err) { alert(err.message); }
+      }
+    };
+    menu.appendChild(delBtn);
+  }
+
+  document.body.appendChild(menu);
+  
+  setTimeout(() => {
+    menu.classList.remove('scale-95', 'opacity-0');
+    menu.classList.add('scale-100', 'opacity-100');
+  }, 10);
+
+  const closeHandler = (event) => {
+    if (!menu.contains(event.target) && !e.currentTarget.contains(event.target)) {
+      menu.remove();
+      document.removeEventListener('click', closeHandler);
+    }
+  };
+  setTimeout(() => {
+    document.addEventListener('click', closeHandler);
+  }, 50);
+}
+
 async function appendMessage(m, scrollToBottom = true) {
   const cont = document.getElementById('chat-messages');
   const isMe = m.sender_id === currentUser.id;
   const time = formatTime(m.created_at);
   
   const div = document.createElement('div');
-  div.className = `flex ${isMe ? 'justify-end' : 'justify-start'} w-full fade-in`;
+  div.className = `flex group items-center gap-2 ${isMe ? 'justify-end' : 'justify-start'} w-full fade-in`;
+  div.setAttribute('data-msg-id', m.id);
   if (m.tempId) div.id = m.tempId;
   if (m.is_sending) div.classList.add('opacity-60');
   
   const inner = document.createElement('div');
-  inner.className = `max-w-[75%] rounded-2xl p-3 ${isMe ? 'bg-primary text-white rounded-tr-sm shadow-sm' : 'bg-surface-container-low text-on-surface rounded-tl-sm shadow-sm border border-outline-variant/10'}`;
+  inner.className = `max-w-[75%] rounded-2xl p-3 relative ${isMe ? 'bg-primary text-white rounded-tr-sm shadow-sm' : 'bg-surface-container-low text-on-surface rounded-tl-sm shadow-sm border border-outline-variant/10'}`;
   
+  if (m.deleted === 1) {
+    const p = document.createElement('p');
+    p.className = 'text-[15px] italic opacity-70 break-words';
+    p.textContent = 'This message was deleted';
+    inner.appendChild(p);
+    
+    const timeEl = document.createElement('div');
+    timeEl.className = `text-[10px] mt-1 text-right ${isMe ? 'text-white/70' : 'text-on-surface-variant/70'}`;
+    timeEl.textContent = time;
+    inner.appendChild(timeEl);
+    
+    div.appendChild(inner);
+    cont.prepend(div);
+    if (scrollToBottom) {
+      cont.scrollTop = 0;
+    }
+    return;
+  }
+
   // Decrypt content if it is E2EE encrypted
   const isEncrypted = Number(m.is_encrypted) === 1;
   let displayContent = m.content || '';
@@ -426,7 +547,24 @@ async function appendMessage(m, scrollToBottom = true) {
   timeEl.textContent = time;
   inner.appendChild(timeEl);
   
-  div.appendChild(inner);
+  renderReactions(m, inner);
+  
+  const actionsBtn = document.createElement('button');
+  actionsBtn.className = 'more-actions-btn p-1 hover:bg-surface-container rounded-full text-on-surface-variant opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer flex items-center justify-center shrink-0';
+  actionsBtn.innerHTML = '<span class="material-symbols-outlined text-[16px]">more_vert</span>';
+  actionsBtn.onclick = (e) => {
+    e.stopPropagation();
+    showMessageMenu(e, m, inner);
+  };
+
+  if (isMe) {
+    div.appendChild(actionsBtn);
+    div.appendChild(inner);
+  } else {
+    div.appendChild(inner);
+    div.appendChild(actionsBtn);
+  }
+  
   cont.prepend(div);
   
   if (scrollToBottom) {
