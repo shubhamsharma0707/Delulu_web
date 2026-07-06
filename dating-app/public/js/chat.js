@@ -370,8 +370,8 @@ function updateChatStatus(c) {
   const vibeBtn = document.getElementById('btn-vibe-check');
   const revealBtn = document.getElementById('btn-reveal');
   
-  vibeBtn.classList.add('hidden');
-  revealBtn.classList.add('hidden');
+  if (vibeBtn) vibeBtn.classList.add('hidden');
+  if (revealBtn) revealBtn.classList.add('hidden');
   
   if (c.status === 'accepted') {
     const isFrom = c.from_user_id === currentUser.id;
@@ -380,34 +380,39 @@ function updateChatStatus(c) {
     const otherReveal = isFrom ? c.reveal_to : c.reveal_from;
     
     const now = Date.now();
-    const isVibeDue = now >= new Date(c.next_vibe_check_at);
-    const isRevealDue = now >= new Date(c.reveal_available_at);
+    const isVibeDue = c.next_vibe_check_at ? now >= new Date(c.next_vibe_check_at) : false;
+    const isRevealDue = c.reveal_available_at ? now >= new Date(c.reveal_available_at) : false;
     
     if (isRevealDue) {
       if (myReveal === 0) {
-        revealBtn.classList.remove('hidden');
+        if (revealBtn) revealBtn.classList.remove('hidden');
       }
-      statusEl.textContent = "Face reveal hasn't been unlocked yet because both users haven't agreed.";
+      if (statusEl) statusEl.textContent = "Face reveal hasn't been unlocked yet because both users haven't agreed.";
     } else if (isVibeDue) {
       if (myVibe === 0) {
-        vibeBtn.classList.remove('hidden');
+        if (vibeBtn) vibeBtn.classList.remove('hidden');
         // Automatically show soft-gate popup if they haven't voted yet and it's not already shown
-        const alreadyShown = document.getElementById('modal-vibe').classList.contains('scale-100');
+        const vibeModal = document.getElementById('modal-vibe');
+        const alreadyShown = vibeModal && vibeModal.classList.contains('scale-100');
         if (!alreadyShown) {
           openModal('modal-vibe');
         }
       } else {
-        statusEl.textContent = "Vibe submitted, waiting...";
+        if (statusEl) statusEl.textContent = "Vibe submitted, waiting...";
       }
     } else {
-      const nextCheckDiff = new Date(c.next_vibe_check_at) - now;
-      const daysLeft = Math.ceil(nextCheckDiff / (24 * 60 * 60 * 1000));
-      statusEl.innerHTML = `<span class="material-symbols-outlined text-[12px]">timer</span> Next Vibe Check in ${daysLeft}d`;
+      if (c.next_vibe_check_at) {
+        const nextCheckDiff = new Date(c.next_vibe_check_at) - now;
+        const daysLeft = Math.ceil(nextCheckDiff / (24 * 60 * 60 * 1000));
+        if (statusEl) statusEl.innerHTML = `<span class="material-symbols-outlined text-[12px]">timer</span> Next Vibe Check in ${daysLeft}d`;
+      } else {
+        if (statusEl) statusEl.textContent = 'Active Chat';
+      }
     }
   } else if (c.status === 'revealed') {
-    statusEl.innerHTML = `<span class="material-symbols-outlined text-[12px]">lock_open</span> Identities Revealed`;
+    if (statusEl) statusEl.innerHTML = `<span class="material-symbols-outlined text-[12px]">lock_open</span> Identities Revealed`;
   } else {
-    statusEl.textContent = c.status;
+    if (statusEl) statusEl.textContent = c.status;
   }
 }
 
