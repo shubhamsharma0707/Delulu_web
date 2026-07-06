@@ -1,6 +1,12 @@
 document.addEventListener('DOMContentLoaded', async () => {
   await requireAuth();
   loadMessagesList();
+
+  if (socket) {
+    socket.on('connection-ended', ({ connectionId }) => {
+      loadMessagesList();
+    });
+  }
 });
 
 async function loadMessagesList() {
