@@ -598,10 +598,42 @@ const messageOps = {
       voice_duration: Number(voiceDuration),
       is_encrypted: Number(isEncrypted),
       iv: iv || null,
+      reactions: {},
+      deleted: 0,
       created_at: new Date().toISOString()
     };
     await msgDocRef.set(payload);
     return payload;
+  },
+
+  async toggleReaction(messageId, userId, connectionId, emoji) {
+    const firestore = getDB();
+    const msgRef = firestore.collection('messages').doc(String(messageId));
+    const doc = await msgRef.get();
+    if (!doc.exists) return { error: 'Message not found' };
+    const msg = doc.data();
+    if (msg.connection_id !== Number(connectionId)) return { error: 'Mismatched connection' };
+
+    const reactions = msg.reactions || {};
+    const users = reactions[emoji] || [];
+    const idx = users.indexOf(Number(userId));
+    if (idx === -1) users.push(Number(userId)); else users.splice(idx, 1);
+    if (users.length === 0) delete reactions[emoji]; else reactions[emoji] = users;
+
+    await msgRef.update({ reactions });
+    return { success: true, reactions };
+  },
+
+  async deleteMessage(messageId, userId) {
+    const firestore = getDB();
+    const msgRef = firestore.collection('messages').doc(String(messageId));
+    const doc = await msgRef.get();
+    if (!doc.exists) return { error: 'Message not found' };
+    const msg = doc.data();
+    if (msg.sender_id !== Number(userId)) return { error: 'Not authorized to delete this message' };
+
+    await msgRef.update({ deleted: 1, content: '', reactions: {} });
+    return { success: true };
   },
 
   async getForConnection(connectionId) {
