@@ -135,11 +135,12 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "cdn.tailwindcss.com", "cdn.socket.io", "cdnjs.cloudflare.com", "cdn.jsdelivr.net", "www.gstatic.com"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "cdn.tailwindcss.com", "cdn.socket.io", "cdnjs.cloudflare.com", "cdn.jsdelivr.net", "www.gstatic.com", "apis.google.com"],
       styleSrc: ["'self'", "'unsafe-inline'", "fonts.googleapis.com", "cdn.tailwindcss.com"],
       fontSrc: ["'self'", "fonts.gstatic.com"],
       imgSrc: ["'self'", "data:", "blob:"],
-      connectSrc: ["'self'", "wss:", "ws:", "*.googleapis.com"],
+      connectSrc: ["'self'", "wss:", "ws:", "https://identitytoolkit.googleapis.com", "https://securetoken.googleapis.com", "https://www.googleapis.com"],
+      frameSrc: ["'self'", `https://${process.env.FIREBASE_PROJECT_ID}.firebaseapp.com`, "https://apis.google.com"],
     },
   },
   crossOriginEmbedderPolicy: false,
