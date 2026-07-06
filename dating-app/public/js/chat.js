@@ -18,7 +18,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   
   currentConnId = connId;
-  setupChatOptions();
   loadChatInfo();
   
   // Connect socket explicitly since shared.js initializes io
@@ -489,29 +488,4 @@ async function submitOptIn(phase, choice) {
   } catch(err) { alert(err.message); }
 }
 
-function setupChatOptions() {
-  const btn = document.getElementById('btn-chat-options');
-  const menu = document.getElementById('chat-options-menu');
-  const blockBtn = document.getElementById('btn-block');
-  
-  btn.onclick = () => {
-    menu.classList.toggle('hidden');
-  };
-  
-  document.addEventListener('click', (e) => {
-    if (!btn.contains(e.target)) {
-      menu.classList.add('hidden');
-    }
-  });
-  
-  blockBtn.onclick = async () => {
-    if (confirm(`Are you sure you want to block this user? They will disappear forever.`)) {
-      try {
-        const connData = await apiCall(`/api/connections/${currentConnId}`);
-        const targetUserId = connData.connection.other_user_id;
-        await apiCall('/api/connections/block', 'POST', { target_user_id: targetUserId });
-        window.location.href = '/messages';
-      } catch(err) { alert(err.message); }
-    }
-  };
-}
+
