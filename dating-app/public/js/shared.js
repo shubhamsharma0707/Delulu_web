@@ -91,7 +91,15 @@ async function apiCall(url, method = 'GET', body = null) {
   if (body) options.body = JSON.stringify(body);
   const res = await fetch(url, options);
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'API Error');
+  if (!res.ok) {
+    if (res.status === 401) {
+      window.localStorage.removeItem('cached_user');
+      window.localStorage.removeItem('e2ee_private_key');
+      window.location.href = '/';
+      return new Promise(() => {}); // Return pending promise to halt further execution while redirecting
+    }
+    throw new Error(data.error || 'API Error');
+  }
   return data;
 }
 
