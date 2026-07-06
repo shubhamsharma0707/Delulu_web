@@ -688,20 +688,44 @@ window.openModal = function(id) {
 
 window.closeModal = function() {
   document.getElementById('modal-overlay').classList.add('hidden');
-  ['modal-vibe', 'modal-reveal'].forEach(id => {
+  ['modal-vibe', 'modal-reveal', 'modal-profile-peek'].forEach(id => {
     const m = document.getElementById(id);
-    m.classList.remove('scale-100');
-    m.classList.add('scale-95');
-    setTimeout(() => m.classList.add('hidden'), 200);
+    if (m) {
+      m.classList.remove('scale-100');
+      m.classList.add('scale-95');
+      setTimeout(() => m.classList.add('hidden'), 200);
+    }
   });
 };
 
-async function submitOptIn(phase, choice) {
+async function submitVibeAction(vibe) {
   try {
-    await apiCall('/api/connections/opt-in', 'POST', { connection_id: currentConnId, phase, choice });
+    const data = await apiCall('/api/connections/vibe', 'POST', { connection_id: currentConnId, vibe });
+    closeModal();
+    if (data.ended) {
+      alert('This chat connection has ended.');
+      window.location.href = '/discover';
+    } else {
+      loadChatInfo();
+    }
+  } catch(err) { alert(err.message); }
+}
+
+async function submitRevealAction() {
+  try {
+    await apiCall('/api/connections/reveal', 'POST', { connection_id: currentConnId });
     closeModal();
     loadChatInfo();
   } catch(err) { alert(err.message); }
+}
+
+if (socket) {
+  socket.on('connection-ended', ({ connectionId, message }) => {
+    if (connectionId == currentConnId) {
+      alert(message);
+      window.location.href = '/discover';
+    }
+  });
 }
 
 
