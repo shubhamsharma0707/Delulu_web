@@ -399,14 +399,25 @@ const connectionOps = {
     if (conn.status !== 'pending') return { error: 'Already responded' };
 
     if (action === 'accept') {
-      const now = new Date().toISOString();
-      const vibeDate = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+      const now = new Date();
+      const nextVibeCheck = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      const revealAvailable = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString();
       await connDocRef.update({
         status: 'accepted',
-        chat_started_at: now,
-        vibe_available_at: vibeDate
+        chat_started_at: now.toISOString(),
+        next_vibe_check_at: nextVibeCheck,
+        reveal_available_at: revealAvailable,
+        from_vibe: 0,
+        to_vibe: 0,
+        reveal_from: 0,
+        reveal_to: 0
       });
-      return { success: true, chat_started_at: now, vibe_available_at: vibeDate };
+      return { 
+        success: true, 
+        chat_started_at: now.toISOString(), 
+        next_vibe_check_at: nextVibeCheck,
+        reveal_available_at: revealAvailable
+      };
     } else {
       await connDocRef.update({ status: 'rejected' });
       return { success: true, status: 'rejected' };
@@ -481,44 +492,30 @@ const connectionOps = {
     const firestore = getDB();
     const connDocRef = firestore.collection('connections').doc(String(connectionId));
     const doc = await connDocRef.get();
-    
     if (!doc.exists) return { error: 'Connection not found' };
     const conn = doc.data();
     if (conn.status !== 'accepted') return { error: 'Connection not active' };
 
     const isFrom = conn.from_user_id === Number(userId);
-    
-    if (vibe === 2) {
-      await connDocRef.update({ status: 'rejected' });
-      return { success: true, match: false, bothVibe: false };
-    }
 
-    if (isFrom && conn.from_vibe !== 0) return { error: 'Already voted' };
-    if (!isFrom && conn.to_vibe !== 0) return { error: 'Already voted' };
+    if (vibe === 2) {
+      // Not vibing — end the connection immediately, regardless of the other user's vote
+      await connDocRef.update({ status: 'rejected', ended_reason: 'not_vibing' });
+      const otherId = isFrom ? conn.to_user_id : conn.from_user_id;
+      return { success: true, ended: true, otherId };
+    }
 
     const field = isFrom ? 'from_vibe' : 'to_vibe';
-    await connDocRef.update({ [field]: vibe });
+    await connDocRef.update({ [field]: 1 });
 
-    const updatedDoc = await connDocRef.get();
-    const updated = updatedDoc.data();
-    const bothVoted = updated.from_vibe > 0 && updated.to_vibe > 0;
-
-    if (bothVoted) {
-      const bothVibe = updated.from_vibe === 1 && updated.to_vibe === 1;
-      if (bothVibe) {
-        const revealDate = new Date(Date.now() + 4 * 24 * 60 * 60 * 1000).toISOString();
-        await connDocRef.update({
-          reveal_from: 0,
-          reveal_to: 0,
-          reveal_available_at: revealDate
-        });
-        return { success: true, match: true, bothVibe: true, reveal_available_at: revealDate };
-      } else {
-        await connDocRef.update({ status: 'expired' });
-        return { success: true, match: false, bothVibe: false };
-      }
+    const updated = (await connDocRef.get()).data();
+    if (updated.from_vibe === 1 && updated.to_vibe === 1) {
+      // Both vibing this round — reset votes and push the next check 7 days out
+      const nextCheck = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      await connDocRef.update({ from_vibe: 0, to_vibe: 0, next_vibe_check_at: nextCheck });
+      return { success: true, ended: false, bothVibing: true, next_vibe_check_at: nextCheck };
     }
-    return { success: true, bothVote: false };
+    return { success: true, ended: false, bothVibing: false };
   },
 
   async submitReveal(connectionId, userId) {
@@ -564,10 +561,7 @@ const connectionOps = {
     
     snapshot.forEach(doc => {
       const conn = doc.data();
-      if (conn.vibe_available_at && conn.vibe_available_at < now && (conn.from_vibe === 0 || conn.to_vibe === 0)) {
-        batch.update(doc.ref, { status: 'rejected' });
-        vibeExpired++;
-      } else if (conn.reveal_available_at && conn.reveal_available_at < now && (conn.reveal_from === 0 || conn.reveal_to === 0)) {
+      if (conn.reveal_available_at && conn.reveal_available_at < now && (conn.reveal_from === 0 || conn.reveal_to === 0)) {
         batch.update(doc.ref, { status: 'expired' });
         revealsExpired++;
       }
