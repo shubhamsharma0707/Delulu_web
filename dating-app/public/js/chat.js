@@ -7,7 +7,7 @@ let otherPublicKey = null;
 let sharedSecretKey = null;
 let isE2EEActive = false;
 
-document.addEventListener('DOMContentLoaded', async () => {
+async function initializeChat() {
   await requireAuth();
   
   const urlParams = new URLSearchParams(window.location.search);
@@ -322,7 +322,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     }
   }, 60000);
-});
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initializeChat);
+} else {
+  initializeChat();
+}
 
 async function loadChatInfo() {
   try {
