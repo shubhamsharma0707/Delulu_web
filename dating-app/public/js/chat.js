@@ -272,27 +272,44 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   };
   
-  document.getElementById('btn-vibe-check').onclick = () => openModal('modal-vibe');
-  document.getElementById('btn-reveal').onclick = () => openModal('modal-reveal');
+  const btnVibeCheck = document.getElementById('btn-vibe-check');
+  if (btnVibeCheck) btnVibeCheck.onclick = () => openModal('modal-vibe');
+
+  const btnReveal = document.getElementById('btn-reveal');
+  if (btnReveal) btnReveal.onclick = () => openModal('modal-reveal');
   
-  document.getElementById('vibe-yes').onclick = () => submitVibeAction(1);
-  document.getElementById('vibe-no').onclick = () => submitVibeAction(2);
-  document.getElementById('reveal-yes').onclick = () => submitRevealAction();
+  const vibeYes = document.getElementById('vibe-yes');
+  if (vibeYes) vibeYes.onclick = () => submitVibeAction(1);
+
+  const vibeNo = document.getElementById('vibe-no');
+  if (vibeNo) vibeNo.onclick = () => submitVibeAction(2);
+
+  const revealYes = document.getElementById('reveal-yes');
+  if (revealYes) revealYes.onclick = () => submitRevealAction();
 
   // Profile Peek trigger
-  document.getElementById('chat-name').onclick = async () => {
-    try {
-      const data = await apiCall(`/api/connections/${currentConnId}`);
-      const c = data.connection;
-      document.getElementById('peek-name').textContent = c.other_username;
-      document.getElementById('peek-bio').textContent = c.other_bio || "No bio set.";
-      document.getElementById('peek-avatar').innerHTML = getAvatarHtml(c.other_username, c.other_avatar);
-      openModal('modal-profile-peek');
-    } catch(err) { alert(err.message); }
-  };
+  const chatName = document.getElementById('chat-name');
+  if (chatName) {
+    chatName.onclick = async () => {
+      try {
+        const data = await apiCall(`/api/connections/${currentConnId}`);
+        const c = data.connection;
+        const peekName = document.getElementById('peek-name');
+        const peekBio = document.getElementById('peek-bio');
+        const peekAvatar = document.getElementById('peek-avatar');
+        if (peekName) peekName.textContent = c.other_username;
+        if (peekBio) peekBio.textContent = c.other_bio || "No bio set.";
+        if (peekAvatar) peekAvatar.innerHTML = getAvatarHtml(c.other_username, c.other_avatar);
+        openModal('modal-profile-peek');
+      } catch(err) { alert(err.message); }
+    };
+  }
 
-  document.getElementById('peek-vibing').onclick = () => submitVibeAction(1);
-  document.getElementById('peek-not-vibing').onclick = () => submitVibeAction(2);
+  const peekVibing = document.getElementById('peek-vibing');
+  if (peekVibing) peekVibing.onclick = () => submitVibeAction(1);
+
+  const peekNotVibing = document.getElementById('peek-not-vibing');
+  if (peekNotVibing) peekNotVibing.onclick = () => submitVibeAction(2);
 
   // Poll status every 60 seconds
   setInterval(async () => {
