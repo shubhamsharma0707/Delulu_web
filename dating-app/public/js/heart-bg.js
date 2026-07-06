@@ -146,13 +146,21 @@
   const hearts = Array.from({ length: 4 }, () => new Heart());
 
   let active = true;
+  let rafId = null;
   document.addEventListener('visibilitychange', () => {
     active = !document.hidden;
-    if (active) loop();
+    if (active) {
+      loop();
+    } else {
+      if (rafId) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+    }
   });
 
   function loop() {
-    if (!active) return;
+    if (!active) { rafId = null; return; }
     ctx.clearRect(0, 0, width, height);
 
     mouseX += (targetMouseX - mouseX) * 0.08;
@@ -163,8 +171,11 @@
       heart.draw();
     });
 
-    requestAnimationFrame(loop);
+    rafId = requestAnimationFrame(loop);
   }
 
-  loop();
+  // Only start if the page is visible
+  if (!document.hidden) {
+    loop();
+  }
 })();

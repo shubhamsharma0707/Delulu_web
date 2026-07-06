@@ -48,7 +48,7 @@ const rateLimit = require('express-rate-limit');
 const nodemailer = require('nodemailer');
 const { initializeApp: firebaseInitializeApp, cert } = require('firebase-admin/app');
 const { getAuth: getFirebaseAuth } = require('firebase-admin/auth');
-const { getDB, seedDemoUsers, backfillDemoAvatars, userOps, connectionOps, messageOps, otpOps } = require('./database');
+const { getDB, seedDemoUsers, backfillDemoAvatars, userOps, connectionOps, messageOps, otpOps, invalidateUserCache } = require('./database');
 const multer = require('multer');
 const fs = require('fs');
 
@@ -177,6 +177,31 @@ const apiLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
+
+// ===== In-Memory Session Cache (reduces Firestore reads for frequent session checks) =====
+const sessionCache = new Map();
+const CACHE_TTL = 30 * 1000; // 30 seconds
+
+function getCachedUser(userId) {
+  const cached = sessionCache.get(userId);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.data;
+  }
+  return null;
+}
+
+function setCachedUser(userId, userData) {
+  sessionCache.set(userId, { data: userData, timestamp: Date.now() });
+  // Limit cache size to 500 entries
+  if (sessionCache.size > 500) {
+    const oldest = sessionCache.keys().next().value;
+    if (oldest) sessionCache.delete(oldest);
+  }
+}
+
+function invalidateCache(userId) {
+  sessionCache.delete(userId);
+}
 
 // Ensure data folder exists
 fs.mkdirSync(path.join(__dirname, 'data'), { recursive: true });
@@ -316,16 +341,24 @@ function sanitizeUser(user) {
   return safeUser;
 }
 
-// Check if user is logged in
+// Check if user is logged in (with cache)
 app.get('/api/session', async (req, res) => {
   if (req.session.user) {
     return res.json({ authenticated: true, user: req.session.user });
   }
   if (req.session.userId) {
+    // Check in-memory cache first
+    const cached = getCachedUser(req.session.userId);
+    if (cached) {
+      req.session.user = cached;
+      return res.json({ authenticated: true, user: cached });
+    }
+    
     const user = await userOps.getById(req.session.userId);
     if (user) {
       const safeUser = sanitizeUser(user);
       req.session.user = safeUser;
+      setCachedUser(req.session.userId, safeUser);
       return res.json({ authenticated: true, user: safeUser });
     }
   }
@@ -557,6 +590,11 @@ app.post('/api/auth/complete-profile', async (req, res) => {
 
 // Logout
 app.post('/api/users/logout', (req, res) => {
+  const userId = req.session?.userId;
+  if (userId) {
+    invalidateCache(userId);
+    invalidateUserCache && invalidateUserCache(userId);
+  }
   req.session.destroy();
   res.json({ success: true });
 });
@@ -594,6 +632,8 @@ app.put('/api/users/me', requireAuth, async (req, res) => {
   const user = await userOps.getById(req.session.userId);
   const safeUser = sanitizeUser(user);
   req.session.user = safeUser;
+  // Update cache immediately
+  setCachedUser(req.session.userId, safeUser);
   res.json({ success: true, user: safeUser });
 });
 

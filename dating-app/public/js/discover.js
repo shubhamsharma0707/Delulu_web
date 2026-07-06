@@ -137,12 +137,43 @@ function updateProfileOverlay(index) {
   }
 }
 
+// Dynamically load Three.js when discover page needs it, to avoid blocking render
+function loadThreeJS(callback) {
+  if (typeof THREE !== 'undefined') {
+    callback();
+    return;
+  }
+  const script = document.createElement('script');
+  script.src = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
+  script.onload = callback;
+  script.onerror = () => {
+    console.warn('Three.js failed to load, using fallback cards');
+    renderFallbackCards();
+  };
+  document.head.appendChild(script);
+}
+
 async function loadDiscovery() {
   try {
     const data = await apiCall('/api/discover');
     discoverProfiles = data.profiles;
+    
+    // Cache profiles in sessionStorage for instant back-navigation
+    try {
+      sessionStorage.setItem('discover_profiles', JSON.stringify(data.profiles));
+    } catch (e) {}
+    
     init3DScene();
   } catch (err) {
+    // Try loading from cache if offline
+    try {
+      const cached = sessionStorage.getItem('discover_profiles');
+      if (cached) {
+        discoverProfiles = JSON.parse(cached);
+        init3DScene();
+        return;
+      }
+    } catch (e) {}
     console.error(err);
   }
 }
@@ -155,21 +186,22 @@ function init3DScene() {
   const overlay = document.getElementById('profile-overlay');
   if (!container) return;
   
-  // Initialize Three.js scene via avatar3d.js
-  if (typeof initAvatarScene === 'function') {
-    initAvatarScene('avatar-3d-container', discoverProfiles);
-    
-    // After scene is set up, show first profile
-    setTimeout(() => {
-      currentIndex = 0;
-      updateProfileOverlay(0);
-      updateNavButtons();
-      if (overlay) overlay.classList.remove('hidden');
-    }, 500);
-  } else {
-    // Fallback to HTML cards if Three.js isn't loaded
-    renderFallbackCards();
-  }
+  // Load Three.js dynamically first, then initialize scene
+  loadThreeJS(() => {
+    if (typeof initAvatarScene === 'function') {
+      initAvatarScene('avatar-3d-container', discoverProfiles);
+      
+      // After scene is set up, show first profile
+      setTimeout(() => {
+        currentIndex = 0;
+        updateProfileOverlay(0);
+        updateNavButtons();
+        if (overlay) overlay.classList.remove('hidden');
+      }, 500);
+    } else {
+      renderFallbackCards();
+    }
+  });
 }
 
 function renderFallbackCards() {

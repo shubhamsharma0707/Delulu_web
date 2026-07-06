@@ -111,6 +111,30 @@ async function seedDemoUsers() {
 // Kept for compatibility
 function backfillDemoAvatars() {}
 
+// In-memory cache for user lookups to reduce Firestore reads
+const userByIdCache = new Map();
+const USER_CACHE_TTL = 15 * 1000; // 15 seconds
+
+function getCachedUserById(id) {
+  const cached = userByIdCache.get(id);
+  if (cached && Date.now() - cached.timestamp < USER_CACHE_TTL) {
+    return cached.data;
+  }
+  return null;
+}
+
+function setCachedUserById(id, userData) {
+  userByIdCache.set(id, { data: userData, timestamp: Date.now() });
+  if (userByIdCache.size > 500) {
+    const oldest = userByIdCache.keys().next().value;
+    if (oldest) userByIdCache.delete(oldest);
+  }
+}
+
+function invalidateUserCache(id) {
+  userByIdCache.delete(id);
+}
+
 // User operations
 const userOps = {
   async create(username, gender, passcodeHash, bio, hobbies, avatar) {
@@ -156,8 +180,16 @@ const userOps = {
 
   async getById(id) {
     if (!id) return null;
+    // Check in-memory cache first
+    const cached = getCachedUserById(id);
+    if (cached) return cached;
+    
     const doc = await getDB().collection('users').doc(String(id)).get();
-    return doc.exists ? doc.data() : null;
+    const userData = doc.exists ? doc.data() : null;
+    if (userData) {
+      setCachedUserById(id, userData);
+    }
+    return userData;
   },
   
   async getByUsername(username) {
@@ -189,6 +221,8 @@ const userOps = {
     }
     if (Object.keys(updatePayload).length === 0) return;
     await getDB().collection('users').doc(String(id)).update(updatePayload);
+    // Invalidate cache on update
+    invalidateUserCache(id);
   },
 
   // Get discoverable profiles (filtered by ecosystem)
@@ -756,5 +790,6 @@ module.exports = {
   userOps,
   connectionOps,
   messageOps,
-  otpOps
+  otpOps,
+  invalidateUserCache
 };

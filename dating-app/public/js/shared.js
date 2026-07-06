@@ -35,21 +35,20 @@ async function requireAuth() {
       initGlobalSocket();
       updateHeaderAvatar();
       
-      // Perform session verification in background
-      apiCall('/api/session').then(data => {
-        if (data.authenticated) {
-          currentUser = data.user;
-          window.localStorage.setItem('cached_user', JSON.stringify(data.user));
+      // Perform session verification in background (non-blocking — page renders immediately with cached data)
+      const safeTimeout = (ms) => new Promise(resolve => setTimeout(() => resolve(null), ms));
+      Promise.race([apiCall('/api/session'), safeTimeout(3000)]).then(result => {
+        if (!result) return; // timeout, keep cached data
+        if (result.authenticated) {
+          currentUser = result.user;
+          window.localStorage.setItem('cached_user', JSON.stringify(result.user));
           updateHeaderAvatar();
         } else {
-          // If server says session expired, clear cache and redirect
           window.localStorage.removeItem('cached_user');
           window.localStorage.removeItem('e2ee_private_key');
           window.location.href = '/';
         }
-      }).catch(err => {
-        console.error('Background session check failed:', err);
-      });
+      }).catch(() => {}); // suppress any unhandled rejections
       
       return; // Resolve instantly!
     } catch (e) {
@@ -57,19 +56,33 @@ async function requireAuth() {
     }
   }
 
-  // Fallback: blocking check if no cache exists
+  // Fallback: blocking check if no cache exists - with timeout to avoid hanging
   try {
-    const data = await apiCall('/api/session');
-    if (data.authenticated) {
+    const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(null), 5000));
+    const data = await Promise.race([apiCall('/api/session'), timeoutPromise]);
+    
+    if (data && data.authenticated) {
       currentUser = data.user;
       window.localStorage.setItem('cached_user', JSON.stringify(data.user));
       initGlobalSocket();
       updateHeaderAvatar();
+    } else if (!data) {
+      // Timeout occurred - wait for cached data or redirect
+      if (!window.localStorage.getItem('cached_user')) {
+        window.location.href = '/';
+      }
+      // else: silently keep cached data
     } else {
       window.location.href = '/';
     }
   } catch (err) {
-    window.location.href = '/';
+    // Only redirect if we don't have cached user data
+    if (!window.localStorage.getItem('cached_user')) {
+      window.location.href = '/';
+    } else {
+      // Use cached data as fallback
+      console.warn('Session check failed, using cached user');
+    }
   }
 }
 
@@ -81,8 +94,13 @@ function updateHeaderAvatar() {
 }
 
 function initGlobalSocket() {
-  if (typeof io !== 'undefined') {
-    socket = io();
+  if (typeof io !== 'undefined' && !socket) {
+    // Connect with minimal transport options for speed
+    socket = io({
+      transports: ['websocket', 'polling'], // prefer WebSocket for lower latency
+      upgrade: false,
+      forceNew: false
+    });
   }
 }
 
@@ -171,10 +189,51 @@ function initHeartBackground() {
   document.body.appendChild(script);
 }
 
+// Register Service Worker for instant page loads
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').then((reg) => {
+      // Check if there's a waiting service worker (new version)
+      if (reg.waiting) {
+        // New version available - reload to activate
+        reg.waiting.postMessage('SKIP_WAITING');
+      }
+      
+      reg.addEventListener('updatefound', () => {
+        const newWorker = reg.installing;
+        newWorker.addEventListener('statechange', () => {
+          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+            // New version available, optionally notify user
+            console.log('New version available!');
+          }
+        });
+      });
+    }).catch(() => {
+      // Service worker registration failed silently
+    });
+  });
+  
+  // Reload when new SW takes over
+  let refreshing = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (refreshing) return;
+    refreshing = true;
+    window.location.reload();
+  });
+}
+
 // Automatically bind setup on every page
 document.addEventListener('DOMContentLoaded', () => {
   setupLogout();
-  initHeartBackground();
+  
+  // Defer heart background to after page is fully interactive
+  if (document.querySelector('#heart-bg') || !document.querySelector('[data-no-hearts]')) {
+    if ('requestIdleCallback' in window) {
+      requestIdleCallback(() => initHeartBackground(), { timeout: 2000 });
+    } else {
+      setTimeout(initHeartBackground, 500);
+    }
+  }
 
   // Prefetch navigation tabs on hover
   document.querySelectorAll('a').forEach(link => {

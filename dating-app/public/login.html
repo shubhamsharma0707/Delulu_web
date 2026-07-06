@@ -7,6 +7,11 @@
   
   <link href="https://fonts.googleapis.com" rel="preconnect"/>
   <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+  <link rel="preconnect" href="https://cdn.tailwindcss.com">
+  <link rel="preconnect" href="https://www.gstatic.com">
+  <link rel="preconnect" href="https://apis.google.com">
+  <link rel="dns-prefetch" href="//fonts.googleapis.com">
+  <link rel="dns-prefetch" href="//cdn.tailwindcss.com">
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet"/>
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
   
@@ -250,8 +255,9 @@
     </div>
   </main>
   
-  <script src="/js/shared.js?v=4"></script>
+  <link rel="preload" href="/js/shared.js?v=5" as="script">
+  <script src="/js/shared.js?v=5"></script>
   <script src="/js/crypto.js"></script>
-  <script type="module" src="/js/login.js?v=4"></script>
+  <script type="module" src="/js/login.js?v=5"></script>
 </body>
 </html>
