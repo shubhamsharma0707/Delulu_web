@@ -726,6 +726,13 @@ app.post('/api/connections/vibe', requireAuth, async (req, res) => {
   }
   const result = await connectionOps.submitVibe(connection_id, req.session.userId, vibe);
   if (result.error) return res.status(400).json(result);
+
+  if (result.ended && result.otherId) {
+    io.to(`user:${result.otherId}`).emit('connection-ended', {
+      connectionId: connection_id,
+      message: "Your chat partner has decided not to continue. This chat has ended."
+    });
+  }
   res.json(result);
 });
 
