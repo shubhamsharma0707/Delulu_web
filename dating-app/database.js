@@ -549,38 +549,7 @@ const connectionOps = {
     }
     return { success: true, bothRevealed: false };
   },
-  
-  async blockUser(fromId, toId, reason = '') {
-    const firestore = getDB();
-    try {
-      const blockId = `${fromId}_${toId}`;
-      await firestore.collection('blocked_users').doc(blockId).set({
-        from_user_id: Number(fromId),
-        to_user_id: Number(toId),
-        reason: reason || '',
-        created_at: new Date().toISOString()
-      });
-      
-      // Update any active connections to rejected
-      const snap1 = await firestore.collection('connections')
-        .where('from_user_id', '==', Number(fromId))
-        .where('to_user_id', '==', Number(toId))
-        .get();
-      const snap2 = await firestore.collection('connections')
-        .where('from_user_id', '==', Number(toId))
-        .where('to_user_id', '==', Number(fromId))
-        .get();
-        
-      const batch = firestore.batch();
-      snap1.forEach(doc => batch.update(doc.ref, { status: 'rejected' }));
-      snap2.forEach(doc => batch.update(doc.ref, { status: 'rejected' }));
-      await batch.commit();
-      
-      return { success: true };
-    } catch(err) {
-      return { error: 'Already blocked or error occurred' };
-    }
-  },
+
   
   async sweepExpired() {
     const firestore = getDB();
