@@ -360,6 +360,14 @@ async function loadChatInfo() {
     updateChatStatus(c);
     loadMessages();
   } catch (err) {
+    console.error('loadChatInfo caught error:', err);
+    // Log caught error to server before redirecting
+    await fetch('/api/log-error', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: err.message, stack: err.stack, path: window.location.href, context: 'loadChatInfo catch' })
+    }).catch(() => {});
+    
     alert(err.message);
     window.location.href = '/messages';
   }
@@ -426,6 +434,12 @@ async function loadMessages() {
       await appendMessage(m, false);
     }
   } catch (err) {
+    console.error('loadMessages caught error:', err);
+    await fetch('/api/log-error', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: err.message, stack: err.stack, path: window.location.href, context: 'loadMessages catch' })
+    }).catch(() => {});
     cont.innerHTML = `<p class="text-error">${escapeHtml(err.message)}</p>`;
   }
 }
