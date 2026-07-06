@@ -821,6 +821,30 @@ app.post('/api/messages/upload-voice', requireAuth, (req, res, next) => {
   }
 });
 
+// React to a message
+app.post('/api/messages/:id/react', requireAuth, async (req, res) => {
+  const { connection_id, emoji } = req.body;
+  if (!connection_id || !emoji) return res.status(400).json({ error: 'Missing connection_id or emoji' });
+  const conn = await connectionOps.getConnection(connection_id, req.session.userId);
+  if (!conn) return res.status(404).json({ error: 'Connection not found' });
+
+  const result = await messageOps.toggleReaction(req.params.id, req.session.userId, connection_id, emoji);
+  if (result.error) return res.status(400).json(result);
+
+  io.to(`chat:${connection_id}`).emit('message-reacted', { messageId: req.params.id, reactions: result.reactions });
+  res.json(result);
+});
+
+// Delete a message
+app.delete('/api/messages/:id', requireAuth, async (req, res) => {
+  const { connection_id } = req.body;
+  const result = await messageOps.deleteMessage(req.params.id, req.session.userId);
+  if (result.error) return res.status(403).json(result);
+
+  if (connection_id) io.to(`chat:${connection_id}`).emit('message-deleted', { messageId: req.params.id });
+  res.json(result);
+});
+
 // ===== PAGE ROUTES =====
 
 // Serve static HTML files for MPA
