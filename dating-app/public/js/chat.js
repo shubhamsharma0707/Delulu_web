@@ -30,6 +30,34 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     });
 
+    socket.on('message-reacted', ({ messageId, reactions }) => {
+      const el = document.querySelector(`[data-msg-id="${messageId}"]`);
+      if (el) {
+        const inner = el.querySelector('.rounded-2xl');
+        renderReactions({ id: messageId, reactions }, inner);
+      }
+    });
+
+    socket.on('message-deleted', ({ messageId }) => {
+      const el = document.querySelector(`[data-msg-id="${messageId}"]`);
+      if (el) {
+        const inner = el.querySelector('.rounded-2xl');
+        inner.innerHTML = '';
+        const p = document.createElement('p');
+        p.className = 'text-[15px] italic opacity-70 break-words';
+        p.textContent = 'This message was deleted';
+        inner.appendChild(p);
+        
+        const timeEl = document.createElement('div');
+        timeEl.className = 'text-[10px] mt-1 text-right text-on-surface-variant/70';
+        timeEl.textContent = 'deleted';
+        inner.appendChild(timeEl);
+
+        const btn = el.querySelector('.more-actions-btn');
+        if (btn) btn.remove();
+      }
+    });
+
     let originalStatus = '';
     socket.on('typing', (data) => {
       if (data.userId !== currentUser.id) {
