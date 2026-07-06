@@ -747,13 +747,19 @@ window.playVoiceNote = async (btn, url, isEncrypted = 0, iv = null) => {
 };
 
 window.openModal = function(id) {
-  document.getElementById('modal-overlay').classList.remove('hidden');
+  const overlay = document.getElementById('modal-overlay');
+  if (overlay) {
+    overlay.classList.remove('hidden');
+    overlay.classList.add('flex');
+  }
   const m = document.getElementById(id);
-  m.classList.remove('hidden');
-  setTimeout(() => {
-    m.classList.remove('scale-95');
-    m.classList.add('scale-100');
-  }, 10);
+  if (m) {
+    m.classList.remove('hidden');
+    setTimeout(() => {
+      m.classList.remove('scale-95');
+      m.classList.add('scale-100');
+    }, 10);
+  }
 };
 
 window.closeModal = function() {
@@ -761,6 +767,7 @@ window.closeModal = function() {
   const overlay = document.getElementById('modal-overlay');
   if (overlay) {
     overlay.classList.add('hidden');
+    overlay.classList.remove('flex');
   }
   ['modal-vibe', 'modal-reveal', 'modal-profile-peek'].forEach(id => {
     const m = document.getElementById(id);
