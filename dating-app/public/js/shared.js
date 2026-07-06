@@ -1,6 +1,22 @@
 let currentUser = null;
 let socket = null;
 
+// Global client error logger to diagnose browser-specific issues
+window.onerror = function (message, source, lineno, colno, error) {
+  fetch('/api/log-error', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message, source, lineno, colno, stack: error ? error.stack : '', path: window.location.href })
+  }).catch(() => {});
+};
+window.addEventListener('unhandledrejection', function (event) {
+  fetch('/api/log-error', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: event.reason ? event.reason.message : 'Unhandled Rejection', stack: event.reason ? event.reason.stack : '', path: window.location.href })
+  }).catch(() => {});
+});
+
 // Escape HTML to prevent XSS
 function escapeHtml(str) {
   if (!str) return '';
