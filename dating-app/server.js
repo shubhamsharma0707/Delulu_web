@@ -855,28 +855,34 @@ app.delete('/api/messages/:id', requireAuth, async (req, res) => {
 // ===== PAGE ROUTES =====
 
 // Serve static HTML files for MPA
+const sendHtmlOptions = {
+  headers: {
+    'Cache-Control': 'no-cache, no-store, must-revalidate'
+  }
+};
+
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'login.html'));
+  res.sendFile(path.join(__dirname, 'public', 'login.html'), sendHtmlOptions);
 });
 
 app.get('/discover', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'discover.html'));
+  res.sendFile(path.join(__dirname, 'public', 'discover.html'), sendHtmlOptions);
 });
 
 app.get('/requests', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'requests.html'));
+  res.sendFile(path.join(__dirname, 'public', 'requests.html'), sendHtmlOptions);
 });
 
 app.get('/messages', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'messages.html'));
+  res.sendFile(path.join(__dirname, 'public', 'messages.html'), sendHtmlOptions);
 });
 
 app.get('/chat', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'chat.html'));
+  res.sendFile(path.join(__dirname, 'public', 'chat.html'), sendHtmlOptions);
 });
 
 app.get('/profile', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'profile.html'));
+  res.sendFile(path.join(__dirname, 'public', 'profile.html'), sendHtmlOptions);
 });
 
 // Initialize database and start server (Async)
