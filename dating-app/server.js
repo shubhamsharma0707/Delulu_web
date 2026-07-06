@@ -828,8 +828,8 @@ app.post('/api/messages/upload-voice', requireAuth, (req, res, next) => {
   }
 });
 
-// Endpoint to log client-side console errors to data/client-logs.txt
-app.post('/api/log-error', (req, res) => {
+// Endpoint to log client-side console errors to Firestore client_logs collection
+app.post('/api/log-error', async (req, res) => {
   const logData = {
     timestamp: new Date().toISOString(),
     ip: req.ip,
@@ -838,11 +838,10 @@ app.post('/api/log-error', (req, res) => {
   };
   console.error('Client-side error received:', JSON.stringify(logData, null, 2));
   try {
-    const fs = require('fs');
-    const logFilePath = path.join(__dirname, 'data', 'client-logs.txt');
-    fs.appendFileSync(logFilePath, JSON.stringify(logData) + '\n', 'utf8');
-  } catch (fsErr) {
-    console.error('Failed to write client log to file:', fsErr);
+    const firestore = getDB();
+    await firestore.collection('client_logs').add(logData);
+  } catch (dbErr) {
+    console.error('Failed to write client log to Firestore:', dbErr);
   }
   res.sendStatus(200);
 });
