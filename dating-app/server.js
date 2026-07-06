@@ -738,14 +738,7 @@ app.post('/api/connections/reveal', requireAuth, async (req, res) => {
   res.json(result);
 });
 
-// Block a user
-app.post('/api/connections/block', requireAuth, async (req, res) => {
-  const { target_user_id, reason } = req.body;
-  if (!target_user_id) return res.status(400).json({ error: 'Missing target user id' });
-  const result = await connectionOps.blockUser(req.session.userId, target_user_id, reason || 'User reported');
-  if (result.error) return res.status(400).json(result);
-  res.json(result);
-});
+
 
 // Get messages for a connection
 app.get('/api/messages/:connectionId', requireAuth, async (req, res) => {
