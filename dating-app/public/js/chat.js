@@ -275,9 +275,36 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-vibe-check').onclick = () => openModal('modal-vibe');
   document.getElementById('btn-reveal').onclick = () => openModal('modal-reveal');
   
-  document.getElementById('vibe-yes').onclick = () => submitOptIn('vibe', true);
-  document.getElementById('vibe-no').onclick = () => submitOptIn('vibe', false);
-  document.getElementById('reveal-yes').onclick = () => submitOptIn('reveal', true);
+  document.getElementById('vibe-yes').onclick = () => submitVibeAction(1);
+  document.getElementById('vibe-no').onclick = () => submitVibeAction(2);
+  document.getElementById('reveal-yes').onclick = () => submitRevealAction();
+
+  // Profile Peek trigger
+  document.getElementById('chat-name').onclick = async () => {
+    try {
+      const data = await apiCall(`/api/connections/${currentConnId}`);
+      const c = data.connection;
+      document.getElementById('peek-name').textContent = c.other_username;
+      document.getElementById('peek-bio').textContent = c.other_bio || "No bio set.";
+      document.getElementById('peek-avatar').innerHTML = getAvatarHtml(c.other_username, c.other_avatar);
+      openModal('modal-profile-peek');
+    } catch(err) { alert(err.message); }
+  };
+
+  document.getElementById('peek-vibing').onclick = () => submitVibeAction(1);
+  document.getElementById('peek-not-vibing').onclick = () => submitVibeAction(2);
+
+  // Poll status every 60 seconds
+  setInterval(async () => {
+    if (currentConnId) {
+      try {
+        const data = await apiCall(`/api/connections/${currentConnId}`);
+        updateChatStatus(data.connection);
+      } catch (e) {
+        console.error('Failed to poll status:', e);
+      }
+    }
+  }, 60000);
 });
 
 async function loadChatInfo() {
