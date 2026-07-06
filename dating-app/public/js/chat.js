@@ -348,8 +348,14 @@ async function loadChatInfo() {
     }
     
     // Display lock icon next to name if encrypted
-    document.getElementById('chat-name').innerHTML = `${escapeHtml(c.other_username)} ${isE2EEActive ? '<span class="material-symbols-outlined text-[15px] text-green-600 align-middle ml-1" title="End-to-End Encrypted" style="font-variation-settings: \'FILL\' 1">lock</span>' : ''}`;
-    document.getElementById('chat-avatar').innerHTML = getAvatarHtml(c.other_username, c.other_avatar);
+    const chatNameEl = document.getElementById('chat-name');
+    if (chatNameEl) {
+      chatNameEl.innerHTML = `${escapeHtml(c.other_username)} ${isE2EEActive ? '<span class="material-symbols-outlined text-[15px] text-green-600 align-middle ml-1" title="End-to-End Encrypted" style="font-variation-settings: \'FILL\' 1">lock</span>' : ''}`;
+    }
+    const chatAvatarEl = document.getElementById('chat-avatar');
+    if (chatAvatarEl) {
+      chatAvatarEl.innerHTML = getAvatarHtml(c.other_username, c.other_avatar);
+    }
     
     updateChatStatus(c);
     loadMessages();
