@@ -227,10 +227,10 @@ function renderFallbackCards() {
               ${hobbyChips}
             </div>
             <div class="flex gap-3 mt-auto">
-              <button onclick="dismissFallback(${i})" class="w-10 h-10 rounded-full bg-white shadow-md border border-outline-variant/20 flex items-center justify-center text-on-surface-variant hover:scale-110 transition-all">
+              <button data-fallback-action="dismiss" data-index="${i}" class="w-10 h-10 rounded-full bg-white shadow-md border border-outline-variant/20 flex items-center justify-center text-on-surface-variant hover:scale-110 transition-all">
                 <span class="material-symbols-outlined">close</span>
               </button>
-              <button onclick="connectFallback(${i}, this)" class="px-5 py-2 rounded-full bg-gradient-to-r from-primary to-primary-container text-white text-sm font-bold shadow-md hover:scale-105 transition-all">
+              <button data-fallback-action="connect" data-index="${i}" class="px-5 py-2 rounded-full bg-gradient-to-r from-primary to-primary-container text-white text-sm font-bold shadow-md hover:scale-105 transition-all">
                 <span class="material-symbols-outlined text-sm material-fill">favorite</span> Connect
               </button>
             </div>
@@ -239,6 +239,20 @@ function renderFallbackCards() {
       }).join('')}
     </div>
   `;
+
+  // Bind fallback card events programmatically to prevent adblock/security policy blocking
+  container.querySelectorAll('[data-fallback-action]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      const action = btn.getAttribute('data-fallback-action');
+      const idx = Number(btn.getAttribute('data-index'));
+      if (action === 'dismiss') {
+        dismissFallback(idx);
+      } else if (action === 'connect') {
+        connectFallback(idx, btn);
+      }
+    });
+  });
 }
 
 function checkEmptyState() {

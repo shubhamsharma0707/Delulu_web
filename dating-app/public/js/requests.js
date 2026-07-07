@@ -45,15 +45,29 @@ async function loadRequests(type = 'incoming') {
           </div>
           ${type === 'incoming' ? `
             <div class="flex gap-2 shrink-0">
-              <button onclick="respondReq(${r.id}, 'accept')" class="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center hover:scale-110 transition-transform"><span class="material-symbols-outlined material-fill text-sm">check</span></button>
-              <button onclick="respondReq(${r.id}, 'reject')" class="w-10 h-10 rounded-full bg-surface-variant text-on-surface-variant flex items-center justify-center hover:scale-110 transition-transform"><span class="material-symbols-outlined text-sm">close</span></button>
+              <button data-action="accept" data-id="${r.id}" class="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center hover:scale-110 transition-transform"><span class="material-symbols-outlined material-fill text-sm">check</span></button>
+              <button data-action="reject" data-id="${r.id}" class="w-10 h-10 rounded-full bg-surface-variant text-on-surface-variant flex items-center justify-center hover:scale-110 transition-transform"><span class="material-symbols-outlined text-sm">close</span></button>
             </div>
           ` : `
-            <button onclick="revokeReq(${r.id})" class="px-3 py-1.5 rounded-full bg-white shadow-sm border border-outline-variant/30 text-on-surface-variant text-xs font-semibold hover:scale-105 hover:bg-error/10 hover:text-error hover:border-error/20 transition-all shrink-0">Revoke</button>
+            <button data-action="revoke" data-id="${r.id}" class="px-3 py-1.5 rounded-full bg-white shadow-sm border border-outline-variant/30 text-on-surface-variant text-xs font-semibold hover:scale-105 hover:bg-error/10 hover:text-error hover:border-error/20 transition-all shrink-0">Revoke</button>
           `}
         </div>
       `;
     }).join('');
+
+    // Bind click events programmatically to prevent adblocker/browser security policies from blocking inline script handlers
+    list.querySelectorAll('[data-action]').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const action = btn.getAttribute('data-action');
+        const id = Number(btn.getAttribute('data-id'));
+        if (action === 'accept' || action === 'reject') {
+          await respondReq(id, action);
+        } else if (action === 'revoke') {
+          await revokeReq(id);
+        }
+      });
+    });
   } catch (err) {
     list.innerHTML = `<div class="p-4 text-error">${escapeHtml(err.message)}</div>`;
   }
