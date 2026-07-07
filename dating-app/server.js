@@ -48,7 +48,7 @@ const rateLimit = require('express-rate-limit');
 const nodemailer = require('nodemailer');
 const { initializeApp: firebaseInitializeApp, cert } = require('firebase-admin/app');
 const { getAuth: getFirebaseAuth } = require('firebase-admin/auth');
-const { getDB, seedDemoUsers, backfillDemoAvatars, userOps, connectionOps, messageOps, otpOps, invalidateUserCache } = require('./database');
+const { getDB, seedDemoUsers, backfillDemoAvatars, userOps, connectionOps, messageOps, otpOps, invalidateUserCache, reportOps, blockOps, pushOps } = require('./database');
 const multer = require('multer');
 const fs = require('fs');
 
@@ -314,6 +314,38 @@ io.on('connection', (socket) => {
     const { connectionId, isTyping } = data;
     if (!connectionId) return;
     socket.to(`chat:${connectionId}`).emit('typing', { userId, isTyping });
+  });
+
+  // Icebreaker game events
+  socket.on('icebreaker-game', (data) => {
+    const { connection_id, game_type, question } = data;
+    if (!connection_id || !game_type || !question) return;
+    socket.to(`chat:${connection_id}`).emit('game-question', {
+      connection_id,
+      game_type,
+      question
+    });
+  });
+
+  socket.on('icebreaker-answer', (data) => {
+    const { connection_id, game_type, question, answer } = data;
+    if (!connection_id || !answer) return;
+    socket.to(`chat:${connection_id}`).emit('game-answer', {
+      connection_id,
+      game_type,
+      theirAnswer: answer === 'A' ? question.a : question.b,
+      answer,
+      match: false // We don't know yet, just relay
+    });
+  });
+
+  socket.on('icebreaker-question', (data) => {
+    const { connection_id, question } = data;
+    if (!connection_id || !question) return;
+    socket.to(`chat:${connection_id}`).emit('game-question', {
+      connection_id,
+      question
+    });
   });
 
   socket.on('disconnect', () => {
@@ -711,6 +743,13 @@ app.post('/api/connections/request', requireAuth, async (req, res) => {
 
   const result = await connectionOps.sendRequest(req.session.userId, to_user_id);
   if (result.error) return res.status(400).json(result);
+  
+  // Notify the target user about the connection request
+  const reqUser = await userOps.getById(req.session.userId);
+  if (reqUser) {
+    sendPushNotification(to_user_id, 'New Connection Request', `${reqUser.username} wants to connect with you!`, '/requests');
+  }
+  
   res.json(result);
 });
 
@@ -743,6 +782,26 @@ app.post('/api/connections/respond', requireAuth, async (req, res) => {
   }
   const result = await connectionOps.respond(connection_id, req.session.userId, action);
   if (result.error) return res.status(400).json(result);
+  
+  // Emit match-celebration event to the requester when their request is accepted
+  if (action === 'accept') {
+    const conn = await connectionOps.getConnectionById(connection_id);
+    if (conn) {
+      const accepter = await userOps.getById(req.session.userId);
+      const requester = await userOps.getById(conn.from_user_id);
+      if (accepter && requester) {
+        io.to(`user:${conn.from_user_id}`).emit('match-celebration', {
+          connectionId: connection_id,
+          username: accepter.username,
+          avatar: accepter.avatar
+        });
+        
+        // Notify requester via push
+        sendPushNotification(conn.from_user_id, 'Connection Accepted!', `${accepter.username} accepted your request!`, '/chat?id=' + connection_id);
+      }
+    }
+  }
+  
   res.json(result);
 });
 
@@ -929,6 +988,44 @@ app.post('/api/log-error', async (req, res) => {
   res.sendStatus(200);
 });
 
+// ===== Web Push Notifications =====
+const webPush = require('web-push');
+
+// Generate VAPID keys if not set
+const vapidPublicKey = process.env.VAPID_PUBLIC_KEY;
+const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
+if (vapidPublicKey && vapidPrivateKey) {
+  webPush.setVapidDetails(
+    'mailto:delulu.college.dating@gmail.com',
+    vapidPublicKey,
+    vapidPrivateKey
+  );
+  console.log('Web Push notifications configured');
+} else {
+  console.log('VAPID keys not set — push notifications disabled. Run: npx web-push generate-vapid-keys');
+}
+
+async function sendPushNotification(userId, title, body, url = '/messages') {
+  if (!vapidPublicKey || !vapidPrivateKey) return;
+  try {
+    const subs = await pushOps.getSubscriptions(userId);
+    for (const sub of subs) {
+      const pushSub = {
+        endpoint: sub.endpoint,
+        keys: sub.keys
+      };
+      const payload = JSON.stringify({ title, body, url, icon: '/favicon.ico' });
+      webPush.sendNotification(pushSub, payload).catch(err => {
+        if (err.statusCode === 410 || err.statusCode === 404) {
+          pushOps.removeSubscription(sub.endpoint);
+        }
+      });
+    }
+  } catch (err) {
+    console.error('Push notification error:', err.message);
+  }
+}
+
 const ALLOWED_REACTIONS = ['😂', '😢', '❤️', '👍', '😮'];
 
 // React to a message
@@ -949,6 +1046,85 @@ app.post('/api/messages/:id/react', requireAuth, async (req, res) => {
 
   io.to(`chat:${connection_id}`).emit('message-reacted', { messageId: req.params.id, reactions: result.reactions });
   res.json(result);
+});
+
+// ===== Report & Block =====
+
+// Report a user
+app.post('/api/users/report', requireAuth, async (req, res) => {
+  const { reported_user_id, reason, connection_id } = req.body;
+  if (!reported_user_id) return res.status(400).json({ error: 'Missing reported user' });
+  if (Number(reported_user_id) === req.session.userId) return res.status(400).json({ error: 'Cannot report yourself' });
+  
+  try {
+    const reportId = await reportOps.create(req.session.userId, reported_user_id, reason || 'No reason', connection_id || null);
+    res.json({ success: true, reportId });
+  } catch (err) {
+    console.error('Report error:', err);
+    res.status(500).json({ error: 'Failed to submit report' });
+  }
+});
+
+// Block a user
+app.post('/api/users/block', requireAuth, async (req, res) => {
+  const { blocked_user_id } = req.body;
+  if (!blocked_user_id) return res.status(400).json({ error: 'Missing blocked user' });
+  if (Number(blocked_user_id) === req.session.userId) return res.status(400).json({ error: 'Cannot block yourself' });
+  
+  try {
+    const result = await blockOps.block(req.session.userId, blocked_user_id);
+    res.json(result);
+  } catch (err) {
+    console.error('Block error:', err);
+    res.status(500).json({ error: 'Failed to block user' });
+  }
+});
+
+// Unblock a user
+app.post('/api/users/unblock', requireAuth, async (req, res) => {
+  const { blocked_user_id } = req.body;
+  if (!blocked_user_id) return res.status(400).json({ error: 'Missing user' });
+  
+  try {
+    await blockOps.unblock(req.session.userId, blocked_user_id);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to unblock' });
+  }
+});
+
+// ===== Push Notifications =====
+
+// Subscribe to push notifications
+app.post('/api/push/subscribe', requireAuth, async (req, res) => {
+  const { subscription } = req.body;
+  if (!subscription || !subscription.endpoint) {
+    return res.status(400).json({ error: 'Invalid subscription' });
+  }
+  try {
+    await pushOps.subscribe(req.session.userId, subscription);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Push subscribe error:', err);
+    res.status(500).json({ error: 'Failed to subscribe' });
+  }
+});
+
+// Unsubscribe from push notifications
+app.post('/api/push/unsubscribe', requireAuth, async (req, res) => {
+  const { endpoint } = req.body;
+  if (!endpoint) return res.status(400).json({ error: 'Missing endpoint' });
+  try {
+    await pushOps.removeSubscription(endpoint);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to unsubscribe' });
+  }
+});
+
+// Get VAPID public key for client
+app.get('/api/push/vapid-key', (req, res) => {
+  res.json({ publicKey: vapidPublicKey || null });
 });
 
 // Delete a message
@@ -1004,12 +1180,13 @@ app.get('/profile', (req, res) => {
   }
 })();
 
-// Scheduled Sweep for Expired Connections (every 1 minute)
+// Scheduled Sweep for Expired Connections & Requests (every 1 minute)
 setInterval(async () => {
   try {
     const sweepResult = await connectionOps.sweepExpired();
-    if (sweepResult.vibeExpired > 0 || sweepResult.revealsExpired > 0) {
-      console.log(`[Sweep] Expired ${sweepResult.vibeExpired} vibes and ${sweepResult.revealsExpired} reveals.`);
+    const reqSweep = await connectionOps.sweepExpiredRequests();
+    if (sweepResult.vibeExpired > 0 || sweepResult.revealsExpired > 0 || reqSweep.expiredCount > 0) {
+      console.log(`[Sweep] Expired ${sweepResult.vibeExpired} vibes, ${sweepResult.revealsExpired} reveals, ${reqSweep.expiredCount} pending requests.`);
     }
   } catch (err) {
     console.error('[Sweep Error]', err);
@@ -1024,6 +1201,11 @@ setInterval(async () => {
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Delulu Dating App running at http://localhost:${PORT}`);
   console.log(`Open your browser to http://localhost:${PORT}`);
+  console.log('');
+  if (!vapidPublicKey) {
+    console.log('📢 To enable push notifications, run: npx web-push generate-vapid-keys');
+    console.log('   Then set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY in your .env');
+  }
   console.log('');
   console.log('Demo users (passcode for all is 123456):');
   console.log('  Female: wanderlust_amy, art_vibes, trailblazer, bookish_bee, melody_maker, spice_queen');
