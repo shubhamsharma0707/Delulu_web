@@ -783,6 +783,156 @@ const otpOps = {
   }
 };
 
+// ===== Report & Block Operations =====
+const reportOps = {
+  async create(reporterId, reportedUserId, reason, connectionId = null) {
+    const firestore = getDB();
+    const reportId = await getNextId('reports');
+    await firestore.collection('reports').doc(String(reportId)).set({
+      id: reportId,
+      reporter_id: Number(reporterId),
+      reported_user_id: Number(reportedUserId),
+      reason: reason || 'No reason provided',
+      connection_id: connectionId,
+      status: 'pending',
+      created_at: new Date().toISOString()
+    });
+    return reportId;
+  }
+};
+
+const blockOps = {
+  async block(blockerId, blockedUserId) {
+    const firestore = getDB();
+    
+    // Check if already blocked
+    const snapshot = await firestore.collection('blocked_users')
+      .where('from_user_id', '==', Number(blockerId))
+      .where('to_user_id', '==', Number(blockedUserId))
+      .limit(1).get();
+      
+    if (!snapshot.empty) return { success: true, alreadyBlocked: true };
+    
+    const blockId = await getNextId('blocked_users');
+    await firestore.collection('blocked_users').doc(String(blockId)).set({
+      id: blockId,
+      from_user_id: Number(blockerId),
+      to_user_id: Number(blockedUserId),
+      created_at: new Date().toISOString()
+    });
+    
+    // Also reject any active connections between them
+    const connections = await connectionOps.getAllBetween(blockerId, blockedUserId);
+    for (const conn of connections) {
+      if (['pending', 'accepted'].includes(conn.status)) {
+        await firestore.collection('connections').doc(String(conn.id)).update({ status: 'rejected', ended_reason: 'blocked' });
+      }
+    }
+    
+    return { success: true };
+  },
+
+  async unblock(blockerId, blockedUserId) {
+    const firestore = getDB();
+    const snapshot = await firestore.collection('blocked_users')
+      .where('from_user_id', '==', Number(blockerId))
+      .where('to_user_id', '==', Number(blockedUserId))
+      .limit(1).get();
+    if (!snapshot.empty) {
+      await snapshot.docs[0].ref.delete();
+    }
+    return { success: true };
+  },
+
+  async isBlocked(userId1, userId2) {
+    const firestore = getDB();
+    const snap1 = await firestore.collection('blocked_users')
+      .where('from_user_id', '==', Number(userId1))
+      .where('to_user_id', '==', Number(userId2))
+      .limit(1).get();
+    const snap2 = await firestore.collection('blocked_users')
+      .where('from_user_id', '==', Number(userId2))
+      .where('to_user_id', '==', Number(userId1))
+      .limit(1).get();
+    return !snap1.empty || !snap2.empty;
+  }
+};
+
+// ===== Push Subscription Operations =====
+const pushOps = {
+  async subscribe(userId, subscription) {
+    const firestore = getDB();
+    const subId = await getNextId('push_subs');
+    await firestore.collection('push_subs').doc(String(subId)).set({
+      id: subId,
+      user_id: Number(userId),
+      endpoint: subscription.endpoint,
+      keys: subscription.keys,
+      created_at: new Date().toISOString()
+    });
+    return subId;
+  },
+
+  async getSubscriptions(userId) {
+    const firestore = getDB();
+    const snapshot = await firestore.collection('push_subs')
+      .where('user_id', '==', Number(userId))
+      .get();
+    const subs = [];
+    snapshot.forEach(doc => subs.push(doc.data()));
+    return subs;
+  },
+
+  async removeSubscription(endpoint) {
+    const firestore = getDB();
+    const snapshot = await firestore.collection('push_subs')
+      .where('endpoint', '==', endpoint)
+      .limit(1).get();
+    if (!snapshot.empty) {
+      await snapshot.docs[0].ref.delete();
+    }
+  }
+};
+
+// ===== Connection Sweep for Ghost Prevention =====
+connectionOps.sweepExpiredRequests = async function() {
+  const firestore = getDB();
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const snapshot = await firestore.collection('connections')
+    .where('status', '==', 'pending')
+    .get();
+  
+  let expiredCount = 0;
+  const batch = firestore.batch();
+  
+  snapshot.forEach(doc => {
+    const conn = doc.data();
+    if (conn.created_at < cutoff) {
+      batch.update(doc.ref, { status: 'expired', ended_reason: 'timeout' });
+      expiredCount++;
+    }
+  });
+  
+  await batch.commit();
+  return { expiredCount };
+};
+
+connectionOps.getAllBetween = async function(userId1, userId2) {
+  const firestore = getDB();
+  const snap1 = await firestore.collection('connections')
+    .where('from_user_id', '==', Number(userId1))
+    .where('to_user_id', '==', Number(userId2))
+    .get();
+  const snap2 = await firestore.collection('connections')
+    .where('from_user_id', '==', Number(userId2))
+    .where('to_user_id', '==', Number(userId1))
+    .get();
+  const results = [];
+  snap1.forEach(doc => results.push(doc.data()));
+  snap2.forEach(doc => results.push(doc.data()));
+  return results;
+};
+
 module.exports = {
   getDB,
   seedDemoUsers,
@@ -791,5 +941,8 @@ module.exports = {
   connectionOps,
   messageOps,
   otpOps,
-  invalidateUserCache
+  invalidateUserCache,
+  reportOps,
+  blockOps,
+  pushOps
 };
