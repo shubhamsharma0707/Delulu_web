@@ -89,7 +89,10 @@
       <a href="/messages" class="nav-link text-primary transition-colors">Messages</a>
       <a href="/profile" class="nav-link text-on-surface-variant hover:text-primary transition-colors">Profile</a>
     </nav>
-    <div class="flex items-center gap-4">
+    <div class="flex items-center gap-2">
+      <button id="theme-toggle" class="w-9 h-9 rounded-full text-on-surface-variant hover:text-primary flex items-center justify-center transition-colors" title="Toggle theme">
+        <span class="material-symbols-outlined text-sm">dark_mode</span>
+      </button>
       <button id="logout-btn" class="text-on-surface-variant hover:text-primary text-sm font-semibold transition-colors">Logout</button>
       <div class="w-10 h-10 rounded-full overflow-hidden border border-outline-variant/30 bg-primary/20 flex items-center justify-center text-primary font-bold" id="header-avatar"></div>
     </div>
@@ -109,13 +112,18 @@
           </div>
         </div>
         <div class="flex items-center gap-2">
+          <button id="btn-icebreaker" class="px-2 py-1 bg-surface-variant text-on-surface-variant rounded-full text-xs font-bold hover:bg-surface-container-high transition-colors shadow-sm" title="Icebreaker Games">
+            <span class="material-symbols-outlined text-sm">casino</span>
+          </button>
           <button id="btn-vibe-check" class="px-3 py-1 bg-secondary-container text-on-secondary-container rounded-full text-xs font-bold hover:bg-secondary-container/80 transition-colors shadow-sm hidden">
             Vibe Check
           </button>
           <button id="btn-reveal" class="px-3 py-1 bg-primary text-white rounded-full text-xs font-bold hover:bg-primary/90 transition-colors shadow-sm hidden">
             Reveal
           </button>
-
+          <button id="btn-chat-more" class="p-1 text-on-surface-variant hover:text-primary transition-colors" title="More">
+            <span class="material-symbols-outlined text-lg">more_vert</span>
+          </button>
         </div>
       </div>
       
@@ -195,6 +203,56 @@
       </div>
       <button class="w-full mt-3 text-outline font-semibold text-sm py-2" onclick="closeModal()">Close</button>
     </div>
+    <!-- Icebreaker Games Modal -->
+    <div id="modal-icebreaker" class="bg-surface rounded-3xl p-6 w-full max-w-sm ambient-shadow hidden transform scale-95 transition-all">
+      <h3 class="text-2xl font-bold text-primary mb-1 text-center">🎲 Icebreakers</h3>
+      <p class="text-on-surface-variant text-center text-sm mb-4">Break the ice with a fun game!</p>
+      <div id="icebreaker-games-list" class="flex flex-col gap-2">
+        <!-- Populated by JS -->
+      </div>
+      <button class="w-full mt-4 text-outline font-semibold text-sm py-2" onclick="closeModal()">Cancel</button>
+    </div>
+
+    <!-- Report User Modal -->
+    <div id="modal-report" class="bg-surface rounded-3xl p-6 w-full max-w-sm ambient-shadow hidden transform scale-95 transition-all">
+      <h3 class="text-xl font-bold text-error mb-1 text-center">🚨 Report User</h3>
+      <p class="text-on-surface-variant text-center text-sm mb-4">Help us keep the community safe</p>
+      <select id="report-reason" class="w-full bg-surface-container-low rounded-xl px-4 py-3 border-none focus:ring-2 focus:ring-primary/50 outline-none mb-3">
+        <option value="">Select a reason...</option>
+        <option value="harassment">Harassment or bullying</option>
+        <option value="fake-account">Fake account / catfishing</option>
+        <option value="inappropriate">Inappropriate messages</option>
+        <option value="spam">Spam or solicitation</option>
+        <option value="other">Other</option>
+      </select>
+      <textarea id="report-details" class="w-full bg-surface-container-low rounded-xl px-4 py-3 border-none focus:ring-2 focus:ring-primary/50 outline-none resize-none h-20 text-sm" placeholder="Additional details (optional)"></textarea>
+      <p id="report-error" class="text-error text-xs font-semibold hidden mt-2"></p>
+      <div class="flex gap-3 mt-4">
+        <button onclick="closeModal()" class="flex-1 py-3 bg-surface-variant text-on-surface-variant font-bold rounded-xl hover:bg-surface-dim transition-all text-sm">Cancel</button>
+        <button id="btn-report-submit" onclick="submitReport()" class="flex-1 py-3 bg-error text-white font-bold rounded-xl hover:bg-error/90 transition-all text-sm">Submit Report</button>
+      </div>
+    </div>
+
+    <!-- Chat More Options Modal -->
+    <div id="modal-chat-more" class="bg-surface rounded-3xl p-6 w-full max-w-sm ambient-shadow hidden transform scale-95 transition-all">
+      <h3 class="text-lg font-bold text-on-surface mb-4 text-center">Chat Options</h3>
+      <div class="flex flex-col gap-3">
+        <button onclick="openIcebreakerModal(); closeModal();" class="w-full text-left px-4 py-3 bg-surface-container-low rounded-xl hover:bg-surface-container-high transition-colors flex items-center gap-3">
+          <span class="text-xl">🎲</span>
+          <div><span class="font-semibold text-sm">Play Icebreaker</span><p class="text-xs text-on-surface-variant">Fun games to break the ice</p></div>
+        </button>
+        <button onclick="openModal('modal-report'); closeModal();" class="w-full text-left px-4 py-3 bg-surface-container-low rounded-xl hover:bg-surface-container-high transition-colors flex items-center gap-3">
+          <span class="text-xl">🚨</span>
+          <div><span class="font-semibold text-sm">Report User</span><p class="text-xs text-on-surface-variant">Flag inappropriate behavior</p></div>
+        </button>
+        <button onclick="blockUser(); closeModal();" class="w-full text-left px-4 py-3 bg-error/10 rounded-xl hover:bg-error/20 transition-colors flex items-center gap-3">
+          <span class="material-symbols-outlined text-error">block</span>
+          <div><span class="font-semibold text-sm text-error">Block User</span><p class="text-xs text-on-surface-variant">Stop all communication</p></div>
+        </button>
+      </div>
+      <button class="w-full mt-4 text-outline font-semibold text-sm py-2" onclick="closeModal()">Close</button>
+    </div>
+
   </div>
 
   <link rel="preload" href="/js/shared.js?v=6" as="script">
