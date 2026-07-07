@@ -259,7 +259,7 @@ function showMatchCelebration(username) {
   const card = document.createElement('div');
   card.className = 'match-card';
   card.innerHTML = `
-    <span class="match-heart">💖</span>
+    <span class="material-symbols-outlined text-[64px] text-white material-fill animate-pulse">favorite</span>
     <div class="match-title">It's a Match!</div>
     <div class="match-subtitle">You and <strong>${escapeHtml(username)}</strong> liked each other</div>
     <div style="margin-top: 24px;">
