@@ -43,6 +43,8 @@ async function requireAuth() {
           currentUser = result.user;
           window.localStorage.setItem('cached_user', JSON.stringify(result.user));
           updateHeaderAvatar();
+          // Init push notifications after auth confirmed
+          setTimeout(initPushNotifications, 3000);
         } else {
           window.localStorage.removeItem('cached_user');
           window.localStorage.removeItem('e2ee_private_key');
@@ -66,6 +68,8 @@ async function requireAuth() {
       window.localStorage.setItem('cached_user', JSON.stringify(data.user));
       initGlobalSocket();
       updateHeaderAvatar();
+      // Init push notifications after auth confirmed
+      setTimeout(initPushNotifications, 3000);
     } else if (!data) {
       // Timeout occurred - wait for cached data or redirect
       if (!window.localStorage.getItem('cached_user')) {
@@ -384,8 +388,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
   
-  // Init push notifications after auth is verified
-  if (currentUser && 'serviceWorker' in navigator) {
-    setTimeout(initPushNotifications, 5000);
-  }
 });
+
+// Export initPushNotifications so pages can call it after auth
+window.initPushNotifications = initPushNotifications;
+
