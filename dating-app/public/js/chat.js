@@ -509,6 +509,7 @@ function renderReactions(m, parentContainer) {
 }
 
 function showMessageMenu(e, msg, bubbleEl) {
+  const btn = e.currentTarget;
   const existing = document.getElementById('message-action-menu');
   if (existing) existing.remove();
 
@@ -516,7 +517,7 @@ function showMessageMenu(e, msg, bubbleEl) {
   menu.id = 'message-action-menu';
   menu.className = 'fixed bg-surface shadow-lg rounded-2xl p-2 border border-outline-variant/30 z-50 flex flex-col gap-2 scale-95 opacity-0 transition-all duration-150 ease-out';
   
-  const rect = e.currentTarget.getBoundingClientRect();
+  const rect = btn.getBoundingClientRect();
   menu.style.top = `${rect.bottom + window.scrollY + 5}px`;
   if (msg.sender_id === currentUser.id) {
     menu.style.right = `${window.innerWidth - rect.right}px`;
