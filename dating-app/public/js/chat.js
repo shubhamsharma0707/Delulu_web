@@ -272,6 +272,12 @@ async function initializeChat() {
     }
   };
   
+  const btnIcebreaker = document.getElementById('btn-icebreaker');
+  if (btnIcebreaker) btnIcebreaker.onclick = () => openIcebreakerModal();
+  
+  const btnChatMore = document.getElementById('btn-chat-more');
+  if (btnChatMore) btnChatMore.onclick = () => openModal('modal-chat-more');
+  
   const btnVibeCheck = document.getElementById('btn-vibe-check');
   if (btnVibeCheck) btnVibeCheck.onclick = () => openModal('modal-vibe');
 
@@ -811,6 +817,253 @@ if (socket) {
       window.location.href = '/discover';
     }
   });
+
+  // Listen for icebreaker game events
+  socket.on('game-question', (data) => {
+    if (data.connection_id == currentConnId) {
+      receiveGameQuestion(data);
+    }
+  });
+  
+  socket.on('game-answer', (data) => {
+    if (data.connection_id == currentConnId) {
+      receiveGameAnswer(data);
+    }
+  });
+}
+
+// ===== Icebreaker Games =====
+const GAME_QUESTIONS = {
+  'would-you-rather': [
+    { q: 'Travel to the past or the future?', a: 'Past', b: 'Future' },
+    { q: 'Live in the mountains or by the beach?', a: 'Mountains', b: 'Beach' },
+    { q: 'Be an early bird or a night owl?', a: 'Early bird', b: 'Night owl' },
+    { q: 'Read the book or watch the movie?', a: 'Book', b: 'Movie' },
+    { q: 'Cook a feast or order takeout?', a: 'Cook', b: 'Takeout' },
+    { q: 'Have super strength or super speed?', a: 'Strength', b: 'Speed' },
+    { q: 'Be famous or be happy?', a: 'Famous', b: 'Happy' },
+    { q: 'Explore space or the deep ocean?', a: 'Space', b: 'Ocean' },
+    { q: 'Always be 10 min late or 20 min early?', a: 'Late', b: 'Early' },
+    { q: 'Have a pet dinosaur or a pet dragon?', a: 'Dinosaur', b: 'Dragon' },
+  ],
+  'this-or-that': [
+    { q: 'Coffee or Tea?', a: '☕ Coffee', b: '🍵 Tea' },
+    { q: 'Pizza or Burger?', a: '🍕 Pizza', b: '🍔 Burger' },
+    { q: 'Sweet or Spicy?', a: '🍬 Sweet', b: '🌶️ Spicy' },
+    { q: 'Netflix or YouTube?', a: '📺 Netflix', b: '▶️ YouTube' },
+    { q: 'Cats or Dogs?', a: '🐱 Cats', b: '🐶 Dogs' },
+    { q: 'Summer or Winter?', a: '☀️ Summer', b: '❄️ Winter' },
+    { q: 'City or Nature?', a: '🏙️ City', b: '🌲 Nature' },
+    { q: 'Beach or Pool?', a: '🏖️ Beach', b: '🏊 Pool' },
+  ],
+  'truths-lie': []
+};
+
+let currentGame = null;
+let gameTimeout = null;
+
+function openIcebreakerModal() {
+  openModal('modal-icebreaker');
+  const gamesList = document.getElementById('icebreaker-games-list');
+  if (!gamesList) return;
+  gamesList.innerHTML = `
+    <button data-game="would-you-rather" class="w-full text-left p-3 rounded-xl bg-surface-container-low hover:bg-surface-container-high transition-colors">
+      <span class="font-bold">🎲 Would You Rather</span>
+      <p class="text-xs text-on-surface-variant mt-1">Classic icebreaker — pick your poison!</p>
+    </button>
+    <button data-game="this-or-that" class="w-full text-left p-3 rounded-xl bg-surface-container-low hover:bg-surface-container-high transition-colors">
+      <span class="font-bold">⚡ This or That</span>
+      <p class="text-xs text-on-surface-variant mt-1">Quick preferences — compare your tastes!</p>
+    </button>
+    <button data-game="question" class="w-full text-left p-3 rounded-xl bg-surface-container-low hover:bg-surface-container-high transition-colors">
+      <span class="font-bold">❓ Random Question</span>
+      <p class="text-xs text-on-surface-variant mt-1">Send an anonymous question to break the ice!</p>
+    </button>
+  `;
+  
+  gamesList.querySelectorAll('[data-game]').forEach(btn => {
+    btn.onclick = () => {
+      const game = btn.getAttribute('data-game');
+      startGame(game);
+    };
+  });
+}
+
+function startGame(gameType) {
+  const questions = GAME_QUESTIONS[gameType] || GAME_QUESTIONS['would-you-rather'];
+  const q = questions[Math.floor(Math.random() * questions.length)];
+  
+  if (gameType === 'question') {
+    // Send a random question to the other user
+    const randomQs = [
+      'What\'s your most irrational fear?',
+      'What\'s the best food you\'ve ever had?',
+      'If you could live anywhere, where would it be?',
+      'What\'s a skill you\'d love to learn?',
+      'What\'s your favorite way to spend a weekend?',
+      'What movie can you watch over and over?',
+      'What\'s the most spontaneous thing you\'ve done?',
+      'What\'s your hidden talent?'
+    ];
+    const randomQ = randomQs[Math.floor(Math.random() * randomQs.length)];
+    
+    const msg = `🎮 *Icebreaker Question*: ${randomQ}`;
+    appendGameMessage(msg);
+    
+    socket.emit('icebreaker-question', {
+      connection_id: currentConnId,
+      question: randomQ
+    });
+  } else {
+    // Show game UI
+    showGameUI(gameType, q);
+    
+    socket.emit('icebreaker-game', {
+      connection_id: currentConnId,
+      game_type: gameType,
+      question: q
+    });
+  }
+  
+  closeModal();
+}
+
+function showGameUI(gameType, question) {
+  currentGame = { gameType, question, myAnswer: null, otherAnswer: null };
+  
+  const msgDiv = document.createElement('div');
+  msgDiv.className = 'w-full flex justify-center my-3 fade-in';
+  msgDiv.id = 'game-' + Date.now();
+  
+  msgDiv.innerHTML = `
+    <div class="bg-surface-container-low rounded-2xl p-4 max-w-sm w-full border border-outline-variant/20 shadow-sm text-center">
+      <div class="text-xs font-bold text-primary mb-2 uppercase tracking-wider">🎮 ${gameType === 'would-you-rather' ? 'Would You Rather' : 'This or That'}</div>
+      <p class="font-bold text-on-surface mb-3">${escapeHtml(question.q)}</p>
+      <div class="flex gap-3">
+        <button data-game-answer="A" class="flex-1 py-2 px-3 rounded-xl bg-surface-container-high hover:bg-primary hover:text-white font-semibold text-sm transition-all">${escapeHtml(question.a)}</button>
+        <button data-game-answer="B" class="flex-1 py-2 px-3 rounded-xl bg-surface-container-high hover:bg-primary hover:text-white font-semibold text-sm transition-all">${escapeHtml(question.b)}</button>
+      </div>
+      <p class="text-[10px] text-on-surface-variant mt-2">Wait for the other person to answer too...</p>
+    </div>
+  `;
+  
+  const cont = document.getElementById('chat-messages');
+  cont.prepend(msgDiv);
+  
+  msgDiv.querySelectorAll('[data-game-answer]').forEach(btn => {
+    btn.onclick = async () => {
+      const answer = btn.getAttribute('data-game-answer');
+      btn.parentElement.querySelectorAll('[data-game-answer]').forEach(b => {
+        b.style.opacity = '0.5';
+        b.disabled = true;
+      });
+      btn.style.opacity = '1';
+      btn.style.background = 'var(--primary, #a53b29)';
+      btn.style.color = 'white';
+      
+      currentGame.myAnswer = answer;
+      
+      socket.emit('icebreaker-answer', {
+        connection_id: currentConnId,
+        game_type: gameType,
+        question: question,
+        answer: answer
+      });
+    };
+  });
+}
+
+function appendGameMessage(text) {
+  const cont = document.getElementById('chat-messages');
+  const div = document.createElement('div');
+  div.className = 'w-full flex justify-center my-2 fade-in';
+  
+  if (text.startsWith('🎮')) {
+    div.innerHTML = `
+      <div class="bg-gradient-to-r from-primary/10 to-secondary-container/20 rounded-2xl px-5 py-3 border border-primary/10 shadow-sm max-w-sm w-full">
+        <p class="text-sm text-center font-medium text-on-surface">${escapeHtml(text)}</p>
+      </div>
+    `;
+  } else {
+    div.innerHTML = `
+      <div class="bg-surface-container-low rounded-2xl px-4 py-2 border border-outline-variant/20 text-sm text-center max-w-sm">
+        ${escapeHtml(text)}
+      </div>
+    `;
+  }
+  cont.prepend(div);
+}
+
+function receiveGameQuestion(data) {
+  if (data.question) {
+    appendGameMessage(`🎮 *Icebreaker*: ${data.question}`);
+  }
+}
+
+function receiveGameAnswer(data) {
+  if (!data.answer) return;
+  
+  // Show result
+  const msgDiv = document.querySelector('[data-game-answer]')?.closest('.max-w-sm');
+  if (msgDiv) {
+    const resultText = data.match 
+      ? '🎉 You matched! Great minds think alike!'
+      : '🤔 Different picks — opposites attract!';
+    
+    const result = document.createElement('p');
+    result.className = 'text-xs font-bold text-primary mt-2';
+    result.textContent = resultText;
+    msgDiv.appendChild(result);
+  } else {
+    appendGameMessage(`🤔 They picked: ${data.theirAnswer}`);
+  }
+}
+
+// ===== Report & Block =====
+function openReportModal() {
+  openModal('modal-report');
+}
+
+async function submitReport() {
+  const reasonEl = document.getElementById('report-reason');
+  const reason = reasonEl ? reasonEl.value.trim() : '';
+  if (!reason) {
+    alert('Please select or enter a reason');
+    return;
+  }
+  
+  const btn = document.getElementById('btn-report-submit');
+  if (btn) { btn.disabled = true; btn.textContent = 'Submitting...'; }
+  
+  try {
+    const data = await apiCall('/api/connections/' + currentConnId);
+    const otherId = data.connection.other_user_id;
+    await apiCall('/api/users/report', 'POST', {
+      reported_user_id: otherId,
+      reason,
+      connection_id: currentConnId
+    });
+    closeModal();
+    alert('Report submitted. Our team will review it.');
+  } catch (err) {
+    alert(err.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Submit Report'; }
+  }
+}
+
+async function blockUser() {
+  if (!confirm('Block this user? You won\'t be able to chat anymore. This can\'t be undone.')) return;
+  
+  try {
+    const data = await apiCall('/api/connections/' + currentConnId);
+    const otherId = data.connection.other_user_id;
+    await apiCall('/api/users/block', 'POST', { blocked_user_id: otherId });
+    alert('User blocked.');
+    window.location.href = '/messages';
+  } catch (err) {
+    alert(err.message);
+  }
 }
 
 
