@@ -222,9 +222,151 @@ if ('serviceWorker' in navigator) {
   });
 }
 
+// ===== Dark Mode =====
+function initDarkMode() {
+  const saved = localStorage.getItem('delulu_theme');
+  if (saved === 'dark') {
+    document.body.classList.add('dark');
+  }
+  
+  const toggle = document.getElementById('theme-toggle');
+  if (toggle) {
+    toggle.onclick = () => {
+      document.body.classList.toggle('dark');
+      localStorage.setItem('delulu_theme', document.body.classList.contains('dark') ? 'dark' : 'light');
+      const icon = toggle.querySelector('.material-symbols-outlined');
+      if (icon) {
+        icon.textContent = document.body.classList.contains('dark') ? 'light_mode' : 'dark_mode';
+      }
+    };
+    const icon = toggle.querySelector('.material-symbols-outlined');
+    if (icon) {
+      icon.textContent = saved === 'dark' ? 'light_mode' : 'dark_mode';
+    }
+  }
+}
+
+// ===== Haptic Feedback =====
+function hapticLight() {
+  try { navigator.vibrate(10); } catch(e) {}
+}
+function hapticMedium() {
+  try { navigator.vibrate(20); } catch(e) {}
+}
+function hapticHeavy() {
+  try { navigator.vibrate([30, 50, 20]); } catch(e) {}
+}
+
+// ===== Undo Dismiss Toast =====
+let toastContainer = null;
+function showUndoToast(message, onUndo, duration = 4000) {
+  if (!toastContainer) {
+    toastContainer = document.createElement('div');
+    toastContainer.className = 'toast-container';
+    document.body.appendChild(toastContainer);
+  }
+  
+  const toast = document.createElement('div');
+  toast.className = 'toast';
+  toast.innerHTML = `
+    <span>${escapeHtml(message)}</span>
+    <span class="toast-undo">Undo</span>
+  `;
+  
+  toast.querySelector('.toast-undo').onclick = () => {
+    onUndo();
+    toast.remove();
+  };
+  
+  toastContainer.appendChild(toast);
+  setTimeout(() => {
+    if (toast.parentNode) {
+      toast.style.opacity = '0';
+      toast.style.transform = 'translateY(20px)';
+      setTimeout(() => toast.remove(), 300);
+    }
+  }, duration);
+}
+
+// ===== Loading Skeletons =====
+function showSkeleton(containerId, count = 3, type = 'line') {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  container.innerHTML = '';
+  for (let i = 0; i < count; i++) {
+    const el = document.createElement('div');
+    if (type === 'circle') {
+      el.className = 'skeleton skeleton-circle';
+    } else if (type === 'card') {
+      el.className = 'skeleton';
+      el.style.height = '100px';
+      el.style.marginBottom = '12px';
+    } else {
+      el.className = 'skeleton skeleton-line' + (i % 2 === 0 ? ' short' : '');
+    }
+    container.appendChild(el);
+  }
+}
+
+// ===== Push Notification Subscription =====
+async function initPushNotifications() {
+  if (!('Notification' in window) || !('PushManager' in window)) return;
+  
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') return;
+    
+    const reg = await navigator.serviceWorker.ready;
+    
+    // Get VAPID key from server
+    const keyRes = await fetch('/api/push/vapid-key');
+    const keyData = await keyRes.json();
+    if (!keyData.publicKey) return;
+    
+    const existingSub = await reg.pushManager.getSubscription();
+    if (existingSub) {
+      // Already subscribed, just verify on server
+      return;
+    }
+    
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: keyData.publicKey
+    });
+    
+    await apiCall('/api/push/subscribe', 'POST', { subscription: sub.toJSON() });
+    console.log('Push notifications enabled');
+  } catch (err) {
+    console.log('Push notification setup deferred:', err.message);
+  }
+}
+
+// ===== Connection Timeline Helper =====
+function getConnectionProgress(status, chatStartedAt, nextVibeCheckAt, revealAvailableAt) {
+  const now = Date.now();
+  const stages = [
+    { label: 'Matched', done: true },
+    { label: 'Chatting', done: !!chatStartedAt }
+  ];
+  
+  if (status === 'revealed') {
+    stages.push({ label: 'Revealed', done: true });
+  } else if (revealAvailableAt && now >= new Date(revealAvailableAt)) {
+    stages.push({ label: 'Reveal Ready', done: false, active: true });
+  } else if (nextVibeCheckAt) {
+    const done = now >= new Date(nextVibeCheckAt);
+    stages.push({ label: 'Vibe Check', done, active: !done });
+  } else {
+    stages.push({ label: 'Vibe Check', done: false });
+  }
+  
+  return stages;
+}
+
 // Automatically bind setup on every page
 document.addEventListener('DOMContentLoaded', () => {
   setupLogout();
+  initDarkMode();
   
   // Defer heart background to after page is fully interactive
   if (document.querySelector('#heart-bg') || !document.querySelector('[data-no-hearts]')) {
@@ -241,4 +383,9 @@ document.addEventListener('DOMContentLoaded', () => {
       prefetchPage(link.getAttribute('href'));
     });
   });
+  
+  // Init push notifications after auth is verified
+  if (currentUser && 'serviceWorker' in navigator) {
+    setTimeout(initPushNotifications, 5000);
+  }
 });
