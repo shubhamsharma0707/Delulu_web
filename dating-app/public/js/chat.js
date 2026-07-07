@@ -563,7 +563,7 @@ function showMessageMenu(e, msg, bubbleEl) {
   }, 10);
 
   const closeHandler = (event) => {
-    if (!menu.contains(event.target) && !e.currentTarget.contains(event.target)) {
+    if (!menu.contains(event.target) && !btn.contains(event.target)) {
       menu.remove();
       document.removeEventListener('click', closeHandler);
     }
