@@ -6,6 +6,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   await requireAuth();
   await loadDiscovery();
   
+  // Listen for match celebration from socket
+  if (socket) {
+    socket.on('match-celebration', ({ username }) => {
+      showMatchCelebration(username);
+    });
+  }
+  
   // Scroll buttons for 3D scene
   document.getElementById('btn-scroll-left').onclick = () => navigateCards(-1);
   document.getElementById('btn-scroll-right').onclick = () => navigateCards(1);
@@ -46,11 +53,19 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 async function handleDismissCenter() {
   const profile = discoverProfiles[currentIndex];
+  const idx = currentIndex;
   if (!profile) return;
   
   try {
     await apiCall('/api/connections/dismiss', 'POST', { to_user_id: profile.id });
-    removeProfileAt(currentIndex);
+    removeProfileAt(idx);
+    hapticLight();
+    showUndoToast('Profile dismissed', () => {
+      // Re-add the profile and restore index
+      discoverProfiles.splice(idx, 0, profile);
+      currentIndex = idx;
+      init3DScene();
+    }, 3000);
   } catch (err) {
     alert(err.message);
   }
@@ -66,7 +81,9 @@ async function handleConnectCenter() {
   
   try {
     await apiCall('/api/connections/request', 'POST', { to_user_id: profile.id });
+    hapticMedium();
     removeProfileAt(currentIndex);
+    showToast('Connection sent!');
   } catch (err) {
     alert(err.message);
   } finally {
@@ -203,6 +220,67 @@ function init3DScene() {
     }
   });
 }
+
+function showToast(msg) {
+  const toast = document.createElement('div');
+  toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-surface-container-high text-on-surface px-6 py-3 rounded-2xl shadow-lg z-50 text-sm font-medium animate-slideUp';
+  toast.textContent = msg;
+  document.body.appendChild(toast);
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateY(20px)';
+    setTimeout(() => toast.remove(), 300);
+  }, 2000);
+}
+
+// ===== Match Celebration =====
+function showMatchCelebration(username) {
+  hapticHeavy();
+  
+  const overlay = document.createElement('div');
+  overlay.className = 'match-celebration';
+  overlay.onclick = () => overlay.remove();
+  
+  // Create confetti
+  const colors = ['#a53b29', '#ff7e67', '#fdd4c0', '#ffb4a6', '#ffdad4', '#ffdbca'];
+  for (let i = 0; i < 60; i++) {
+    const piece = document.createElement('div');
+    piece.className = 'confetti-piece';
+    piece.style.left = Math.random() * 100 + 'vw';
+    piece.style.background = colors[Math.floor(Math.random() * colors.length)];
+    piece.style.width = (4 + Math.random() * 8) + 'px';
+    piece.style.height = (4 + Math.random() * 8) + 'px';
+    piece.style.borderRadius = Math.random() > 0.5 ? '50%' : '2px';
+    piece.style.setProperty('--fall-duration', (2 + Math.random() * 3) + 's');
+    piece.style.setProperty('--fall-delay', Math.random() * 2 + 's');
+    overlay.appendChild(piece);
+  }
+  
+  const card = document.createElement('div');
+  card.className = 'match-card';
+  card.innerHTML = `
+    <span class="match-heart">💖</span>
+    <div class="match-title">It's a Match!</div>
+    <div class="match-subtitle">You and <strong>${escapeHtml(username)}</strong> liked each other</div>
+    <div style="margin-top: 24px;">
+      <button onclick="this.closest('.match-celebration').remove()" 
+        style="background: rgba(255,255,255,0.2); border: 2px solid rgba(255,255,255,0.4); color: white; padding: 12px 32px; border-radius: 16px; font-weight: bold; font-size: 1rem; cursor: pointer;">
+        Start Chatting
+      </button>
+    </div>
+  `;
+  overlay.appendChild(card);
+  document.body.appendChild(overlay);
+  
+  setTimeout(() => {
+    if (overlay.parentNode) {
+      overlay.style.opacity = '0';
+      setTimeout(() => overlay.remove(), 300);
+    }
+  }, 8000);
+}
+
+window.showMatchCelebration = showMatchCelebration;
 
 function renderFallbackCards() {
   const container = document.getElementById('avatar-3d-container');
