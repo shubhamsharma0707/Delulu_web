@@ -337,6 +337,28 @@ async function initializeChat() {
       closeModal();
     });
   });
+  
+  // Register socket listeners for connection-ended and icebreaker games
+  if (socket) {
+    socket.on('connection-ended', ({ connectionId, message }) => {
+      if (connectionId == currentConnId) {
+        alert(message);
+        window.location.href = '/discover';
+      }
+    });
+    
+    socket.on('game-question', (data) => {
+      if (data.connection_id == currentConnId) {
+        receiveGameQuestion(data);
+      }
+    });
+    
+    socket.on('game-answer', (data) => {
+      if (data.connection_id == currentConnId) {
+        receiveGameAnswer(data);
+      }
+    });
+  }
 }
 
 if (document.readyState === 'loading') {
@@ -624,10 +646,10 @@ async function appendMessage(m, scrollToBottom = true) {
         displayContent = await E2EECrypto.decryptMessage(displayContent, m.iv, sharedSecretKey);
       } catch (decErr) {
         console.error('Decryption failed:', decErr);
-        displayContent = '🔒 [Unable to decrypt message on this device]';
+        displayContent = '[Unable to decrypt message on this device]';
       }
     } else {
-      displayContent = '🔒 [Encrypted message]';
+      displayContent = '[Encrypted message]';
     }
   }
 
@@ -771,13 +793,12 @@ window.openModal = function(id) {
 };
 
 window.closeModal = function() {
-  console.log('closeModal invoked');
   const overlay = document.getElementById('modal-overlay');
   if (overlay) {
     overlay.classList.add('hidden');
     overlay.classList.remove('flex');
   }
-  ['modal-vibe', 'modal-reveal', 'modal-profile-peek'].forEach(id => {
+  ['modal-vibe', 'modal-reveal', 'modal-profile-peek', 'modal-icebreaker', 'modal-report', 'modal-chat-more'].forEach(id => {
     const m = document.getElementById(id);
     if (m) {
       m.classList.remove('scale-100');
@@ -810,28 +831,6 @@ async function submitRevealAction() {
   } catch(err) { alert(err.message); }
 }
 
-if (socket) {
-  socket.on('connection-ended', ({ connectionId, message }) => {
-    if (connectionId == currentConnId) {
-      alert(message);
-      window.location.href = '/discover';
-    }
-  });
-
-  // Listen for icebreaker game events
-  socket.on('game-question', (data) => {
-    if (data.connection_id == currentConnId) {
-      receiveGameQuestion(data);
-    }
-  });
-  
-  socket.on('game-answer', (data) => {
-    if (data.connection_id == currentConnId) {
-      receiveGameAnswer(data);
-    }
-  });
-}
-
 // ===== Icebreaker Games =====
 const GAME_QUESTIONS = {
   'would-you-rather': [
@@ -847,14 +846,14 @@ const GAME_QUESTIONS = {
     { q: 'Have a pet dinosaur or a pet dragon?', a: 'Dinosaur', b: 'Dragon' },
   ],
   'this-or-that': [
-    { q: 'Coffee or Tea?', a: '☕ Coffee', b: '🍵 Tea' },
-    { q: 'Pizza or Burger?', a: '🍕 Pizza', b: '🍔 Burger' },
-    { q: 'Sweet or Spicy?', a: '🍬 Sweet', b: '🌶️ Spicy' },
-    { q: 'Netflix or YouTube?', a: '📺 Netflix', b: '▶️ YouTube' },
-    { q: 'Cats or Dogs?', a: '🐱 Cats', b: '🐶 Dogs' },
-    { q: 'Summer or Winter?', a: '☀️ Summer', b: '❄️ Winter' },
-    { q: 'City or Nature?', a: '🏙️ City', b: '🌲 Nature' },
-    { q: 'Beach or Pool?', a: '🏖️ Beach', b: '🏊 Pool' },
+    { q: 'Coffee or Tea?', a: 'Coffee', b: 'Tea' },
+    { q: 'Pizza or Burger?', a: 'Pizza', b: 'Burger' },
+    { q: 'Sweet or Spicy?', a: 'Sweet', b: 'Spicy' },
+    { q: 'Netflix or YouTube?', a: 'Netflix', b: 'YouTube' },
+    { q: 'Cats or Dogs?', a: 'Cats', b: 'Dogs' },
+    { q: 'Summer or Winter?', a: 'Summer', b: 'Winter' },
+    { q: 'City or Nature?', a: 'City', b: 'Nature' },
+    { q: 'Beach or Pool?', a: 'Beach', b: 'Pool' },
   ],
   'truths-lie': []
 };
@@ -868,7 +867,7 @@ function openIcebreakerModal() {
   if (!gamesList) return;
   gamesList.innerHTML = `
     <button data-game="would-you-rather" class="w-full text-left p-3 rounded-xl bg-surface-container-low hover:bg-surface-container-high transition-colors">
-      <span class="font-bold">🎲 Would You Rather</span>
+      <span class="font-bold">Would You Rather</span>
       <p class="text-xs text-on-surface-variant mt-1">Classic icebreaker — pick your poison!</p>
     </button>
     <button data-game="this-or-that" class="w-full text-left p-3 rounded-xl bg-surface-container-low hover:bg-surface-container-high transition-colors">
@@ -907,7 +906,7 @@ function startGame(gameType) {
     ];
     const randomQ = randomQs[Math.floor(Math.random() * randomQs.length)];
     
-    const msg = `🎮 *Icebreaker Question*: ${randomQ}`;
+    const msg = `*Icebreaker Question*: ${randomQ}`;
     appendGameMessage(msg);
     
     socket.emit('icebreaker-question', {
@@ -937,7 +936,7 @@ function showGameUI(gameType, question) {
   
   msgDiv.innerHTML = `
     <div class="bg-surface-container-low rounded-2xl p-4 max-w-sm w-full border border-outline-variant/20 shadow-sm text-center">
-      <div class="text-xs font-bold text-primary mb-2 uppercase tracking-wider">🎮 ${gameType === 'would-you-rather' ? 'Would You Rather' : 'This or That'}</div>
+      <div class="text-xs font-bold text-primary mb-2 uppercase tracking-wider">${gameType === 'would-you-rather' ? 'Would You Rather' : 'This or That'}</div>
       <p class="font-bold text-on-surface mb-3">${escapeHtml(question.q)}</p>
       <div class="flex gap-3">
         <button data-game-answer="A" class="flex-1 py-2 px-3 rounded-xl bg-surface-container-high hover:bg-primary hover:text-white font-semibold text-sm transition-all">${escapeHtml(question.a)}</button>
@@ -973,12 +972,12 @@ function showGameUI(gameType, question) {
   });
 }
 
-function appendGameMessage(text) {
+function appendGameMessage(text, isImportant = false) {
   const cont = document.getElementById('chat-messages');
   const div = document.createElement('div');
   div.className = 'w-full flex justify-center my-2 fade-in';
   
-  if (text.startsWith('🎮')) {
+  if (isImportant) {
     div.innerHTML = `
       <div class="bg-gradient-to-r from-primary/10 to-secondary-container/20 rounded-2xl px-5 py-3 border border-primary/10 shadow-sm max-w-sm w-full">
         <p class="text-sm text-center font-medium text-on-surface">${escapeHtml(text)}</p>
@@ -996,26 +995,49 @@ function appendGameMessage(text) {
 
 function receiveGameQuestion(data) {
   if (data.question) {
-    appendGameMessage(`🎮 *Icebreaker*: ${data.question}`);
+    appendGameMessage(`*Icebreaker*: ${data.question}`, true);
   }
 }
 
 function receiveGameAnswer(data) {
   if (!data.answer) return;
   
-  // Show result
-  const msgDiv = document.querySelector('[data-game-answer]')?.closest('.max-w-sm');
-  if (msgDiv) {
-    const resultText = data.match 
-      ? '🎉 You matched! Great minds think alike!'
-      : '🤔 Different picks — opposites attract!';
+  // Compare locally: currentGame.myAnswer vs opponent's raw answer
+  let isMatch = false;
+  if (currentGame && currentGame.myAnswer && data.answer) {
+    isMatch = currentGame.myAnswer === data.answer;
+  }
+  
+  // Find the game UI card (look for any element with id starting with 'game-')
+  const gameEl = document.querySelector('[id^="game-"]');
+  if (gameEl) {
+    // Store opponent answer on the game element for reference
+    gameEl.dataset.otherAnswer = data.answer;
     
-    const result = document.createElement('p');
-    result.className = 'text-xs font-bold text-primary mt-2';
-    result.textContent = resultText;
-    msgDiv.appendChild(result);
+    // Disable answer buttons if still active
+    gameEl.querySelectorAll('[data-game-answer]').forEach(b => {
+      b.style.opacity = '0.5';
+      b.disabled = true;
+    });
+    
+    const resultText = isMatch 
+      ? 'You matched! Great minds think alike!'
+      : 'Different picks — opposites attract!';
+    
+    const resultContainer = gameEl.querySelector('.max-w-sm');
+    if (resultContainer) {
+      // Remove the "waiting" message and show result
+      const waitingMsg = resultContainer.querySelector('.text-\\[10px\\]');
+      if (waitingMsg) waitingMsg.remove();
+      
+      const result = document.createElement('p');
+      result.className = 'text-xs font-bold text-primary mt-2' + (isMatch ? ' text-green-600' : '');
+      result.textContent = resultText;
+      resultContainer.appendChild(result);
+    }
   } else {
-    appendGameMessage(`🤔 They picked: ${data.theirAnswer}`);
+    // No active game UI found — just show what they picked
+    appendGameMessage(`They picked: ${data.theirAnswer}`);
   }
 }
 
@@ -1026,7 +1048,12 @@ function openReportModal() {
 
 async function submitReport() {
   const reasonEl = document.getElementById('report-reason');
-  const reason = reasonEl ? reasonEl.value.trim() : '';
+  let reason = reasonEl ? reasonEl.value.trim() : '';
+  const detailsEl = document.getElementById('report-details');
+  const details = detailsEl ? detailsEl.value.trim() : '';
+  if (details) {
+    reason += ': ' + details;
+  }
   if (!reason) {
     alert('Please select or enter a reason');
     return;
