@@ -27,6 +27,13 @@ self.addEventListener('install', (event) => {
 });
 
 // Activate: clean old caches and take control
+// Listen for messages from the main thread (e.g., SKIP_WAITING)
+self.addEventListener('message', (event) => {
+  if (event.data === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
+
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     Promise.all([
@@ -37,8 +44,54 @@ self.addEventListener('activate', (event) => {
             .map((k) => caches.delete(k))
         );
       }),
-      clients.claim() // Take control of all pages immediately
+      clients.claim()
     ])
+  );
+});
+
+// ===== Push Notifications =====
+self.addEventListener('push', (event) => {
+  if (!event.data) return;
+  
+  try {
+    const data = event.data.json();
+    const title = data.title || 'Delulu';
+    const options = {
+      body: data.body || '',
+      icon: data.icon || '/favicon.ico',
+      badge: '/favicon.ico',
+      data: {
+        url: data.url || '/'
+      },
+      vibrate: [100, 50, 100],
+      tag: 'delulu-notification'
+    };
+    
+    event.waitUntil(
+      self.registration.showNotification(title, options)
+    );
+  } catch (err) {
+    console.error('Push notification error:', err);
+  }
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  
+  const url = event.notification.data?.url || '/';
+  event.waitUntil(
+    clients.matchAll({ type: 'window' }).then(windowClients => {
+      // If a window is already open, focus it
+      for (const client of windowClients) {
+        if (client.url.includes(url) && 'focus' in client) {
+          return client.focus();
+        }
+      }
+      // Otherwise open a new window
+      if (clients.openWindow) {
+        return clients.openWindow(url);
+      }
+    })
   );
 });
 
