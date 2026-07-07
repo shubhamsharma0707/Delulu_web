@@ -5,19 +5,40 @@
 }
 
 /* ===== Dark Mode ===== */
-body.dark {
-  --bg: #1a1c1e;
-  --surface: #2a2c2e;
-  --surface-bright: #1a1c1e;
-  --on-surface: #e3e2e0;
-  --on-surface-variant: #c4c4c0;
-  --surface-container-low: #2f3133;
-  --surface-container: #353739;
-  --surface-container-high: #404244;
-  --surface-container-highest: #4b4d4f;
-  --outline-variant: #504c48;
-  --outline: #8b8b87;
-}
+body.dark,
+body.dark .bg-background,
+body.dark .bg-surface,
+body.dark .bg-surface-bright { background-color: #1a1c1e !important; }
+body.dark .bg-surface-container-lowest { background-color: #1a1c1e !important; }
+body.dark .bg-surface-container-low { background-color: #2f3133 !important; }
+body.dark .bg-surface-container { background-color: #353739 !important; }
+body.dark .bg-surface-container-high { background-color: #404244 !important; }
+body.dark .bg-surface-container-highest { background-color: #4b4d4f !important; }
+body.dark .bg-surface-variant { background-color: #494544 !important; }
+body.dark .text-on-surface,
+body.dark .text-on-background { color: #e3e2e0 !important; }
+body.dark .text-on-surface-variant { color: #c4c4c0 !important; }
+body.dark .text-outline,
+body.dark .text-outline-variant { color: #8b8b87 !important; }
+body.dark .border-outline-variant { border-color: #504c48 !important; }
+body.dark .bg-primary { background-color: #ffb4a6 !important; }
+body.dark .text-primary { color: #ffb4a6 !important; }
+body.dark .hover\:bg-primary:hover { background-color: #ffb4a6 !important; }
+body.dark .bg-primary-container { background-color: #7a2819 !important; }
+body.dark .text-on-primary { color: #561e10 !important; }
+body.dark .text-on-primary-container { color: #ffdad4 !important; }
+body.dark .bg-secondary-container { background-color: #5c4132 !important; }
+body.dark .text-on-secondary-container { color: #fdd4c0 !important; }
+body.dark .bg-surface-dim { background-color: #1a1c1e !important; }
+body.dark .bg-error { background-color: #ffb4ab !important; }
+body.dark .text-error { color: #ffb4ab !important; }
+body.dark .bg-error\/10 { background-color: rgba(255,180,171,0.1) !important; }
+body.dark .text-error\/10 { color: rgba(255,180,171,0.1) !important; }
+body.dark .bg-inverse-surface { background-color: #e3e2e0 !important; }
+body.dark .text-inverse-on-surface { color: #303030 !important; }
+body.dark .inverse-primary { color: #a53b29 !important; }
+
+/* Dark mode specific element overrides */
 body.dark .glass-panel {
   background: rgba(42, 44, 46, 0.8);
   border-color: rgba(80, 76, 72, 0.3);
@@ -41,12 +62,38 @@ body.dark .discover-card {
 body.dark #discovery-empty .material-symbols-outlined {
   color: rgba(80, 76, 72, 0.8);
 }
+body.dark .skeleton {
+  background: linear-gradient(90deg, #2f3133 25%, #404244 50%, #2f3133 75%);
+  background-size: 200% 100%;
+}
+body.dark .toast {
+  background: #2f3133;
+  color: #e3e2e0;
+}
+body.dark #chat-messages {
+  background: linear-gradient(to bottom, #1a1c1e, #222426);
+}
+body.dark input,
+body.dark textarea,
+body.dark select {
+  color: #e3e2e0 !important;
+}
+body.dark input::placeholder,
+body.dark textarea::placeholder {
+  color: #8b8b87 !important;
+}
+body.dark .from-primary { --tw-gradient-from: #ffb4a6 !important; }
+body.dark .to-primary-container { --tw-gradient-to: #7a2819 !important; }
+body.dark .from-primary\/10 { --tw-gradient-from: rgba(255,180,166,0.1) !important; }
+body.dark .to-secondary-container\/20 { --tw-gradient-to: rgba(92,65,50,0.2) !important; }
 
 /* ===== Dark Mode Toggle Button ===== */
 #theme-toggle {
   cursor: pointer;
   transition: all 0.3s ease;
 }
+
+/* ===== Loading Skeleton ===== */
 
 /* ===== Loading Skeleton ===== */
 .skeleton {
