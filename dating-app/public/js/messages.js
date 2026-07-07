@@ -6,12 +6,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     socket.on('connection-ended', ({ connectionId }) => {
       loadMessagesList();
     });
+    socket.on('match-celebration', ({ username }) => {
+      if (typeof showMatchCelebration === 'function') {
+        showMatchCelebration(username);
+      }
+    });
   }
 });
 
 async function loadMessagesList() {
   const list = document.getElementById('messages-list');
-  list.innerHTML = '<div class="p-4 text-center">Loading...</div>';
+  showSkeleton('messages-list', 4, 'card');
   try {
     const data = await apiCall('/api/connections/active');
     const conns = data.connections;

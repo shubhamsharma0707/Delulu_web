@@ -2,6 +2,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   await requireAuth();
   
   loadRequests('incoming');
+
+  // Listen for match celebrations on requests page too
+  if (socket) {
+    socket.on('match-celebration', ({ username }) => {
+      if (typeof showMatchCelebration === 'function') {
+        showMatchCelebration(username);
+      }
+    });
+  }
   
   document.getElementById('tab-req-incoming').onclick = () => {
     document.getElementById('tab-req-incoming').classList.replace('text-on-surface-variant', 'text-primary');
