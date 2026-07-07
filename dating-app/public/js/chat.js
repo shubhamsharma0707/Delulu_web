@@ -412,8 +412,7 @@ function updateChatStatus(c) {
   if (c.status === 'accepted') {
     const isFrom = c.from_user_id === currentUser.id;
     const myVibe = isFrom ? c.from_vibe : c.to_vibe;
-    const myReveal = isFrom ? c.reveal_from : c.reveal_to;
-    const otherReveal = isFrom ? c.reveal_to : c.reveal_from;
+    const myReveal = c.my_reveal;
     
     const now = Date.now();
     const isVibeDue = c.next_vibe_check_at ? now >= new Date(c.next_vibe_check_at) : false;
@@ -423,7 +422,9 @@ function updateChatStatus(c) {
       if (myReveal === 0) {
         if (revealBtn) revealBtn.classList.remove('hidden');
       }
-      if (statusEl) statusEl.textContent = "Face reveal hasn't been unlocked yet because both users haven't agreed.";
+      if (statusEl) statusEl.textContent = c.both_revealed
+        ? ''
+        : "Face reveal hasn't been unlocked yet because both users haven't agreed.";
     } else if (isVibeDue) {
       if (myVibe === 0) {
         if (vibeBtn) vibeBtn.classList.remove('hidden');
@@ -494,7 +495,7 @@ function renderReactions(m, parentContainer) {
         ? 'bg-primary-container/20 text-primary border-primary/30' 
         : 'bg-surface-container-low text-on-surface-variant border-outline-variant/30 hover:bg-surface-container-high'
     }`;
-    pill.innerHTML = `<span>${emoji}</span><span class="text-[10px] opacity-80">${userIds.length}</span>`;
+    pill.innerHTML = `<span>${escapeHtml(emoji)}</span><span class="text-[10px] opacity-80">${userIds.length}</span>`;
     
     pill.onclick = async (e) => {
       e.stopPropagation();

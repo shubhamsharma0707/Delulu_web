@@ -341,6 +341,23 @@ function sanitizeUser(user) {
   return safeUser;
 }
 
+function sanitizeConnection(c, userId) {
+  if (!c) return null;
+  const isFrom = c.from_user_id === Number(userId);
+  const bothRevealed = c.reveal_from === 1 && c.reveal_to === 1;
+  const myReveal = isFrom ? c.reveal_from : c.reveal_to;
+  
+  const copy = { ...c };
+  delete copy.reveal_from;
+  delete copy.reveal_to;
+  
+  return {
+    ...copy,
+    my_reveal: myReveal,
+    both_revealed: bothRevealed
+  };
+}
+
 // Check if user is logged in (with cache)
 app.get('/api/session', async (req, res) => {
   if (req.session.user) {
@@ -748,14 +765,16 @@ app.get('/api/connections/active', requireAuth, async (req, res) => {
   const connections = await connectionOps.getActiveConnections(req.session.userId);
   
   const now = new Date();
-  const enriched = connections.map(c => ({
-    ...c,
-    is_vibe_available: c.vibe_available_at ? new Date(c.vibe_available_at) <= now : false,
-    my_vote: c.from_user_id === req.session.userId ? c.from_vibe : c.to_vibe,
-    other_vote: c.from_user_id === req.session.userId ? c.to_vibe : c.from_vibe,
-    my_reveal: c.from_user_id === req.session.userId ? c.reveal_from : c.reveal_to,
-    other_reveal: c.from_user_id === req.session.userId ? c.reveal_to : c.reveal_from
-  }));
+  const enriched = connections.map(c => {
+    const isFrom = c.from_user_id === req.session.userId;
+    const sanitized = sanitizeConnection(c, req.session.userId);
+    return {
+      ...sanitized,
+      is_vibe_available: c.vibe_available_at ? new Date(c.vibe_available_at) <= now : false,
+      my_vote: isFrom ? c.from_vibe : c.to_vibe,
+      other_vote: isFrom ? c.to_vibe : c.from_vibe
+    };
+  });
 
   res.json({ connections: enriched });
 });
@@ -769,7 +788,7 @@ app.get('/api/connections/:id', requireAuth, async (req, res) => {
   if (!conn) return res.status(404).json({ error: 'Connection not found' });
   
   res.json({
-    connection: conn
+    connection: sanitizeConnection(conn, req.session.userId)
   });
 });
 
@@ -811,7 +830,7 @@ app.get('/api/messages/:connectionId', requireAuth, async (req, res) => {
   if (!conn) return res.status(404).json({ error: 'Connection not found' });
   
   const messages = await messageOps.getRecentForConnection(req.params.connectionId);
-  res.json({ messages, connection: conn });
+  res.json({ messages, connection: sanitizeConnection(conn, req.session.userId) });
 });
 
 // Send normal text message
@@ -910,10 +929,15 @@ app.post('/api/log-error', async (req, res) => {
   res.sendStatus(200);
 });
 
+const ALLOWED_REACTIONS = ['😂', '😢', '❤️', '👍', '😮'];
+
 // React to a message
 app.post('/api/messages/:id/react', requireAuth, async (req, res) => {
   const { connection_id, emoji } = req.body;
   if (!connection_id || !emoji) return res.status(400).json({ error: 'Missing connection_id or emoji' });
+  if (!ALLOWED_REACTIONS.includes(emoji)) {
+    return res.status(400).json({ error: 'Invalid reaction' });
+  }
   const conn = await connectionOps.getConnection(connection_id, req.session.userId);
   if (conn && conn._dataIntegrityError) {
     return res.status(410).json({ error: 'This chat is no longer available — one of the accounts involved no longer exists.' });
