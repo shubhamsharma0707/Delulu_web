@@ -8,8 +8,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   
   // Listen for match celebration from socket
   if (socket) {
-    socket.on('match-celebration', ({ username }) => {
-      showMatchCelebration(username);
+    socket.on('match-celebration', ({ connectionId, username }) => {
+      showMatchCelebration(username, connectionId);
     });
   }
   
@@ -73,6 +73,7 @@ async function handleDismissCenter() {
 
 async function handleConnectCenter() {
   const profile = discoverProfiles[currentIndex];
+  const idx = currentIndex;
   if (!profile) return;
   
   const btn = document.getElementById('btn-discover-connect');
@@ -82,7 +83,7 @@ async function handleConnectCenter() {
   try {
     await apiCall('/api/connections/request', 'POST', { to_user_id: profile.id });
     hapticMedium();
-    removeProfileAt(currentIndex);
+    removeProfileAt(idx);
     showToast('Connection sent!');
   } catch (err) {
     alert(err.message);
@@ -127,6 +128,7 @@ function navigateCards(dir) {
   
   updateProfileOverlay(currentIndex);
   updateNavButtons();
+  checkEmptyState();
 }
 
 function updateNavButtons() {
@@ -234,7 +236,7 @@ function showToast(msg) {
 }
 
 // ===== Match Celebration =====
-function showMatchCelebration(username) {
+function showMatchCelebration(username, connectionId) {
   hapticHeavy();
   
   const overlay = document.createElement('div');
@@ -242,6 +244,7 @@ function showMatchCelebration(username) {
   overlay.onclick = () => overlay.remove();
   
   // Create confetti
+  // ponytail: 60 DOM confetti pieces + per-piece inline styles. Replace with CSS @keyframes confetti when perf matters.
   const colors = ['#a53b29', '#ff7e67', '#fdd4c0', '#ffb4a6', '#ffdad4', '#ffdbca'];
   for (let i = 0; i < 60; i++) {
     const piece = document.createElement('div');
@@ -263,12 +266,18 @@ function showMatchCelebration(username) {
     <div class="match-title">It's a Match!</div>
     <div class="match-subtitle">You and <strong>${escapeHtml(username)}</strong> liked each other</div>
     <div style="margin-top: 24px;">
-      <button onclick="this.closest('.match-celebration').remove()" 
-        style="background: rgba(255,255,255,0.2); border: 2px solid rgba(255,255,255,0.4); color: white; padding: 12px 32px; border-radius: 16px; font-weight: bold; font-size: 1rem; cursor: pointer;">
+      <button style="background: rgba(255,255,255,0.2); border: 2px solid rgba(255,255,255,0.4); color: white; padding: 12px 32px; border-radius: 16px; font-weight: bold; font-size: 1rem; cursor: pointer;">
         Start Chatting
       </button>
     </div>
   `;
+  const chatBtn = card.querySelector('button');
+  if (chatBtn) {
+    chatBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      window.location.href = `/chat?id=${connectionId}`;
+    });
+  }
   overlay.appendChild(card);
   document.body.appendChild(overlay);
   
