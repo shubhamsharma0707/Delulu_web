@@ -121,6 +121,9 @@
           <button id="btn-reveal" class="px-3 py-1 bg-primary text-white rounded-full text-xs font-bold hover:bg-primary/90 transition-colors shadow-sm hidden">
             Reveal
           </button>
+          <button id="btn-theme-toggle-chat" class="p-1 text-on-surface-variant hover:text-primary transition-colors" title="Toggle theme">
+            <span class="material-symbols-outlined text-lg">dark_mode</span>
+          </button>
           <button id="btn-chat-more" class="p-1 text-on-surface-variant hover:text-primary transition-colors" title="More">
             <span class="material-symbols-outlined text-lg">more_vert</span>
           </button>
@@ -246,6 +249,10 @@
         <button data-action="block-from-chat" class="w-full text-left px-4 py-3 bg-error/10 rounded-xl hover:bg-error/20 transition-colors flex items-center gap-3">
           <span class="material-symbols-outlined text-error">block</span>
           <div><span class="font-semibold text-sm text-error">Block User</span><p class="text-xs text-on-surface-variant">Stop all communication</p></div>
+        </button>
+        <button data-action="toggle-theme" class="w-full text-left px-4 py-3 bg-surface-container-low rounded-xl hover:bg-surface-container-high transition-colors flex items-center gap-3">
+          <span class="material-symbols-outlined text-xl theme-toggle-icon">dark_mode</span>
+          <div><span class="font-semibold text-sm">Toggle Theme</span><p class="text-xs text-on-surface-variant">Switch between light and dark mode</p></div>
         </button>
       </div>
       <button data-action="close" class="w-full mt-4 text-outline font-semibold text-sm py-2">Close</button>
