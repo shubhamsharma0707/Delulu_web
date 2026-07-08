@@ -193,39 +193,6 @@ function initHeartBackground() {
   document.body.appendChild(script);
 }
 
-// Register Service Worker for instant page loads
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').then((reg) => {
-      // Check if there's a waiting service worker (new version)
-      if (reg.waiting) {
-        // New version available - reload to activate
-        reg.waiting.postMessage('SKIP_WAITING');
-      }
-      
-      reg.addEventListener('updatefound', () => {
-        const newWorker = reg.installing;
-        newWorker.addEventListener('statechange', () => {
-          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-            // New version available, optionally notify user
-            console.log('New version available!');
-          }
-        });
-      });
-    }).catch(() => {
-      // Service worker registration failed silently
-    });
-  });
-  
-  // Reload when new SW takes over
-  let refreshing = false;
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (refreshing) return;
-    refreshing = true;
-    window.location.reload();
-  });
-}
-
 // ===== Dark Mode =====
 function initDarkMode() {
   const saved = localStorage.getItem('delulu_theme');
@@ -314,7 +281,9 @@ function showSkeleton(containerId, count = 3, type = 'line') {
 
 // ===== Push Notification Subscription =====
 async function initPushNotifications() {
-  if (!('Notification' in window) || !('PushManager' in window)) return;
+  if (!('Notification' in window) || !('PushManager' in window) || !('serviceWorker' in navigator)) return;
+  // ponytail: no SW registered after sw.js removal. navigator.serviceWorker.ready hangs forever without one.
+  if (!navigator.serviceWorker.controller) return;
   
   try {
     const perm = await Notification.requestPermission();

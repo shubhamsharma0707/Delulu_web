@@ -6,9 +6,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     socket.on('connection-ended', ({ connectionId }) => {
       loadMessagesList();
     });
-    socket.on('match-celebration', ({ username }) => {
+    socket.on('match-celebration', ({ connectionId, username }) => {
       if (typeof showMatchCelebration === 'function') {
-        showMatchCelebration(username);
+        showMatchCelebration(username, connectionId);
       }
     });
   }
