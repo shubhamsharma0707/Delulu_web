@@ -383,6 +383,12 @@ async function initializeChat() {
         receiveGameAnswer(data);
       }
     });
+
+    socket.on('vibe-score-updated', (data) => {
+      if (data.connectionId == currentConnId) {
+        handleVibeScoreUpdated(data);
+      }
+    });
   }
 }
 
@@ -540,12 +546,13 @@ function updateChatStatus(c) {
         if (statusEl) statusEl.textContent = "Vibe submitted, waiting...";
       }
     } else {
+      const scoreStr = `<span class="material-symbols-outlined text-[12px] text-primary select-none" style="font-variation-settings: 'FILL' 1">favorite</span> Vibe Score: ${c.vibe_score || 0} ✨`;
       if (c.next_vibe_check_at) {
         const nextCheckDiff = new Date(c.next_vibe_check_at) - now;
         const daysLeft = Math.ceil(nextCheckDiff / (24 * 60 * 60 * 1000));
-        if (statusEl) statusEl.innerHTML = `<span class="material-symbols-outlined text-[12px]">timer</span> Next Vibe Check in ${daysLeft}d`;
+        if (statusEl) statusEl.innerHTML = `${scoreStr} &nbsp;|&nbsp; Next Vibe Check in ${daysLeft}d`;
       } else {
-        if (statusEl) statusEl.textContent = 'Active Chat';
+        if (statusEl) statusEl.innerHTML = scoreStr;
       }
     }
   } else if (c.status === 'revealed') {
@@ -1128,6 +1135,12 @@ function showGameUI(gameType, question) {
           statusTextEl.textContent = resultText;
           statusTextEl.className = 'text-xs font-bold text-primary mt-2' + (isMatch ? ' text-green-600' : '');
         }
+
+        if (isMatch) {
+          // Increment score via API
+          apiCall('/api/connections/increment-vibe-score', 'POST', { connectionId: currentConnId })
+            .catch(err => console.error('Failed to increment vibe score:', err));
+        }
       }
     };
   });
@@ -1254,4 +1267,10 @@ async function blockUser() {
   }
 }
 
-
+function handleVibeScoreUpdated(data) {
+  // Refresh connection data and UI to show new score
+  loadChatInfo();
+  
+  // Show match celebration pill inside the chat feed
+  appendGameMessage(`✨ Match! Your Vibe Score increased to ${data.vibe_score}! ✨`, true);
+}
