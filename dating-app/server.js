@@ -521,6 +521,11 @@ app.post('/api/auth/verify-token', authLimiter, async (req, res) => {
 
     // Check if user already exists
     const user = await userOps.getByEmail(cleanEmail);
+    if (user) {
+      req.session.userId = user.id;
+      req.session.user = sanitizeUser(user);
+    }
+
     res.json({
       success: true,
       isNewUser: !user,
