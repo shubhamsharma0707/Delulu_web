@@ -596,11 +596,23 @@ const connectionOps = {
     let revealsExpired = 0;
     const batch = firestore.batch();
     
+    // ponytail: iterates all 'accepted' connections in JS — add compound index + Firestore query filter when >1000 connections.
     snapshot.forEach(doc => {
       const conn = doc.data();
+      
+      // Sweep 1: Reveal period expired without both users revealing
       if (conn.reveal_available_at && conn.reveal_available_at < now && (conn.reveal_from === 0 || conn.reveal_to === 0)) {
-        batch.update(doc.ref, { status: 'expired' });
+        batch.update(doc.ref, { status: 'expired', ended_reason: 'reveal_timeout' });
         revealsExpired++;
+        return;
+      }
+      
+      // Sweep 2: Vibe check due and neither user has voted — auto-close
+      if (conn.next_vibe_check_at && conn.next_vibe_check_at < now) {
+        if (conn.from_vibe === 0 && conn.to_vibe === 0) {
+          batch.update(doc.ref, { status: 'rejected', ended_reason: 'vibe_timeout' });
+          vibeExpired++;
+        }
       }
     });
     

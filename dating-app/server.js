@@ -45,7 +45,6 @@ const crypto = require('crypto');
 const bcrypt = require('bcrypt');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
-const nodemailer = require('nodemailer');
 const { initializeApp: firebaseInitializeApp, cert } = require('firebase-admin/app');
 const { getAuth: getFirebaseAuth } = require('firebase-admin/auth');
 const { getDB, seedDemoUsers, backfillDemoAvatars, userOps, connectionOps, messageOps, otpOps, invalidateUserCache, reportOps, blockOps, pushOps } = require('./database');
@@ -112,7 +111,6 @@ if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && proc
   console.log('Firebase not configured — OTP endpoint will use local verification only');
 }
 
-// Nodemailer and manual OTP generation replaced by Firebase Email Link Authentication
 // Hard-fail if SESSION_SECRET is not set — a dating app must never run with a guessable session secret
 if (!process.env.SESSION_SECRET) {
   throw new Error('FATAL: SESSION_SECRET environment variable is not set. Generate one with: node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'hex\'))"');
@@ -302,7 +300,7 @@ io.on('connection', (socket) => {
     const conn = await connectionOps.getConnection(connectionId, userId);
     if (!conn || conn._dataIntegrityError) return;
 
-    const msg = await messageOps.send(connectionId, userId, content.trim());
+    const msg = await messageOps.send(connectionId, userId, sanitizeText(content.trim()));
     // Emit to both users in the chat
     io.to(`chat:${connectionId}`).emit('new-message', {
       ...msg,
@@ -344,7 +342,7 @@ io.on('connection', (socket) => {
     if (!connection_id || !question) return;
     socket.to(`chat:${connection_id}`).emit('game-question', {
       connection_id,
-      question
+      question: sanitizeText(question)
     });
   });
 
@@ -361,6 +359,13 @@ function requireAuth(req, res, next) {
     return res.status(401).json({ error: 'Not authenticated' });
   }
   next();
+}
+
+// Strip HTML tags from user-supplied text (defense-in-depth against stored XSS)
+// Only strips valid HTML tags (starting with letter, /, or ! — excludes "<3" and similar)
+function sanitizeText(str) {
+  if (typeof str !== 'string') return str;
+  return str.replace(/<[a-zA-Z\/!?][^>]*>/g, '');
 }
 
 function sanitizeUser(user) {
@@ -617,8 +622,8 @@ app.post('/api/auth/complete-profile', async (req, res) => {
       gender, 
       email.toLowerCase().trim(), 
       passwordHash, 
-      bio, 
-      hobbies, 
+      sanitizeText(bio), 
+      hobbies ? hobbies.map(h => sanitizeText(h)) : hobbies, 
       avatar,
       public_key || null,
       encrypted_private_key || null
@@ -677,7 +682,11 @@ app.put('/api/users/me', requireAuth, async (req, res) => {
       }
     }
   }
-  await userOps.update(req.session.userId, { bio, hobbies, avatar });
+  await userOps.update(req.session.userId, { 
+    bio: bio !== undefined ? sanitizeText(bio) : undefined, 
+    hobbies: hobbies ? hobbies.map(h => sanitizeText(h)) : undefined, 
+    avatar 
+  });
   const user = await userOps.getById(req.session.userId);
   const safeUser = sanitizeUser(user);
   req.session.user = safeUser;
@@ -908,7 +917,7 @@ app.post('/api/messages/send', requireAuth, async (req, res) => {
   const msg = await messageOps.send(
     connection_id, 
     req.session.userId, 
-    content.trim(), 
+    sanitizeText(content.trim()), 
     0, 
     0, 
     is_encrypted || 0, 
