@@ -178,7 +178,7 @@
         <button id="vibe-yes" class="flex-1 py-3 bg-gradient-to-r from-primary to-primary-container text-white font-bold rounded-xl hover:shadow-md transition-all">Yes, Vibe!</button>
         <button id="vibe-no" class="flex-1 py-3 bg-surface-variant text-on-surface-variant font-bold rounded-xl hover:bg-surface-dim transition-all">Not feeling it</button>
       </div>
-      <button class="w-full mt-4 text-outline font-semibold text-sm py-2" onclick="closeModal()">Maybe later</button>
+      <button data-action="close" class="w-full mt-4 text-outline font-semibold text-sm py-2">Maybe later</button>
     </div>
     
     <!-- Reveal Modal -->
@@ -189,7 +189,7 @@
       <h3 class="text-2xl font-bold text-primary mb-2">Ready to Reveal?</h3>
       <p class="text-on-surface-variant text-sm mb-6">Both of you passed the vibe check! Are you ready to reveal your photos to each other?</p>
       <button id="reveal-yes" class="w-full py-3 bg-gradient-to-r from-primary to-primary-container text-white font-bold rounded-xl hover:shadow-md transition-all mb-3">Reveal My Identity</button>
-      <button class="w-full text-outline font-semibold text-sm py-2" onclick="closeModal()">Not yet</button>
+      <button data-action="close" class="w-full text-outline font-semibold text-sm py-2">Not yet</button>
     </div>
 
     <!-- Profile Peek Modal -->
@@ -201,7 +201,7 @@
         <button id="peek-vibing" class="flex-1 py-3 bg-gradient-to-r from-primary to-primary-container text-white font-bold rounded-xl hover:shadow-md transition-all">Vibing</button>
         <button id="peek-not-vibing" class="flex-1 py-3 bg-surface-variant text-on-surface-variant font-bold rounded-xl hover:bg-surface-dim transition-all">Not Vibing</button>
       </div>
-      <button class="w-full mt-3 text-outline font-semibold text-sm py-2" onclick="closeModal()">Close</button>
+      <button data-action="close" class="w-full mt-3 text-outline font-semibold text-sm py-2">Close</button>
     </div>
     <div id="modal-icebreaker" class="bg-surface rounded-3xl p-6 w-full max-w-sm ambient-shadow hidden transform scale-95 transition-all">
       <h3 class="text-2xl font-bold text-primary mb-1 text-center">Icebreakers</h3>
@@ -209,7 +209,7 @@
       <div id="icebreaker-games-list" class="flex flex-col gap-2">
         <!-- Populated by JS -->
       </div>
-      <button class="w-full mt-4 text-outline font-semibold text-sm py-2" onclick="closeModal()">Cancel</button>
+      <button data-action="close" class="w-full mt-4 text-outline font-semibold text-sm py-2">Cancel</button>
     </div>
 
     <div id="modal-report" class="bg-surface rounded-3xl p-6 w-full max-w-sm ambient-shadow hidden transform scale-95 transition-all">
@@ -226,8 +226,8 @@
       <textarea id="report-details" class="w-full bg-surface-container-low rounded-xl px-4 py-3 border-none focus:ring-2 focus:ring-primary/50 outline-none resize-none h-20 text-sm" placeholder="Additional details (optional)"></textarea>
       <p id="report-error" class="text-error text-xs font-semibold hidden mt-2"></p>
       <div class="flex gap-3 mt-4">
-        <button onclick="closeModal()" class="flex-1 py-3 bg-surface-variant text-on-surface-variant font-bold rounded-xl hover:bg-surface-dim transition-all text-sm">Cancel</button>
-        <button id="btn-report-submit" onclick="submitReport()" class="flex-1 py-3 bg-error text-white font-bold rounded-xl hover:bg-error/90 transition-all text-sm">Submit Report</button>
+        <button data-action="close" class="flex-1 py-3 bg-surface-variant text-on-surface-variant font-bold rounded-xl hover:bg-surface-dim transition-all text-sm">Cancel</button>
+        <button id="btn-report-submit" data-action="submit-report" class="flex-1 py-3 bg-error text-white font-bold rounded-xl hover:bg-error/90 transition-all text-sm">Submit Report</button>
       </div>
     </div>
 
@@ -235,20 +235,20 @@
     <div id="modal-chat-more" class="bg-surface rounded-3xl p-6 w-full max-w-sm ambient-shadow hidden transform scale-95 transition-all">
       <h3 class="text-lg font-bold text-on-surface mb-4 text-center">Chat Options</h3>
       <div class="flex flex-col gap-3">
-        <button onclick="closeModal(); setTimeout(function(){ openIcebreakerModal(); }, 250);" class="w-full text-left px-4 py-3 bg-surface-container-low rounded-xl hover:bg-surface-container-high transition-colors flex items-center gap-3">
+        <button data-action="icebreaker-from-chat" class="w-full text-left px-4 py-3 bg-surface-container-low rounded-xl hover:bg-surface-container-high transition-colors flex items-center gap-3">
           <span class="material-symbols-outlined text-primary text-xl">casino</span>
           <div><span class="font-semibold text-sm">Play Icebreaker</span><p class="text-xs text-on-surface-variant">Fun games to break the ice</p></div>
         </button>
-        <button onclick="closeModal(); setTimeout(function(){ openModal('modal-report'); }, 250);" class="w-full text-left px-4 py-3 bg-surface-container-low rounded-xl hover:bg-surface-container-high transition-colors flex items-center gap-3">
+        <button data-action="report-from-chat" class="w-full text-left px-4 py-3 bg-surface-container-low rounded-xl hover:bg-surface-container-high transition-colors flex items-center gap-3">
           <span class="material-symbols-outlined text-error text-xl">warning</span>
           <div><span class="font-semibold text-sm">Report User</span><p class="text-xs text-on-surface-variant">Flag inappropriate behavior</p></div>
         </button>
-        <button onclick="blockUser(); closeModal();" class="w-full text-left px-4 py-3 bg-error/10 rounded-xl hover:bg-error/20 transition-colors flex items-center gap-3">
+        <button data-action="block-from-chat" class="w-full text-left px-4 py-3 bg-error/10 rounded-xl hover:bg-error/20 transition-colors flex items-center gap-3">
           <span class="material-symbols-outlined text-error">block</span>
           <div><span class="font-semibold text-sm text-error">Block User</span><p class="text-xs text-on-surface-variant">Stop all communication</p></div>
         </button>
       </div>
-      <button class="w-full mt-4 text-outline font-semibold text-sm py-2" onclick="closeModal()">Close</button>
+      <button data-action="close" class="w-full mt-4 text-outline font-semibold text-sm py-2">Close</button>
     </div>
 
   </div>
