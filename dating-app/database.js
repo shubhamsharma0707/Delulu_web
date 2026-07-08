@@ -308,7 +308,8 @@ const connectionOps = {
       from_vibe: 0,
       to_vibe: 0,
       reveal_from: 0,
-      reveal_to: 0
+      reveal_to: 0,
+      vibe_score: 0
     });
     
     return { success: true };
@@ -341,7 +342,8 @@ const connectionOps = {
         from_vibe: 0,
         to_vibe: 0,
         reveal_from: 0,
-        reveal_to: 0
+        reveal_to: 0,
+        vibe_score: 0
       });
     }
     return { success: true };
