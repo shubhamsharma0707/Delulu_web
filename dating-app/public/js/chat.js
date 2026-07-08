@@ -1196,16 +1196,13 @@ function receiveGameAnswer(data) {
         b.disabled = true;
       });
     } else {
-      // The current user hasn't answered yet — update text helper to nudge them
+      // The current user hasn't answered yet — update text helper to NUDGE them without revealing the choice
       const statusTextEl = gameEl.querySelector('#game-status-text');
       if (statusTextEl) {
         statusTextEl.textContent = 'The other person has answered! Make your pick to see if you match.';
         statusTextEl.className = 'text-[10px] text-primary font-semibold mt-2 animate-pulse';
       }
     }
-  } else {
-    // No active game UI card found on screen — fallback to log bubble
-    appendGameMessage(`They picked: ${data.theirAnswer}`);
   }
 }
 
