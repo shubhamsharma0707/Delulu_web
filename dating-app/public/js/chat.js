@@ -6,9 +6,15 @@ let myPrivateKey = null;
 let otherPublicKey = null;
 let sharedSecretKey = null;
 let isE2EEActive = false;
+let closeModalTimeout = null;
 
 async function initializeChat() {
-  await requireAuth();
+  try {
+    await requireAuth();
+  } catch (err) {
+    console.error('initializeChat requireAuth failed:', err);
+    return;
+  }
   
   const urlParams = new URLSearchParams(window.location.search);
   const connId = urlParams.get('id');
@@ -256,27 +262,55 @@ async function initializeChat() {
     }
   };
 
-  document.getElementById('btn-record-stop').onclick = () => {
-    if (mediaRecorder && mediaRecorder.state === 'recording') {
-      mediaRecorder.stop();
-    }
-  };
+  const recordStopBtn = document.getElementById('btn-record-stop');
+  if (recordStopBtn) {
+    recordStopBtn.onclick = () => {
+      if (mediaRecorder && mediaRecorder.state === 'recording') {
+        mediaRecorder.stop();
+      }
+    };
+  }
 
-  document.getElementById('btn-record-cancel').onclick = () => {
-    if (mediaRecorder && mediaRecorder.state === 'recording') {
-      mediaRecorder.onstop = () => {
-        clearInterval(recordTimerInterval);
-        document.getElementById('recording-overlay').classList.add('hidden');
-      };
-      mediaRecorder.stop();
-    }
-  };
+  const recordCancelBtn = document.getElementById('btn-record-cancel');
+  if (recordCancelBtn) {
+    recordCancelBtn.onclick = () => {
+      if (mediaRecorder && mediaRecorder.state === 'recording') {
+        mediaRecorder.onstop = () => {
+          clearInterval(recordTimerInterval);
+          document.getElementById('recording-overlay').classList.add('hidden');
+        };
+        mediaRecorder.stop();
+      }
+    };
+  }
   
   const btnIcebreaker = document.getElementById('btn-icebreaker');
   if (btnIcebreaker) btnIcebreaker.onclick = () => openIcebreakerModal();
   
   const btnChatMore = document.getElementById('btn-chat-more');
   if (btnChatMore) btnChatMore.onclick = () => openModal('modal-chat-more');
+  
+  const chatThemeToggle = document.getElementById('btn-theme-toggle-chat');
+  if (chatThemeToggle) {
+    chatThemeToggle.onclick = () => {
+      const isDark = document.body.classList.toggle('dark');
+      localStorage.setItem('delulu_theme', isDark ? 'dark' : 'light');
+      const icon = chatThemeToggle.querySelector('.material-symbols-outlined');
+      if (icon) icon.textContent = isDark ? 'light_mode' : 'dark_mode';
+      const globalToggle = document.getElementById('theme-toggle');
+      if (globalToggle) {
+        const gi = globalToggle.querySelector('.material-symbols-outlined');
+        if (gi) gi.textContent = isDark ? 'light_mode' : 'dark_mode';
+      }
+    };
+    const isDark = document.body.classList.contains('dark');
+    const icon = chatThemeToggle.querySelector('.material-symbols-outlined');
+    if (icon) icon.textContent = isDark ? 'light_mode' : 'dark_mode';
+    // Also update the chat-more modal's theme toggle icon to match
+    document.querySelectorAll('.theme-toggle-icon').forEach(el => {
+      el.textContent = isDark ? 'light_mode' : 'dark_mode';
+    });
+  }
   
   const btnVibeCheck = document.getElementById('btn-vibe-check');
   if (btnVibeCheck) btnVibeCheck.onclick = () => openModal('modal-vibe');
@@ -329,33 +363,6 @@ async function initializeChat() {
     }
   }, 60000);
 
-  // Event delegation for all modal action buttons (CSP-safe, no inline onclick)
-  document.getElementById('modal-overlay')?.addEventListener('click', async (e) => {
-    const btn = e.target.closest('[data-action]');
-    if (!btn) return;
-    e.preventDefault();
-    switch (btn.getAttribute('data-action')) {
-      case 'close':
-        closeModal();
-        break;
-      case 'icebreaker-from-chat':
-        closeModal();
-        setTimeout(() => openIcebreakerModal(), 250);
-        break;
-      case 'report-from-chat':
-        closeModal();
-        setTimeout(() => openModal('modal-report'), 250);
-        break;
-      case 'block-from-chat':
-        await blockUser();
-        closeModal();
-        break;
-      case 'submit-report':
-        submitReport();
-        break;
-    }
-  });
-  
   // Register socket listeners for connection-ended and icebreaker games
   if (socket) {
     socket.on('connection-ended', ({ connectionId, message }) => {
@@ -378,6 +385,55 @@ async function initializeChat() {
     });
   }
 }
+
+// ===== Modal Event Delegation (setup outside initializeChat so it works even if init fails) =====
+function setupModalEventDelegation() {
+  const overlay = document.getElementById('modal-overlay');
+  if (!overlay) return;
+  
+  overlay.addEventListener('click', async (e) => {
+    // Click on overlay background (not on a modal) closes modals
+    if (e.target === overlay) {
+      closeModal();
+      return;
+    }
+    const btn = e.target.closest('[data-action]');
+    if (!btn) return;
+    e.preventDefault();
+    switch (btn.getAttribute('data-action')) {
+      case 'close':
+        closeModal();
+        break;
+      case 'icebreaker-from-chat':
+        closeModal();
+        setTimeout(() => openIcebreakerModal(), 250);
+        break;
+      case 'report-from-chat':
+        closeModal();
+        setTimeout(() => openModal('modal-report'), 250);
+        break;
+      case 'block-from-chat':
+        await blockUser();
+        closeModal();
+        break;
+      case 'submit-report':
+        submitReport();
+        break;
+      case 'toggle-theme':
+        document.body.classList.toggle('dark');
+        const isDark = document.body.classList.contains('dark');
+        localStorage.setItem('delulu_theme', isDark ? 'dark' : 'light');
+        document.querySelectorAll('.theme-toggle-icon, #theme-toggle .material-symbols-outlined, #btn-theme-toggle-chat .material-symbols-outlined').forEach(el => {
+          el.textContent = isDark ? 'light_mode' : 'dark_mode';
+        });
+        closeModal();
+        break;
+    }
+  });
+}
+
+// Try to setup event delegation immediately (DOM should be ready since chat.js loads at end of body)
+setupModalEventDelegation();
 
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initializeChat);
@@ -499,9 +555,57 @@ function updateChatStatus(c) {
   }
 }
 
+function showChatSkeleton() {
+  const cont = document.getElementById('chat-messages');
+  if (!cont) return;
+  
+  // Generate 6 alternating skeleton chat bubbles (3 from each side)
+  cont.innerHTML = '';
+  const patterns = [
+    { side: 'left', lines: [70, 40] },
+    { side: 'right', lines: [55, 85] },
+    { side: 'left', lines: [85, 70, 40] },
+    { side: 'right', lines: [70] },
+    { side: 'left', lines: [55, 85, 55] },
+    { side: 'right', lines: [85, 55] },
+  ];
+  
+  patterns.forEach(({ side, lines }) => {
+    const wrapper = document.createElement('div');
+    wrapper.className = `chat-skeleton-wrapper ${side === 'right' ? 'justify-end' : ''}`;
+    
+    // Avatar (only shown on left-side messages)
+    const avatar = document.createElement('div');
+    avatar.className = `chat-skeleton-avatar ${side}`;
+    wrapper.appendChild(avatar);
+    
+    // Bubble
+    const bubble = document.createElement('div');
+    bubble.className = `chat-skeleton-bubble ${side}`;
+    // Apply background color matching message bubble colors
+    if (side === 'right') {
+      bubble.style.background = 'var(--surface-container-low, #f0eded)';
+    } else {
+      bubble.style.background = 'var(--surface-container-high, #e4e2e1)';
+    }
+    
+    lines.forEach(width => {
+      const line = document.createElement('div');
+      line.className = `chat-skeleton-line w-${width}`;
+      bubble.appendChild(line);
+    });
+    
+    wrapper.appendChild(bubble);
+    cont.appendChild(wrapper);
+  });
+}
+
 async function loadMessages() {
   const cont = document.getElementById('chat-messages');
   try {
+    // Show skeleton while loading
+    showChatSkeleton();
+    
     const data = await apiCall(`/api/messages/${currentConnId}`);
     cont.innerHTML = '';
     // Use for...of to process message prepending in sequential async steps
@@ -795,6 +899,11 @@ window.playVoiceNote = async (btn, url, isEncrypted = 0, iv = null) => {
 };
 
 window.openModal = function(id) {
+  // Cancel any pending close animation to prevent race condition
+  if (closeModalTimeout) {
+    clearTimeout(closeModalTimeout);
+    closeModalTimeout = null;
+  }
   const overlay = document.getElementById('modal-overlay');
   if (overlay) {
     overlay.classList.remove('hidden');
@@ -810,7 +919,25 @@ window.openModal = function(id) {
   }
 };
 
+function setAllModalsHidden(hidden) {
+  ['modal-vibe', 'modal-reveal', 'modal-profile-peek', 'modal-icebreaker', 'modal-report', 'modal-chat-more'].forEach(id => {
+    const m = document.getElementById(id);
+    if (m) {
+      if (hidden) {
+        m.classList.add('hidden');
+      } else {
+        m.classList.remove('hidden');
+      }
+    }
+  });
+}
+
 window.closeModal = function() {
+  // Cancel any pending close animation
+  if (closeModalTimeout) {
+    clearTimeout(closeModalTimeout);
+    closeModalTimeout = null;
+  }
   const overlay = document.getElementById('modal-overlay');
   if (overlay) {
     overlay.classList.add('hidden');
@@ -821,11 +948,13 @@ window.closeModal = function() {
     if (m) {
       m.classList.remove('scale-100');
       m.classList.add('scale-95');
-      setTimeout(() => {
-        m.classList.add('hidden');
-      }, 200);
     }
   });
+  // Hide modals after short animation completes
+  closeModalTimeout = setTimeout(() => {
+    setAllModalsHidden(true);
+    closeModalTimeout = null;
+  }, 200);
 };
 
 async function submitVibeAction(vibe) {
