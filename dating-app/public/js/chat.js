@@ -329,13 +329,31 @@ async function initializeChat() {
     }
   }, 60000);
 
-  // Bind all close buttons programmatically for maximum compatibility
-  document.querySelectorAll('[onclick="closeModal()"]').forEach(btn => {
-    btn.removeAttribute('onclick');
-    btn.addEventListener('click', (e) => {
-      e.preventDefault();
-      closeModal();
-    });
+  // Event delegation for all modal action buttons (CSP-safe, no inline onclick)
+  document.getElementById('modal-overlay')?.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-action]');
+    if (!btn) return;
+    e.preventDefault();
+    switch (btn.getAttribute('data-action')) {
+      case 'close':
+        closeModal();
+        break;
+      case 'icebreaker-from-chat':
+        closeModal();
+        setTimeout(() => openIcebreakerModal(), 250);
+        break;
+      case 'report-from-chat':
+        closeModal();
+        setTimeout(() => openModal('modal-report'), 250);
+        break;
+      case 'block-from-chat':
+        await blockUser();
+        closeModal();
+        break;
+      case 'submit-report':
+        submitReport();
+        break;
+    }
   });
   
   // Register socket listeners for connection-ended and icebreaker games
@@ -1042,10 +1060,6 @@ function receiveGameAnswer(data) {
 }
 
 // ===== Report & Block =====
-function openReportModal() {
-  openModal('modal-report');
-}
-
 async function submitReport() {
   const reasonEl = document.getElementById('report-reason');
   let reason = reasonEl ? reasonEl.value.trim() : '';
