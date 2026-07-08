@@ -892,7 +892,35 @@ app.post('/api/connections/reveal', requireAuth, async (req, res) => {
   res.json(result);
 });
 
-
+// Increment Vibe Score on connection match
+app.post('/api/connections/increment-vibe-score', requireAuth, async (req, res) => {
+  const { connectionId } = req.body;
+  if (!connectionId) return res.status(400).json({ error: 'Connection ID is required' });
+  
+  try {
+    const firestore = getDB();
+    const connRef = firestore.collection('connections').doc(String(connectionId));
+    const connDoc = await connRef.get();
+    if (!connDoc.exists) {
+      return res.status(404).json({ error: 'Connection not found' });
+    }
+    
+    const data = connDoc.data();
+    const newScore = (data.vibe_score || 0) + 1;
+    await connRef.update({ vibe_score: newScore });
+    
+    // Broadcast the new score to both users in the chat room
+    io.to(`chat:${connectionId}`).emit('vibe-score-updated', {
+      connectionId,
+      vibe_score: newScore
+    });
+    
+    res.json({ success: true, vibe_score: newScore });
+  } catch (err) {
+    console.error('Error incrementing vibe score:', err);
+    res.status(500).json({ error: 'Failed to increment vibe score' });
+  }
+});
 
 // Get messages for a connection
 app.get('/api/messages/:connectionId', requireAuth, async (req, res) => {
