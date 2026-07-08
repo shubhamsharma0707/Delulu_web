@@ -1089,7 +1089,7 @@ function showGameUI(gameType, question) {
         <button data-game-answer="A" class="flex-1 py-2 px-3 rounded-xl bg-surface-container-high hover:bg-primary hover:text-white font-semibold text-sm transition-all">${escapeHtml(question.a)}</button>
         <button data-game-answer="B" class="flex-1 py-2 px-3 rounded-xl bg-surface-container-high hover:bg-primary hover:text-white font-semibold text-sm transition-all">${escapeHtml(question.b)}</button>
       </div>
-      <p class="text-[10px] text-on-surface-variant mt-2">Wait for the other person to answer too...</p>
+      <p class="text-[10px] text-on-surface-variant mt-2" id="game-status-text">Wait for the other person to answer too...</p>
     </div>
   `;
   
@@ -1115,6 +1115,20 @@ function showGameUI(gameType, question) {
         question: question,
         answer: answer
       });
+
+      // Check if other user has already answered
+      if (currentGame.otherAnswer) {
+        const isMatch = currentGame.myAnswer === currentGame.otherAnswer;
+        const resultText = isMatch 
+          ? 'You matched! Great minds think alike!'
+          : 'Different picks — opposites attract!';
+        
+        const statusTextEl = msgDiv.querySelector('#game-status-text');
+        if (statusTextEl) {
+          statusTextEl.textContent = resultText;
+          statusTextEl.className = 'text-xs font-bold text-primary mt-2' + (isMatch ? ' text-green-600' : '');
+        }
+      }
     };
   });
 }
@@ -1141,49 +1155,56 @@ function appendGameMessage(text, isImportant = false) {
 }
 
 function receiveGameQuestion(data) {
-  if (data.question) {
-    appendGameMessage(`*Icebreaker*: ${data.question}`, true);
+  if (!data.question) return;
+  
+  if (data.game_type && data.game_type !== 'question') {
+    // Show game UI with interactive options for the recipient as well
+    showGameUI(data.game_type, data.question);
+  } else {
+    // Plain text question fallback
+    appendGameMessage(`*Icebreaker Question*: ${data.question}`, true);
   }
 }
 
 function receiveGameAnswer(data) {
   if (!data.answer) return;
   
-  // Compare locally: currentGame.myAnswer vs opponent's raw answer
-  let isMatch = false;
-  if (currentGame && currentGame.myAnswer && data.answer) {
-    isMatch = currentGame.myAnswer === data.answer;
+  if (currentGame) {
+    currentGame.otherAnswer = data.answer;
   }
   
-  // Find the game UI card (look for any element with id starting with 'game-')
   const gameEl = document.querySelector('[id^="game-"]');
   if (gameEl) {
-    // Store opponent answer on the game element for reference
     gameEl.dataset.otherAnswer = data.answer;
     
-    // Disable answer buttons if still active
-    gameEl.querySelectorAll('[data-game-answer]').forEach(b => {
-      b.style.opacity = '0.5';
-      b.disabled = true;
-    });
-    
-    const resultText = isMatch 
-      ? 'You matched! Great minds think alike!'
-      : 'Different picks — opposites attract!';
-    
-    const resultContainer = gameEl.querySelector('.max-w-sm');
-    if (resultContainer) {
-      // Remove the "waiting" message and show result
-      const waitingMsg = resultContainer.querySelector('.text-\\[10px\\]');
-      if (waitingMsg) waitingMsg.remove();
+    // Check if the current user has already selected their answer
+    if (currentGame && currentGame.myAnswer) {
+      const isMatch = currentGame.myAnswer === data.answer;
+      const resultText = isMatch 
+        ? 'You matched! Great minds think alike!'
+        : 'Different picks — opposites attract!';
       
-      const result = document.createElement('p');
-      result.className = 'text-xs font-bold text-primary mt-2' + (isMatch ? ' text-green-600' : '');
-      result.textContent = resultText;
-      resultContainer.appendChild(result);
+      const statusTextEl = gameEl.querySelector('#game-status-text');
+      if (statusTextEl) {
+        statusTextEl.textContent = resultText;
+        statusTextEl.className = 'text-xs font-bold text-primary mt-2' + (isMatch ? ' text-green-600' : '');
+      }
+      
+      // Disable answer buttons on screen
+      gameEl.querySelectorAll('[data-game-answer]').forEach(b => {
+        b.style.opacity = '0.5';
+        b.disabled = true;
+      });
+    } else {
+      // The current user hasn't answered yet — update text helper to nudge them
+      const statusTextEl = gameEl.querySelector('#game-status-text');
+      if (statusTextEl) {
+        statusTextEl.textContent = 'The other person has answered! Make your pick to see if you match.';
+        statusTextEl.className = 'text-[10px] text-primary font-semibold mt-2 animate-pulse';
+      }
     }
   } else {
-    // No active game UI found — just show what they picked
+    // No active game UI card found on screen — fallback to log bubble
     appendGameMessage(`They picked: ${data.theirAnswer}`);
   }
 }
