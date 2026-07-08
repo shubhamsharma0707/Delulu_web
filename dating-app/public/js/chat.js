@@ -1093,8 +1093,8 @@ function showGameUI(gameType, question) {
       <div class="text-xs font-bold text-primary mb-2 uppercase tracking-wider">${gameType === 'would-you-rather' ? 'Would You Rather' : 'This or That'}</div>
       <p class="font-bold text-on-surface mb-3">${escapeHtml(question.q)}</p>
       <div class="flex gap-3">
-        <button data-game-answer="A" class="flex-1 py-2 px-3 rounded-xl bg-surface-container-high hover:bg-primary hover:text-white font-semibold text-sm transition-all">${escapeHtml(question.a)}</button>
-        <button data-game-answer="B" class="flex-1 py-2 px-3 rounded-xl bg-surface-container-high hover:bg-primary hover:text-white font-semibold text-sm transition-all">${escapeHtml(question.b)}</button>
+        <button data-game-answer="A" class="flex-1 py-2 px-3 rounded-xl bg-surface-container-high text-on-surface hover:bg-primary hover:text-white font-semibold text-sm transition-all">${escapeHtml(question.a)}</button>
+        <button data-game-answer="B" class="flex-1 py-2 px-3 rounded-xl bg-surface-container-high text-on-surface hover:bg-primary hover:text-white font-semibold text-sm transition-all">${escapeHtml(question.b)}</button>
       </div>
       <p class="text-[10px] text-on-surface-variant mt-2" id="game-status-text">Wait for the other person to answer too...</p>
     </div>
@@ -1133,7 +1133,7 @@ function showGameUI(gameType, question) {
         const statusTextEl = msgDiv.querySelector('#game-status-text');
         if (statusTextEl) {
           statusTextEl.textContent = resultText;
-          statusTextEl.className = 'text-xs font-bold text-primary mt-2' + (isMatch ? ' text-green-600' : '');
+          statusTextEl.className = 'text-xs font-bold mt-2 ' + (isMatch ? 'text-green-600 dark:text-green-400' : 'text-primary');
         }
 
         if (isMatch) {
@@ -1200,7 +1200,7 @@ function receiveGameAnswer(data) {
       const statusTextEl = gameEl.querySelector('#game-status-text');
       if (statusTextEl) {
         statusTextEl.textContent = resultText;
-        statusTextEl.className = 'text-xs font-bold text-primary mt-2' + (isMatch ? ' text-green-600' : '');
+        statusTextEl.className = 'text-xs font-bold mt-2 ' + (isMatch ? 'text-green-600 dark:text-green-400' : 'text-primary');
       }
       
       // Disable answer buttons on screen
