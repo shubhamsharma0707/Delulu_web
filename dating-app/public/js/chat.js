@@ -15,10 +15,8 @@ let pollingIntervalId = null;
 function startPollingFallback() {
   if (pollingIntervalId) return;
   pollingIntervalId = setInterval(() => {
-    if (!socket || !socket.connected) {
-      loadMessages().catch(() => {});
-    }
-  }, 4000);
+    loadMessages().catch(() => {});
+  }, 4000); // Continuous safety net polling every 4 seconds
 }
 
 function stopPollingFallback() {
@@ -251,32 +249,31 @@ async function initializeChat() {
         const barText = document.getElementById('connection-bar-text');
         if (barText) barText.textContent = 'Reconnecting...';
       }
-      startPollingFallback();
     });
 
     socket.on('connect', () => {
       const bar = document.getElementById('chat-connection-bar');
       if (bar) bar.classList.add('hidden');
-      // Keep polling until server confirms the room join was successful
       joinChatRoom();
-    });
-
-    // Server confirms room join succeeded — ONLY then stop polling
-    socket.on('room-joined', (data) => {
-      if (data.connectionId == currentConnId) {
-        stopPollingFallback();
-        console.log('Room join confirmed by server, stopping polling fallback');
-      }
     });
 
     socket.on('reconnect_error', () => {
       const text = document.getElementById('connection-bar-text');
       if (text) text.textContent = 'Connection lost. Retrying...';
-      startPollingFallback();
     });
 
-    // Always start polling initially — it stops only once server confirms room join
+    // Always start polling initially — it acts as a robust background safety net
     startPollingFallback();
+
+    // Listen for tab/visibility state changes to pause/resume polling
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        stopPollingFallback();
+      } else {
+        startPollingFallback();
+        loadMessages().catch(() => {});
+      }
+    });
 
     // Attempt join now if already connected
     if (socket.connected) {
@@ -1207,7 +1204,7 @@ async function appendMessage(m, scrollToBottom = true) {
     metaRow.appendChild(statusSpan);
   } else if (m.is_sending) {
     const statusSpan = document.createElement('span');
-    statusSpan.className = 'inline-flex items-center';
+    statusSpan.className = 'msg-status-icon inline-flex items-center';
     statusSpan.innerHTML = '<span class="text-[11px] opacity-50 material-symbols-outlined text-[14px]">schedule</span>';
     metaRow.appendChild(statusSpan);
   }
