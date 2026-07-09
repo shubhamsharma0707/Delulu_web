@@ -81,7 +81,7 @@ async function initializeChat() {
   currentConnId = connId;
   loadChatInfo();
   
-  // Connection status bar
+  // Connection status bar + outbox flush + BroadcastChannel
   if (socket) {
     socket.on('disconnect', () => {
       const bar = document.getElementById('chat-connection-bar');
@@ -95,6 +95,29 @@ async function initializeChat() {
       if (bar) bar.classList.add('hidden');
       if (currentConnId) {
         socket.emit('join-chat', currentConnId);
+        
+        // Flush any pending messages from offline outbox
+        if (typeof outboxQueue !== 'undefined') {
+          outboxQueue.flushPending(socket).catch(() => {});
+        }
+        
+        // Setup multi-tab sync via BroadcastChannel
+        if (typeof initBroadcastChannel !== 'undefined') {
+          initBroadcastChannel(currentConnId, (data) => {
+            if (data.type === 'messages-read') {
+              // Another tab marked messages as read — update UI
+              if (data.connectionId == currentConnId) {
+                otherLastReadAt = data.at || new Date().toISOString();
+                document.querySelectorAll('[data-msg-id]').forEach(el => {
+                  const statusIcon = el.querySelector('.msg-status-icon');
+                  if (statusIcon) {
+                    statusIcon.innerHTML = '<span class="text-[11px] text-blue-500 material-symbols-outlined text-[14px] align-middle" style="font-variation-settings: \'FILL\' 1">done_all</span>';
+                  }
+                });
+              }
+            }
+          });
+        }
       }
     });
     socket.on('reconnect_error', () => {
@@ -164,6 +187,10 @@ async function initializeChat() {
             statusIcon.innerHTML = '<span class="text-[11px] text-blue-500 material-symbols-outlined text-[14px] align-middle" style="font-variation-settings: \'FILL\' 1">done_all</span>';
           }
         });
+        // Broadcast to other tabs
+        if (typeof broadcastToTabs !== 'undefined') {
+          broadcastToTabs({ type: 'messages-read', connectionId: currentConnId, at: otherLastReadAt });
+        }
       }
     });
 
@@ -296,13 +323,37 @@ async function initializeChat() {
 
     // Process encryption & API request in the background
     (async () => {
+      let payload = { connection_id: currentConnId, content };
       try {
-        const payload = { connection_id: currentConnId, content };
         if (isE2EEActive && sharedSecretKey) {
           const encrypted = await E2EECrypto.encryptMessage(content, sharedSecretKey);
           payload.content = encrypted.ciphertext;
           payload.is_encrypted = 1;
           payload.iv = encrypted.iv;
+        }
+
+        // Check if socket is connected — if not, queue for later
+        if (socket && !socket.connected && typeof outboxQueue !== 'undefined') {
+          await outboxQueue.enqueue({
+            connection_id: currentConnId,
+            content: payload.content,
+            is_encrypted: payload.is_encrypted || 0,
+            iv: payload.iv || null
+          });
+          const msgEl = document.getElementById(tempId);
+          if (msgEl) {
+            msgEl.classList.remove('opacity-60');
+            const statusIcon = msgEl.querySelector('.msg-status-icon');
+            if (statusIcon) {
+              statusIcon.innerHTML = '<span class="text-[11px] opacity-50 material-symbols-outlined text-[14px] align-middle">schedule</span>';
+            }
+            const timeEl = msgEl.querySelector('.text-\\[10px\\]');
+            if (timeEl) {
+              timeEl.textContent = 'Queued';
+            }
+            msgEl.removeAttribute('id');
+          }
+          return;
         }
 
         const result = await apiCall('/api/messages/send', 'POST', payload);
@@ -324,6 +375,29 @@ async function initializeChat() {
         }
       } catch (err) {
         console.error('Failed to send message:', err);
+        // If it's a network error (fetch failed), try queuing instead
+        if (typeof outboxQueue !== 'undefined') {
+          try {
+            await outboxQueue.enqueue({
+              connection_id: currentConnId,
+              content: payload.content,
+              is_encrypted: payload.is_encrypted || 0,
+              iv: payload.iv || null
+            });
+            const msgEl = document.getElementById(tempId);
+            if (msgEl) {
+              msgEl.classList.remove('opacity-60');
+              msgEl.removeAttribute('id');
+              const timeEl = msgEl.querySelector('.text-\\[10px\\]');
+              if (timeEl) {
+                timeEl.textContent = 'Queued — will send when connected';
+                timeEl.className = 'text-[10px] mt-1 text-right text-on-surface-variant/70';
+              }
+            }
+            return;
+          } catch (e) {}
+        }
+        
         const msgEl = document.getElementById(tempId);
         if (msgEl) {
           msgEl.classList.remove('opacity-60');
@@ -797,26 +871,65 @@ function showChatSkeleton() {
 async function loadMessages() {
   const cont = document.getElementById('chat-messages');
   try {
-    // Show skeleton while loading
-    showChatSkeleton();
-    
-    const data = await apiCall(`/api/messages/${currentConnId}`);
-    cont.innerHTML = '';
-    lastMessageDate = null; // Reset date tracking
-    // Use for...of to process message prepending in sequential async steps
-    for (const m of data.messages) {
-      await appendMessage(m, false);
+    // 1. Render from IndexedDB cache instantly (no network wait)
+    let hasCachedMessages = false;
+    if (typeof messageCache !== 'undefined') {
+      const cached = await messageCache.getCachedMessages(currentConnId);
+      if (cached.length > 0) {
+        hasCachedMessages = true;
+        cont.innerHTML = '';
+        lastMessageDate = null;
+        for (const m of cached) {
+          await appendMessage(m, false);
+        }
+        scrollToBottom();
+      }
     }
+    
+    if (!hasCachedMessages) {
+      showChatSkeleton();
+    }
+    
+    // 2. Fetch from server in background (delta sync by comparing IDs)
+    const data = await apiCall(`/api/messages/${currentConnId}`);
+    
+    if (data.messages && data.messages.length > 0) {
+      if (hasCachedMessages) {
+        // Only append messages not already in the DOM
+        const existingIds = new Set();
+        cont.querySelectorAll('[data-msg-id]').forEach(el => {
+          existingIds.add(el.getAttribute('data-msg-id'));
+        });
+        const newMsgs = data.messages.filter(m => !existingIds.has(String(m.id)));
+        if (newMsgs.length > 0) {
+          for (const m of newMsgs) {
+            await appendMessage(m, false);
+          }
+        }
+      } else {
+        // No cache — render all messages
+        cont.innerHTML = '';
+        lastMessageDate = null;
+        for (const m of data.messages) {
+          await appendMessage(m, false);
+        }
+      }
+      // Cache all messages for next instant render
+      messageCache.cacheMessages(currentConnId, data.messages).catch(() => {});
+    }
+    
     // Mark as read after loading
     setTimeout(() => markMessagesAsRead(), 300);
   } catch (err) {
     console.error('loadMessages caught error:', err);
-    await fetch('/api/log-error', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: err.message, stack: err.stack, path: window.location.href, context: 'loadMessages catch' })
-    }).catch(() => {});
-    cont.innerHTML = `<p class="text-error">${escapeHtml(err.message)}</p>`;
+    if (!hasCachedMessages) {
+      await fetch('/api/log-error', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: err.message, stack: err.stack, path: window.location.href, context: 'loadMessages catch' })
+      }).catch(() => {});
+      cont.innerHTML = `<p class="text-error">${escapeHtml(err.message)}</p>`;
+    }
   }
 }
 
@@ -1076,6 +1189,11 @@ async function appendMessage(m, scrollToBottom = true) {
   
   if (scrollToBottom) {
     cont.scrollTop = 0;
+  }
+  
+  // Write to IndexedDB cache after rendering
+  if (m.id && typeof messageCache !== 'undefined') {
+    messageCache.cacheSingleMessage(currentConnId, m).catch(() => {});
   }
 }
 
