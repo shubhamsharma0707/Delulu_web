@@ -319,9 +319,19 @@ io.on('connection', async (socket) => {
 
   socket.on('join-chat', async (connectionId) => {
     if (!connectionId) return;
-    const conn = await connectionOps.getConnection(connectionId, userId);
-    if (!conn || conn._dataIntegrityError) return;
-    socket.join(`chat:${connectionId}`);
+    try {
+      const conn = await connectionOps.getConnection(connectionId, userId);
+      if (!conn || conn._dataIntegrityError) {
+        console.log(`join-chat denied: user ${userId} not part of connection ${connectionId}`);
+        return;
+      }
+      socket.join(`chat:${connectionId}`);
+      console.log(`User ${userId} joined chat room chat:${connectionId}`);
+      // Confirm room join to client so it knows socket is live
+      socket.emit('room-joined', { connectionId });
+    } catch (err) {
+      console.error(`join-chat error for user ${userId} connection ${connectionId}:`, err.message);
+    }
   });
 
   socket.on('leave-chat', (connectionId) => {
@@ -1034,10 +1044,10 @@ app.post('/api/messages/send', requireAuth, async (req, res) => {
     iv || null
   );
 
-  // Emit socket event for real-time receipt
+  // Emit socket event for real-time receipt — sender_id MUST be Number for client === checks
   io.to(`chat:${connection_id}`).emit('new-message', {
     ...msg,
-    sender_id: req.session.userId
+    sender_id: Number(req.session.userId)
   });
   io.to(`chat:${connection_id}`).emit('chat-update', {
     connectionId: connection_id,
@@ -1082,10 +1092,10 @@ app.post('/api/messages/upload-voice', requireAuth, (req, res, next) => {
       iv || null
     );
 
-    // Emit socket event for real-time receipt
+    // Emit socket event for real-time receipt — sender_id MUST be Number for client === checks
     io.to(`chat:${connection_id}`).emit('new-message', {
       ...msg,
-      sender_id: req.session.userId
+      sender_id: Number(req.session.userId)
     });
     io.to(`chat:${connection_id}`).emit('chat-update', {
       connectionId: connection_id,
