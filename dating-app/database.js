@@ -709,116 +709,227 @@ const connectionOps = {
   }
 };
 
-// Message operations
+// Message operations — backed by Supabase Postgres (NOT Firestore)
+// The Firestore connection doc (ownership/permission check) is still used
+// by connectionOps.getConnection() in every route handler BEFORE these run.
+const { getSupabase } = require('./db/supabase');
+
 const messageOps = {
+  // ── INSERT ──────────────────────────────────────────────────────────────────
+  // Moved from Firestore collection 'messages' → Supabase table 'messages'.
+  // Returns the inserted row so callers get the DB-generated id and created_at
+  // for immediate Socket.io broadcast.
   async send(connectionId, senderId, content, isVoice = 0, voiceDuration = 0, isEncrypted = 0, iv = null) {
-    const firestore = getDB();
-    const msgId = await getNextId('messages');
-    const msgDocRef = firestore.collection('messages').doc(String(msgId));
-    const payload = {
-      id: msgId,
-      connection_id: Number(connectionId),
-      sender_id: Number(senderId),
-      content,
-      is_voice: Number(isVoice),
-      voice_duration: Number(voiceDuration),
-      is_encrypted: Number(isEncrypted),
-      iv: iv || null,
-      read_at: null,
-      reactions: {},
-      deleted: 0,
-      created_at: new Date().toISOString()
-    };
-    await msgDocRef.set(payload);
-    return payload;
-  },
+    try {
+      const supabase = getSupabase();
+      const { data, error } = await supabase
+        .from('messages')
+        .insert({
+          connection_id: Number(connectionId),
+          sender_id:     Number(senderId),
+          content,
+          is_voice:      Number(isVoice),
+          voice_duration: Number(voiceDuration),
+          is_encrypted:  Number(isEncrypted),
+          iv:            iv || null,
+          read_at:       null,
+          reactions:     {},
+          deleted_at:    null,
+          deleted_by:    null
+        })
+        .select()
+        .single();
 
-  async toggleReaction(messageId, userId, connectionId, emoji) {
-    const firestore = getDB();
-    const msgRef = firestore.collection('messages').doc(String(messageId));
-    const doc = await msgRef.get();
-    if (!doc.exists) return { error: 'Message not found' };
-    const msg = doc.data();
-    if (msg.connection_id !== Number(connectionId)) return { error: 'Mismatched connection' };
-
-    const reactions = msg.reactions || {};
-    const users = reactions[emoji] || [];
-    const idx = users.indexOf(Number(userId));
-    if (idx === -1) users.push(Number(userId)); else users.splice(idx, 1);
-    if (users.length === 0) delete reactions[emoji]; else reactions[emoji] = users;
-
-    await msgRef.update({ reactions });
-    return { success: true, reactions };
-  },
-
-  async deleteMessage(messageId, userId) {
-    const firestore = getDB();
-    const msgRef = firestore.collection('messages').doc(String(messageId));
-    const doc = await msgRef.get();
-    if (!doc.exists) return { error: 'Message not found' };
-    const msg = doc.data();
-    if (msg.sender_id !== Number(userId)) return { error: 'Not authorized to delete this message' };
-
-    await msgRef.update({ deleted: 1, content: '', reactions: {} });
-    return { success: true };
-  },
-
-  async getForConnection(connectionId) {
-    const snapshot = await getDB().collection('messages')
-      .where('connection_id', '==', Number(connectionId))
-      .get();
-      
-    const messages = [];
-    snapshot.forEach(doc => messages.push(doc.data()));
-    return messages.sort((a, b) => a.created_at.localeCompare(b.created_at));
-  },
-
-  async markAsRead(connectionId, userId) {
-    const firestore = getDB();
-    const now = new Date().toISOString();
-    const connRef = firestore.collection('connections').doc(String(connectionId));
-    const doc = await connRef.get();
-    if (!doc.exists) return { count: 0 };
-    
-    const conn = doc.data();
-    const prevLastReadAt = conn.from_user_id === Number(userId) ? conn.from_last_read_at : conn.to_last_read_at;
-    const field = conn.from_user_id === Number(userId) ? 'from_last_read_at' : 'to_last_read_at';
-    await connRef.update({ [field]: now });
-    
-    // Count unread messages (messages from the other user sent before this read event) without using orderBy to avoid composite index requirements
-    const otherId = conn.from_user_id === Number(userId) ? conn.to_user_id : conn.from_user_id;
-    const snapshot = await firestore.collection('messages')
-      .where('connection_id', '==', Number(connectionId))
-      .get();
-    
-    let count = 0;
-    snapshot.forEach(doc => {
-      const msg = doc.data();
-      if (msg.sender_id === Number(otherId)) {
-        const isNewer = !prevLastReadAt || (msg.created_at && msg.created_at > prevLastReadAt);
-        if (isNewer) {
-          count++;
-        }
-      }
-    });
-    
-    return { count };
-  },
-
-  async getRecentForConnection(connectionId, limit = 50, since = null) {
-    const firestore = getDB();
-    let query = firestore.collection('messages')
-      .where('connection_id', '==', Number(connectionId));
-      
-    if (since) {
-      query = query.where('created_at', '>', since);
+      if (error) throw error;
+      return data;
+    } catch (err) {
+      console.error('messageOps.send error:', err.message);
+      throw new Error('Failed to send message');
     }
-    query = query.orderBy('created_at', 'desc');
-    
-    const snapshot = await query.limit(limit).get();
-    const messages = [];
-    snapshot.forEach(doc => messages.push(doc.data()));
-    return messages.reverse();
+  },
+
+  // ── TOGGLE REACTION ──────────────────────────────────────────────────────────
+  // Single read + single write against Supabase 'messages' reactions jsonb column.
+  // Moved from Firestore msgRef.get() → msgRef.update({ reactions }).
+  async toggleReaction(messageId, userId, connectionId, emoji) {
+    try {
+      const supabase = getSupabase();
+
+      // Read current reactions from Supabase
+      const { data: msg, error: fetchErr } = await supabase
+        .from('messages')
+        .select('id, connection_id, reactions, deleted_at')
+        .eq('id', messageId)
+        .is('deleted_at', null)
+        .single();
+
+      if (fetchErr || !msg) return { error: 'Message not found' };
+      if (msg.connection_id !== Number(connectionId)) return { error: 'Mismatched connection' };
+
+      // Toggle userId in/out of the emoji's array (application-level, no extra table)
+      const reactions = msg.reactions || {};
+      const users = reactions[emoji] || [];
+      const idx = users.indexOf(Number(userId));
+      if (idx === -1) users.push(Number(userId)); else users.splice(idx, 1);
+      if (users.length === 0) delete reactions[emoji]; else reactions[emoji] = users;
+
+      // Write updated reactions object back
+      const { error: updateErr } = await supabase
+        .from('messages')
+        .update({ reactions })
+        .eq('id', messageId);
+
+      if (updateErr) throw updateErr;
+      return { success: true, reactions };
+    } catch (err) {
+      console.error('messageOps.toggleReaction error:', err.message);
+      return { error: 'Failed to toggle reaction' };
+    }
+  },
+
+  // ── SOFT DELETE (tombstone) ──────────────────────────────────────────────────
+  // Moved from Firestore update({ deleted: 1 }) → Supabase update({ deleted_at, deleted_by }).
+  // Hard-deletes are never performed; the row is tombstoned so delta-sync can still
+  // return the deletion event to the other user.
+  async deleteMessage(messageId, userId) {
+    try {
+      const supabase = getSupabase();
+
+      // Verify ownership before tombstoning
+      const { data: msg, error: fetchErr } = await supabase
+        .from('messages')
+        .select('id, sender_id, deleted_at')
+        .eq('id', messageId)
+        .single();
+
+      if (fetchErr || !msg) return { error: 'Message not found' };
+      if (msg.sender_id !== Number(userId)) return { error: 'Not authorized to delete this message' };
+      if (msg.deleted_at) return { error: 'Message already deleted' };
+
+      const { error: updateErr } = await supabase
+        .from('messages')
+        .update({
+          deleted_at: new Date().toISOString(),
+          deleted_by: Number(userId),
+          content:    '',         // clear content as well
+          reactions:  {}          // clear reactions on deletion
+        })
+        .eq('id', messageId);
+
+      if (updateErr) throw updateErr;
+      return { success: true };
+    } catch (err) {
+      console.error('messageOps.deleteMessage error:', err.message);
+      return { error: 'Failed to delete message' };
+    }
+  },
+
+  // ── FETCH ALL (internal use, e.g. read-receipt count) ────────────────────────
+  // Moved from Firestore unordered collection scan → Supabase ordered query.
+  async getForConnection(connectionId) {
+    try {
+      const supabase = getSupabase();
+      const { data, error } = await supabase
+        .from('messages')
+        .select('*')
+        .eq('connection_id', Number(connectionId))
+        .is('deleted_at', null)
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+      return data || [];
+    } catch (err) {
+      console.error('messageOps.getForConnection error:', err.message);
+      return [];
+    }
+  },
+
+  // ── MARK AS READ ─────────────────────────────────────────────────────────────
+  // Ownership data (from_user_id, to_user_id) still lives on the Firestore
+  // connection doc, so we keep reading from there.  The last-read timestamp
+  // is written back to Firestore (no changes to that Firestore field).
+  // The unread message COUNT is now queried from Supabase instead of Firestore.
+  async markAsRead(connectionId, userId) {
+    try {
+      const firestore = getDB();
+      const supabase = getSupabase();
+      const now = new Date().toISOString();
+
+      const connRef = firestore.collection('connections').doc(String(connectionId));
+      const doc = await connRef.get();
+      if (!doc.exists) return { count: 0 };
+
+      const conn = doc.data();
+      const prevLastReadAt = conn.from_user_id === Number(userId)
+        ? conn.from_last_read_at
+        : conn.to_last_read_at;
+      const field = conn.from_user_id === Number(userId)
+        ? 'from_last_read_at'
+        : 'to_last_read_at';
+
+      // Update last-read timestamp on the Firestore connection doc (unchanged)
+      await connRef.update({ [field]: now });
+
+      // Count unread messages from the other user since the previous read marker
+      const otherId = conn.from_user_id === Number(userId)
+        ? conn.to_user_id
+        : conn.from_user_id;
+
+      let countQuery = supabase
+        .from('messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('connection_id', Number(connectionId))
+        .eq('sender_id', Number(otherId))
+        .is('deleted_at', null);
+
+      if (prevLastReadAt) {
+        countQuery = countQuery.gt('created_at', prevLastReadAt);
+      }
+
+      const { count, error: countErr } = await countQuery;
+      if (countErr) throw countErr;
+
+      return { count: count || 0 };
+    } catch (err) {
+      console.error('messageOps.markAsRead error:', err.message);
+      return { count: 0 };
+    }
+  },
+
+  // ── DELTA-SYNC FETCH (primary read path for REST fallback polling) ────────────
+  // Moved from Firestore collection query → Supabase table query.
+  // When `since` (ISO string) is provided, only messages newer than that timestamp
+  // are fetched — this is the core delta-sync optimization.
+  // Tombstoned messages (deleted_at IS NOT NULL) are excluded.
+  // Returns oldest-first (ascending) to match the existing client contract.
+  async getRecentForConnection(connectionId, limit = 50, since = null) {
+    try {
+      const supabase = getSupabase();
+
+      let query = supabase
+        .from('messages')
+        .select('*')
+        .eq('connection_id', Number(connectionId))
+        .is('deleted_at', null);
+
+      // Delta sync: only fetch messages newer than the client's last-seen timestamp
+      if (since) {
+        query = query.gt('created_at', since);
+      }
+
+      // Fetch newest-first so .limit() trims the right end, then reverse in JS
+      const { data, error } = await query
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      if (error) throw error;
+
+      // Reverse to oldest-first — same return contract as the old Firestore version
+      return (data || []).reverse();
+    } catch (err) {
+      console.error('messageOps.getRecentForConnection error:', err.message);
+      return [];
+    }
   }
 };
 
