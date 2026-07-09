@@ -74,7 +74,7 @@
       ]
     }
   </script>
-  <link rel="stylesheet" href="/styles.css?v=99">
+  <link rel="stylesheet" href="/styles.css?v=100">
   <style>
     /* Hide navbars on mobile when in a chat for better UX, or keep them. We'll keep global header hidden on chat on mobile. */
   </style>
@@ -130,9 +130,20 @@
         </div>
       </div>
       
-      <div id="chat-messages" class="flex-1 overflow-y-auto p-4 space-y-4 bg-gradient-to-b from-surface-bright to-surface flex flex-col-reverse">
+      <!-- Connection Status Bar -->
+      <div id="chat-connection-bar" class="hidden bg-error/90 text-white text-center text-[11px] font-semibold py-1.5 px-4 backdrop-blur-sm">
+        <span class="material-symbols-outlined text-[14px] align-middle mr-1">wifi_off</span>
+        <span id="connection-bar-text">Reconnecting...</span>
+      </div>
+      
+      <div id="chat-messages" class="flex-1 overflow-y-auto p-4 space-y-1 bg-gradient-to-b from-surface-bright to-surface flex flex-col-reverse">
         <!-- Messages injected here -->
       </div>
+      
+      <!-- Scroll to bottom button -->
+      <button id="btn-scroll-bottom" class="absolute bottom-20 right-6 w-10 h-10 rounded-full bg-primary text-white shadow-lg flex items-center justify-center opacity-0 pointer-events-none transition-all duration-300 z-10 hover:scale-110 active:scale-95" title="Scroll to bottom">
+        <span class="material-symbols-outlined text-lg">keyboard_arrow_down</span>
+      </button>
       
       <div class="p-3 bg-surface-container-lowest border-t border-outline-variant/10 z-10 pb-safe relative">
         <!-- Recording overlay -->
@@ -260,9 +271,9 @@
 
   </div>
 
-  <link rel="preload" href="/js/shared.js?v=99" as="script">
-  <script src="/js/shared.js?v=99"></script>
+  <link rel="preload" href="/js/shared.js?v=100" as="script">
+  <script src="/js/shared.js?v=100"></script>
   <script src="/js/crypto.js"></script>
-  <script src="/js/chat.js?v=99"></script>
+  <script src="/js/chat.js?v=100"></script>
 </body>
 </html>
