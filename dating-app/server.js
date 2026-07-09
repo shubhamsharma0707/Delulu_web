@@ -60,7 +60,8 @@ app.use(pinoHttp);
 const server = http.createServer(app);
 const io = new Server(server, {
   pingTimeout: 30000,
-  pingInterval: 10000
+  pingInterval: 10000,
+  transports: ['websocket', 'polling']
 });
 
 // Ensure upload folders exist
@@ -1074,7 +1075,8 @@ app.get('/api/messages/:connectionId', requireAuth, async (req, res) => {
   }
   if (!conn) return res.status(404).json({ error: 'Connection not found' });
   
-  const messages = await messageOps.getRecentForConnection(req.params.connectionId);
+  const { since } = req.query;
+  const messages = await messageOps.getRecentForConnection(req.params.connectionId, 50, since || null);
   res.json({ messages, connection: sanitizeConnection(conn, req.session.userId) });
 });
 
