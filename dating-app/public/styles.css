@@ -359,6 +359,34 @@ body.dark .to-secondary-container\/20 { --tw-gradient-to: rgba(92,65,50,0.2) !im
   50% { opacity: 1; }
 }
 
+/* ===== Presence Dots ===== */
+.presence-dot {
+  transition: all 0.3s ease;
+  box-shadow: 0 0 0 2px var(--surface, #fbf9f8);
+}
+body.dark .presence-dot {
+  box-shadow: 0 0 0 2px #1a1c1e;
+}
+
+/* ===== Scroll to Bottom Button ===== */
+#btn-scroll-bottom {
+  box-shadow: 0 4px 16px rgba(165,59,41,0.3);
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+#btn-scroll-bottom:hover {
+  transform: scale(1.1) !important;
+  box-shadow: 0 6px 24px rgba(165,59,41,0.4);
+}
+
+/* ===== Connection Bar Animation ===== */
+#chat-connection-bar {
+  animation: slideDown 0.3s ease-out;
+}
+@keyframes slideDown {
+  from { transform: translateY(-100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
 /* ===== Toast Notification ===== */
 .toast-container {
   position: fixed;
@@ -583,6 +611,11 @@ body.discover-page #app-root, body.profile-page #app-root {
 @keyframes fadeInUp {
   from { opacity: 0; transform: translateY(15px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* ===== Message Status Icons ===== */
+.material-symbols-outlined.done_all {
+  font-variation-settings: 'FILL' 1;
 }
 
 /* ===== Nav Buttons ===== */
