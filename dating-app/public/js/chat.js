@@ -15,6 +15,40 @@ let statusPollTimeout = null;
 let pollInterval = 4000;
 const maxInterval = 30000;
 
+let statusPollInterval = 60000;
+const maxStatusInterval = 300000; // 5 minutes
+let lastConnectionState = null;
+
+// User Activity Monitoring to prevent wasteful reads when the user is idle
+let lastActivityTime = Date.now();
+let isIdle = false;
+
+function resetIdleTimer() {
+  lastActivityTime = Date.now();
+  if (isIdle) {
+    isIdle = false;
+    console.log('User active — resuming polling fallback');
+    pollInterval = 4000;
+    statusPollInterval = 60000;
+    scheduleNextPoll();
+    scheduleStatusPoll();
+  }
+}
+
+// Activity listeners to track if the user is interacting with the page
+['keydown', 'mousemove', 'mousedown', 'touchstart', 'scroll'].forEach(evt => {
+  window.addEventListener(evt, resetIdleTimer, { passive: true });
+});
+
+function checkUserIdle() {
+  // Idle after 60 seconds of no keyboard/mouse/touch activity
+  if (Date.now() - lastActivityTime > 60000) {
+    isIdle = true;
+    return true;
+  }
+  return false;
+}
+
 async function pollDelta() {
   if (!currentConnId) return false;
   try {
@@ -50,39 +84,62 @@ async function pollDelta() {
 function scheduleNextPoll() {
   if (pollingTimeout) clearTimeout(pollingTimeout);
   if (socket && socket.connected) return; // Don't poll if socket is alive
-  if (document.hidden) return; // Don't poll if backgrounded
+  if (document.hidden || checkUserIdle()) return; // Pause entirely if backgrounded or idle
   
   pollingTimeout = setTimeout(async () => {
     const hasNewMessages = await pollDelta();
+    // Double interval up to 30000ms if no new messages, reset to 4000ms immediately on new messages
     pollInterval = hasNewMessages 
       ? 4000 
-      : Math.min(pollInterval * 1.5, maxInterval);
+      : Math.min(pollInterval * 2, maxInterval);
     scheduleNextPoll();
   }, pollInterval);
+}
+
+async function pollStatus() {
+  if (!currentConnId) return false;
+  try {
+    const data = await apiCall(`/api/connections/${currentConnId}`);
+    const c = data.connection;
+    
+    let changed = false;
+    if (!lastConnectionState || 
+        lastConnectionState.status !== c.status ||
+        lastConnectionState.vibe_score !== c.vibe_score ||
+        lastConnectionState.my_reveal !== c.my_reveal ||
+        lastConnectionState.both_revealed !== c.both_revealed) {
+      changed = true;
+    }
+    
+    lastConnectionState = c;
+    updateChatStatus(c);
+    syncActiveGame(c);
+    return changed;
+  } catch (e) {
+    console.error('Failed to poll status:', e);
+  }
+  return false;
 }
 
 function scheduleStatusPoll() {
   if (statusPollTimeout) clearTimeout(statusPollTimeout);
   if (socket && socket.connected) return; // Don't poll if socket is alive
-  if (document.hidden) return; // Don't poll if backgrounded
+  if (document.hidden || checkUserIdle()) return; // Pause entirely if backgrounded or idle
   
   statusPollTimeout = setTimeout(async () => {
-    if (currentConnId) {
-      try {
-        const data = await apiCall(`/api/connections/${currentConnId}`);
-        updateChatStatus(data.connection);
-        syncActiveGame(data.connection);
-      } catch (e) {
-        console.error('Failed to poll status:', e);
-      }
-    }
+    const changed = await pollStatus();
+    // Double interval up to 5 minutes if status is unchanged, reset to 60000ms immediately on change
+    statusPollInterval = changed 
+      ? 60000 
+      : Math.min(statusPollInterval * 2, maxStatusInterval);
     scheduleStatusPoll();
-  }, 60000);
+  }, statusPollInterval);
 }
 
 function startPollingFallback() {
   if (socket && !socket.connected) {
     pollInterval = 4000;
+    statusPollInterval = 60000;
     scheduleNextPoll();
     scheduleStatusPoll();
   }
