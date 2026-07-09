@@ -976,6 +976,10 @@ app.post('/api/connections/reveal', requireAuth, async (req, res) => {
   if (!connection_id) return res.status(400).json({ error: 'Missing connection id' });
   const result = await connectionOps.submitReveal(connection_id, req.session.userId);
   if (result.error) return res.status(400).json(result);
+  
+  if (result.bothRevealed) {
+    io.to(`chat:${connection_id}`).emit('status_change', { connection_id });
+  }
   res.json(result);
 });
 
