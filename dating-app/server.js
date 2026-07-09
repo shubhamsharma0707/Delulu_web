@@ -983,6 +983,58 @@ app.post('/api/connections/reveal', requireAuth, async (req, res) => {
   res.json(result);
 });
 
+// Start icebreaker game
+app.post('/api/connections/:id/start-game', requireAuth, async (req, res) => {
+  const { game_type, question } = req.body;
+  if (!game_type || !question) return res.status(400).json({ error: 'Missing game_type or question' });
+  try {
+    const conn = await connectionOps.getConnection(req.params.id, req.session.userId);
+    if (!conn || conn._dataIntegrityError) return res.status(404).json({ error: 'Connection not found' });
+    
+    const payload = await connectionOps.startGame(req.params.id, game_type, question);
+    
+    // Broadcast status change so both users reload connection state instantly
+    io.to(`chat:${req.params.id}`).emit('status_change', { connection_id: req.params.id });
+    res.json({ success: true, active_game: payload });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Answer icebreaker game
+app.post('/api/connections/:id/answer-game', requireAuth, async (req, res) => {
+  const { answer } = req.body;
+  if (!answer) return res.status(400).json({ error: 'Missing answer' });
+  try {
+    const conn = await connectionOps.getConnection(req.params.id, req.session.userId);
+    if (!conn || conn._dataIntegrityError) return res.status(404).json({ error: 'Connection not found' });
+    
+    const result = await connectionOps.submitGameAnswer(req.params.id, req.session.userId, answer);
+    
+    // Broadcast status change so both users reload connection state instantly
+    io.to(`chat:${req.params.id}`).emit('status_change', { connection_id: req.params.id });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Clear icebreaker game
+app.post('/api/connections/:id/clear-game', requireAuth, async (req, res) => {
+  try {
+    const conn = await connectionOps.getConnection(req.params.id, req.session.userId);
+    if (!conn || conn._dataIntegrityError) return res.status(404).json({ error: 'Connection not found' });
+    
+    const result = await connectionOps.clearGame(req.params.id);
+    
+    // Broadcast status change so both users reload connection state instantly
+    io.to(`chat:${req.params.id}`).emit('status_change', { connection_id: req.params.id });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Increment Vibe Score on connection match
 app.post('/api/connections/increment-vibe-score', requireAuth, async (req, res) => {
   const { connectionId } = req.body;
