@@ -1378,7 +1378,7 @@ app.get('/profile', (req, res) => {
   }
 })();
 
-// Scheduled Sweep for Expired Connections & Requests (every 1 minute)
+// Scheduled Sweep for Expired Connections & Requests (every 30 minutes to conserve Firebase free-tier quota)
 setInterval(async () => {
   try {
     const sweepResult = await connectionOps.sweepExpired();
@@ -1389,7 +1389,7 @@ setInterval(async () => {
   } catch (err) {
     console.error('[Sweep Error]', err);
   }
-}, 60 * 1000);
+}, 30 * 60 * 1000);
 
 
 
