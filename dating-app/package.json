@@ -13,6 +13,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@supabase/supabase-js": "^2.110.2",
     "bcrypt": "^6.0.0",
     "better-sqlite3": "^12.11.1",
     "better-sqlite3-session-store": "^0.1.0",
