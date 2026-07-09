@@ -17,6 +17,7 @@
     "better-sqlite3": "^12.11.1",
     "better-sqlite3-session-store": "^0.1.0",
     "compression": "^1.8.1",
+    "dexie": "^4.4.4",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "express-rate-limit": "^8.5.2",
