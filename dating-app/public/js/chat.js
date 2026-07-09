@@ -10,19 +10,92 @@ let closeModalTimeout = null;
 let otherUserId = null;
 let otherLastReadAt = null;
 let hasReadMessagesInView = false;
-let pollingIntervalId = null;
+let pollingTimeout = null;
+let statusPollTimeout = null;
+let pollInterval = 4000;
+const maxInterval = 30000;
+
+async function pollDelta() {
+  if (!currentConnId) return false;
+  try {
+    const since = typeof messageCache !== 'undefined' ? await messageCache.getLastMessageTime(currentConnId) : null;
+    const data = await apiCall(`/api/messages/${currentConnId}${since ? '?since=' + encodeURIComponent(since) : ''}`);
+    
+    if (data.messages && data.messages.length > 0) {
+      const cont = document.getElementById('chat-messages');
+      const existingIds = new Set();
+      cont.querySelectorAll('[data-msg-id]').forEach(el => {
+        existingIds.add(el.getAttribute('data-msg-id'));
+      });
+      
+      const newMsgs = data.messages.filter(m => !existingIds.has(String(m.id)));
+      if (newMsgs.length > 0) {
+        for (const m of newMsgs) {
+          await appendMessage(m, false);
+        }
+        scrollToBottom();
+        
+        if (typeof messageCache !== 'undefined') {
+          await messageCache.cacheMessages(currentConnId, data.messages);
+        }
+        return true;
+      }
+    }
+  } catch (err) {
+    console.error('pollDelta error:', err);
+  }
+  return false;
+}
+
+function scheduleNextPoll() {
+  if (pollingTimeout) clearTimeout(pollingTimeout);
+  if (socket && socket.connected) return; // Don't poll if socket is alive
+  if (document.hidden) return; // Don't poll if backgrounded
+  
+  pollingTimeout = setTimeout(async () => {
+    const hasNewMessages = await pollDelta();
+    pollInterval = hasNewMessages 
+      ? 4000 
+      : Math.min(pollInterval * 1.5, maxInterval);
+    scheduleNextPoll();
+  }, pollInterval);
+}
+
+function scheduleStatusPoll() {
+  if (statusPollTimeout) clearTimeout(statusPollTimeout);
+  if (socket && socket.connected) return; // Don't poll if socket is alive
+  if (document.hidden) return; // Don't poll if backgrounded
+  
+  statusPollTimeout = setTimeout(async () => {
+    if (currentConnId) {
+      try {
+        const data = await apiCall(`/api/connections/${currentConnId}`);
+        updateChatStatus(data.connection);
+        syncActiveGame(data.connection);
+      } catch (e) {
+        console.error('Failed to poll status:', e);
+      }
+    }
+    scheduleStatusPoll();
+  }, 60000);
+}
 
 function startPollingFallback() {
-  if (pollingIntervalId) return;
-  pollingIntervalId = setInterval(() => {
-    loadMessages().catch(() => {});
-  }, 4000); // Continuous safety net polling every 4 seconds
+  if (socket && !socket.connected) {
+    pollInterval = 4000;
+    scheduleNextPoll();
+    scheduleStatusPoll();
+  }
 }
 
 function stopPollingFallback() {
-  if (pollingIntervalId) {
-    clearInterval(pollingIntervalId);
-    pollingIntervalId = null;
+  if (pollingTimeout) {
+    clearTimeout(pollingTimeout);
+    pollingTimeout = null;
+  }
+  if (statusPollTimeout) {
+    clearTimeout(statusPollTimeout);
+    statusPollTimeout = null;
   }
 }
 
@@ -123,12 +196,22 @@ async function initializeChat() {
         if (Number(msg.sender_id) !== Number(currentUser.id)) {
           appendMessage(msg, true);
           markMessagesAsRead();
+          
+          // Cache incoming message
+          if (typeof messageCache !== 'undefined') {
+            messageCache.cacheSingleMessage(currentConnId, msg).catch(() => {});
+          }
         } else {
           // Update our own sent message: replace temp if needed
           const tempEl = document.querySelector(`[data-temp-id="${msg.tempId || ''}"]`);
           if (tempEl) {
             tempEl.removeAttribute('data-temp-id');
             tempEl.setAttribute('data-msg-id', msg.id);
+            
+            // Cache our own sent message
+            if (typeof messageCache !== 'undefined') {
+              messageCache.cacheSingleMessage(currentConnId, msg).catch(() => {});
+            }
           }
         }
       }
@@ -229,7 +312,10 @@ async function initializeChat() {
     
     socket.on('game-answer', (data) => {
       if (data.connection_id == currentConnId) {
-        loadChatInfo();
+        // Directly update the game card without going through loadChatInfo.
+        // This avoids the race condition where loadMessages(true) clears the
+        // messages container while handleBothAnswered's 2s timer is pending.
+        onGameAnswer(data);
       }
     });
 
@@ -278,12 +364,16 @@ async function initializeChat() {
         const barText = document.getElementById('connection-bar-text');
         if (barText) barText.textContent = 'Reconnecting...';
       }
+      startPollingFallback();
     });
 
     socket.on('connect', () => {
       const bar = document.getElementById('chat-connection-bar');
       if (bar) bar.classList.add('hidden');
       joinChatRoom();
+      stopPollingFallback();
+      loadMessages().catch(() => {});
+      loadChatInfo().catch(() => {});
     });
 
     socket.on('reconnect_error', () => {
@@ -291,24 +381,26 @@ async function initializeChat() {
       if (text) text.textContent = 'Connection lost. Retrying...';
     });
 
-    // Always start polling initially — it acts as a robust background safety net
-    startPollingFallback();
+    // Start polling initially only if socket is not already connected
+    if (socket.connected) {
+      joinChatRoom();
+      stopPollingFallback();
+    } else {
+      startPollingFallback();
+    }
 
     // Listen for tab/visibility state changes to pause/resume polling
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) {
         stopPollingFallback();
       } else {
-        startPollingFallback();
+        if (socket && !socket.connected) {
+          startPollingFallback();
+        }
         loadMessages().catch(() => {});
+        loadChatInfo().catch(() => {});
       }
     });
-
-    // Attempt join now if already connected
-    if (socket.connected) {
-      joinChatRoom();
-    }
-    // (If not connected, the 'connect' event above will call joinChatRoom)
   } else {
     // No socket at all — run polling fallback
     startPollingFallback();
@@ -655,18 +747,7 @@ async function initializeChat() {
   const peekNotVibing = document.getElementById('peek-not-vibing');
   if (peekNotVibing) peekNotVibing.onclick = () => submitVibeAction(2);
 
-  // Poll status (and active game state) every 60 seconds — safety net for missed socket events
-  setInterval(async () => {
-    if (currentConnId) {
-      try {
-        const data = await apiCall(`/api/connections/${currentConnId}`);
-        updateChatStatus(data.connection);
-        syncActiveGame(data.connection);
-      } catch (e) {
-        console.error('Failed to poll status:', e);
-      }
-    }
-  }, 60000);}
+}
 
 // ===== Mark Messages as Read =====
 function markMessagesAsRead() {
@@ -940,8 +1021,9 @@ async function loadMessages(isInitial = false) {
       showChatSkeleton();
     }
     
-    // 2. Fetch from server in background (delta sync by comparing IDs)
-    const data = await apiCall(`/api/messages/${currentConnId}`);
+    // 2. Fetch delta sync from server (passing since timestamp parameter if available)
+    const since = typeof messageCache !== 'undefined' ? await messageCache.getLastMessageTime(currentConnId) : null;
+    const data = await apiCall(`/api/messages/${currentConnId}${since ? '?since=' + encodeURIComponent(since) : ''}`);
     
     if (data.messages && data.messages.length > 0) {
       const existingIds = new Set();
@@ -949,26 +1031,11 @@ async function loadMessages(isInitial = false) {
         existingIds.add(el.getAttribute('data-msg-id'));
       });
       
-      if (existingIds.size > 0) {
-        // Only append messages not already in the DOM
-        const newMsgs = data.messages.filter(m => !existingIds.has(String(m.id)));
-        if (newMsgs.length > 0) {
-          for (const m of newMsgs) {
-            await appendMessage(m, false);
-          }
-          scrollToBottom();
-        }
-      } else {
-        // No messages in DOM — render all
-        // Preserve game elements (icebreaker cards, game messages) when clearing
-        const existingGames = cont.querySelectorAll('[id^="game-"], .w-full.flex.justify-center.my-2.fade-in');
-        cont.innerHTML = '';
-        lastMessageDate = null;
-        for (const m of data.messages) {
+      const newMsgs = data.messages.filter(m => !existingIds.has(String(m.id)));
+      if (newMsgs.length > 0) {
+        for (const m of newMsgs) {
           await appendMessage(m, false);
         }
-        // Re-prepend game elements so they appear at the bottom (flex-col-reverse row)
-        existingGames.forEach(el => cont.prepend(el));
         scrollToBottom();
       }
       
@@ -1834,6 +1901,26 @@ async function blockUser() {
     window.location.href = '/messages';
   } catch (err) {
     alert(err.message);
+  }
+}
+
+function onGameAnswer(data) {
+  // Directly find the game card and update it with the other person's answer
+  const gameEl = document.querySelector('[id^="game-"]');
+  if (!gameEl) return;
+  
+  const statusTextEl = gameEl.querySelector('#game-status-text');
+  if (!statusTextEl) return;
+  
+  const theirAnswer = data.answer; // 'A' or 'B'
+  
+  if (currentGame && currentGame.myAnswer) {
+    // Both have answered — show result immediately
+    handleBothAnswered(gameEl, currentGame.myAnswer, theirAnswer);
+  } else {
+    // The other person answered first — nudge user to pick
+    statusTextEl.textContent = 'The other person has answered! Make your pick to see if you match.';
+    statusTextEl.className = 'text-[10px] text-primary font-semibold mt-2 animate-pulse';
   }
 }
 
