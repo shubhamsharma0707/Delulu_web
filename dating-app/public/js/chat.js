@@ -655,12 +655,13 @@ async function initializeChat() {
   const peekNotVibing = document.getElementById('peek-not-vibing');
   if (peekNotVibing) peekNotVibing.onclick = () => submitVibeAction(2);
 
-  // Poll status every 60 seconds
+  // Poll status (and active game state) every 60 seconds — safety net for missed socket events
   setInterval(async () => {
     if (currentConnId) {
       try {
         const data = await apiCall(`/api/connections/${currentConnId}`);
         updateChatStatus(data.connection);
+        syncActiveGame(data.connection);
       } catch (e) {
         console.error('Failed to poll status:', e);
       }
@@ -1628,9 +1629,14 @@ function startGame(gameType) {
 function syncActiveGame(c) {
   const existingGame = document.querySelector('[id^="game-"]');
   if (!c.active_game) {
-    if (existingGame) {
+    // Defense-in-depth: only remove if the tracked game matches.
+    // Prevents a stale status_change from clear-game removing a newly created game.
+    if (existingGame && currentGame && existingGame.id === currentGame.domId) {
       existingGame.remove();
       currentGame = null;
+    } else if (existingGame && !currentGame) {
+      // No tracked game — safe to remove (no new game could be using it)
+      existingGame.remove();
     }
     return;
   }
@@ -1645,7 +1651,7 @@ function syncActiveGame(c) {
   if (!existingGame || existingGame.id !== gameId) {
     if (existingGame) existingGame.remove();
     
-    currentGame = { gameType: game.game_type, question: game.question, myAnswer, otherAnswer };
+    currentGame = { domId: gameId, gameType: game.game_type, question: game.question, myAnswer, otherAnswer };
     
     const msgDiv = document.createElement('div');
     msgDiv.className = 'w-full flex justify-center my-3 fade-in';
