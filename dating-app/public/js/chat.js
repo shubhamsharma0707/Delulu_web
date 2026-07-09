@@ -920,11 +920,15 @@ async function loadMessages(isInitial = false) {
       const cached = await messageCache.getCachedMessages(currentConnId);
       if (cached.length > 0) {
         hasCachedMessages = true;
+        // Preserve game elements (icebreaker cards, game messages) when clearing
+        const existingGames = cont.querySelectorAll('[id^="game-"], .w-full.flex.justify-center.my-2.fade-in');
         cont.innerHTML = '';
         lastMessageDate = null;
         for (const m of cached) {
           await appendMessage(m, false);
         }
+        // Re-prepend game elements so they appear at the bottom (flex-col-reverse)
+        existingGames.forEach(el => cont.prepend(el));
         scrollToBottom();
       }
     }
@@ -954,11 +958,15 @@ async function loadMessages(isInitial = false) {
         }
       } else {
         // No messages in DOM — render all
+        // Preserve game elements (icebreaker cards, game messages) when clearing
+        const existingGames = cont.querySelectorAll('[id^="game-"], .w-full.flex.justify-center.my-2.fade-in');
         cont.innerHTML = '';
         lastMessageDate = null;
         for (const m of data.messages) {
           await appendMessage(m, false);
         }
+        // Re-prepend game elements so they appear at the bottom (flex-col-reverse row)
+        existingGames.forEach(el => cont.prepend(el));
         scrollToBottom();
       }
       
