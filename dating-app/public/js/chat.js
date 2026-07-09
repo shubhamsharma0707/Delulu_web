@@ -98,68 +98,27 @@ async function initializeChat() {
   currentConnId = connId;
   loadChatInfo();
   
-  // Connection status bar + outbox flush + BroadcastChannel
-  if (socket) {
-    socket.on('disconnect', () => {
-      const bar = document.getElementById('chat-connection-bar');
-      if (bar) {
-        bar.classList.remove('hidden');
-        document.getElementById('connection-bar-text').textContent = 'Reconnecting...';
-      }
-      startPollingFallback();
-    });
-    socket.on('connect', () => {
-      const bar = document.getElementById('chat-connection-bar');
-      if (bar) bar.classList.add('hidden');
-      stopPollingFallback();
-      if (currentConnId) {
-        socket.emit('join-chat', currentConnId);
-        
-        // Flush any pending messages from offline outbox
-        if (typeof outboxQueue !== 'undefined') {
-          outboxQueue.flushPending(socket).catch(() => {});
-        }
-        
-        // Setup multi-tab sync via BroadcastChannel
-        if (typeof initBroadcastChannel !== 'undefined') {
-          initBroadcastChannel(currentConnId, (data) => {
-            if (data.type === 'messages-read') {
-              // Another tab marked messages as read — update UI
-              if (data.connectionId == currentConnId) {
-                otherLastReadAt = data.at || new Date().toISOString();
-                document.querySelectorAll('[data-msg-id]').forEach(el => {
-                  const statusIcon = el.querySelector('.msg-status-icon');
-                  if (statusIcon) {
-                    statusIcon.innerHTML = '<span class="text-[11px] text-blue-500 material-symbols-outlined text-[14px] align-middle" style="font-variation-settings: \'FILL\' 1">done_all</span>';
-                  }
-                });
-              }
-            }
-          });
-        }
-      }
-    });
-    socket.on('reconnect_error', () => {
-      const text = document.getElementById('connection-bar-text');
-      if (text) text.textContent = 'Connection lost. Retrying...';
-      startPollingFallback();
-    });
-  }
-  
-  // Connect socket explicitly since shared.js initializes io
-  if (socket) {
-    if (!socket.connected) {
-      startPollingFallback();
-    } else {
-      stopPollingFallback();
-    }
-    socket.emit('join-chat', currentConnId);
-    
+  // ── Socket setup ──────────────────────────────────────────────────────────
+  // We need to guard against duplicate listener registration (e.g. hot module
+  // reload or double-call). Socket.io listeners accumulate if not cleaned up.
+  function setupChatSocketListeners() {
+    if (!socket) return;
+
+    // Remove any previously registered chat-specific listeners to prevent doubles
+    socket.off('new-message');
+    socket.off('message-reacted');
+    socket.off('message-deleted');
+    socket.off('messages-read');
+    socket.off('user-online');
+    socket.off('user-offline');
+    socket.off('presence-bulk');
+    socket.off('typing');
+    socket.off('status_change');
+
     socket.on('new-message', (msg) => {
       if (msg.connection_id == currentConnId) {
         if (msg.sender_id !== currentUser.id) {
           appendMessage(msg, true);
-          // Auto-mark as read if the chat is visible
           markMessagesAsRead();
         } else {
           // Update our own sent message: replace temp if needed
@@ -189,37 +148,30 @@ async function initializeChat() {
         p.className = 'text-[15px] italic opacity-70 break-words';
         p.textContent = 'This message was deleted';
         inner.appendChild(p);
-        
         const timeEl = document.createElement('div');
         timeEl.className = 'text-[10px] mt-1 text-right text-on-surface-variant/70';
         timeEl.textContent = 'deleted';
         inner.appendChild(timeEl);
-
         const btn = el.querySelector('.more-actions-btn');
         if (btn) btn.remove();
       }
     });
 
-    // Listen for read receipts
     socket.on('messages-read', (data) => {
       if (data.connectionId == currentConnId) {
         otherLastReadAt = new Date().toISOString();
-        // Update all message status icons in view
         document.querySelectorAll('[data-msg-id]').forEach(el => {
-          const msgId = el.getAttribute('data-msg-id');
           const statusIcon = el.querySelector('.msg-status-icon');
           if (statusIcon) {
             statusIcon.innerHTML = '<span class="text-[11px] text-blue-500 material-symbols-outlined text-[14px] align-middle" style="font-variation-settings: \'FILL\' 1">done_all</span>';
           }
         });
-        // Broadcast to other tabs
         if (typeof broadcastToTabs !== 'undefined') {
           broadcastToTabs({ type: 'messages-read', connectionId: currentConnId, at: otherLastReadAt });
         }
       }
     });
 
-    // Listen for presence updates
     socket.on('user-online', (data) => {
       if (data.userId === otherUserId) {
         const statusEl = document.getElementById('chat-status');
@@ -228,16 +180,14 @@ async function initializeChat() {
         }
       }
     });
-    
+
     socket.on('user-offline', (data) => {
       if (data.userId === otherUserId) {
         const statusEl = document.getElementById('chat-status');
-        if (statusEl) {
-          statusEl.innerHTML = `Last seen ${formatRelativeTime(data.lastSeen)}`;
-        }
+        if (statusEl) statusEl.innerHTML = `Last seen ${formatRelativeTime(data.lastSeen)}`;
       }
     });
-    
+
     socket.on('presence-bulk', (statuses) => {
       if (otherUserId && statuses[otherUserId] !== undefined) {
         updatePresenceDisplay(statuses[otherUserId]);
@@ -252,19 +202,80 @@ async function initializeChat() {
           if (!originalStatus) originalStatus = statusEl.innerHTML;
           statusEl.innerHTML = `<span class="italic animate-pulse">typing...</span>`;
         } else {
-          if (originalStatus) {
-            statusEl.innerHTML = originalStatus;
-            originalStatus = '';
-          }
+          if (originalStatus) { statusEl.innerHTML = originalStatus; originalStatus = ''; }
         }
       }
     });
 
     socket.on('status_change', (data) => {
-      if (data.connection_id == currentConnId) {
-        loadChatInfo(); // refresh status and UI
-      }
+      if (data.connection_id == currentConnId) loadChatInfo();
     });
+  }
+
+  function joinChatRoom() {
+    if (!socket || !currentConnId) return;
+    socket.emit('join-chat', currentConnId);
+    if (typeof outboxQueue !== 'undefined') {
+      outboxQueue.flushPending(socket).catch(() => {});
+    }
+    if (typeof initBroadcastChannel !== 'undefined') {
+      initBroadcastChannel(currentConnId, (data) => {
+        if (data.type === 'messages-read' && data.connectionId == currentConnId) {
+          otherLastReadAt = data.at || new Date().toISOString();
+          document.querySelectorAll('[data-msg-id]').forEach(el => {
+            const statusIcon = el.querySelector('.msg-status-icon');
+            if (statusIcon) {
+              statusIcon.innerHTML = '<span class="text-[11px] text-blue-500 material-symbols-outlined text-[14px] align-middle" style="font-variation-settings: \'FILL\' 1">done_all</span>';
+            }
+          });
+        }
+      });
+    }
+  }
+
+  if (socket) {
+    // Register all message/presence listeners once
+    setupChatSocketListeners();
+
+    // Always join the room on (re)connect — this covers initial connect AND reconnects
+    socket.off('disconnect.chatbar');
+    socket.off('connect.chatbar');
+    socket.off('reconnect_error.chatbar');
+
+    socket.on('disconnect', () => {
+      const bar = document.getElementById('chat-connection-bar');
+      if (bar) {
+        bar.classList.remove('hidden');
+        const barText = document.getElementById('connection-bar-text');
+        if (barText) barText.textContent = 'Reconnecting...';
+      }
+      startPollingFallback();
+    });
+
+    socket.on('connect', () => {
+      const bar = document.getElementById('chat-connection-bar');
+      if (bar) bar.classList.add('hidden');
+      stopPollingFallback();
+      joinChatRoom();
+    });
+
+    socket.on('reconnect_error', () => {
+      const text = document.getElementById('connection-bar-text');
+      if (text) text.textContent = 'Connection lost. Retrying...';
+      startPollingFallback();
+    });
+
+    // Join room now if already connected, otherwise wait for the 'connect' event above
+    if (socket.connected) {
+      stopPollingFallback();
+      joinChatRoom();
+    } else {
+      // Socket is still doing its initial handshake — start fallback poll until connected
+      startPollingFallback();
+    }
+  } else {
+    // No socket at all — run polling fallback
+    startPollingFallback();
   }
 
   // Scroll to bottom button
