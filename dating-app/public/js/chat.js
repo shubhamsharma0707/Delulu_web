@@ -112,6 +112,10 @@ async function initializeChat() {
     socket.off('presence-bulk');
     socket.off('typing');
     socket.off('status_change');
+    socket.off('connection-ended');
+    socket.off('game-question');
+    socket.off('game-answer');
+    socket.off('vibe-score-updated');
 
     socket.on('new-message', (msg) => {
       // Use Number() coercion for safe comparison regardless of int/string type
@@ -208,6 +212,31 @@ async function initializeChat() {
 
     socket.on('status_change', (data) => {
       if (data.connection_id == currentConnId) loadChatInfo();
+    });
+
+    socket.on('connection-ended', ({ connectionId, message }) => {
+      if (connectionId == currentConnId) {
+        alert(message);
+        window.location.href = '/discover';
+      }
+    });
+    
+    socket.on('game-question', (data) => {
+      if (data.connection_id == currentConnId) {
+        receiveGameQuestion(data);
+      }
+    });
+    
+    socket.on('game-answer', (data) => {
+      if (data.connection_id == currentConnId) {
+        receiveGameAnswer(data);
+      }
+    });
+
+    socket.on('vibe-score-updated', (data) => {
+      if (data.connectionId == currentConnId) {
+        handleVibeScoreUpdated(data);
+      }
     });
   }
 
@@ -636,36 +665,7 @@ async function initializeChat() {
         console.error('Failed to poll status:', e);
       }
     }
-  }, 60000);
-
-  // Register socket listeners for connection-ended and icebreaker games
-  if (socket) {
-    socket.on('connection-ended', ({ connectionId, message }) => {
-      if (connectionId == currentConnId) {
-        alert(message);
-        window.location.href = '/discover';
-      }
-    });
-    
-    socket.on('game-question', (data) => {
-      if (data.connection_id == currentConnId) {
-        receiveGameQuestion(data);
-      }
-    });
-    
-    socket.on('game-answer', (data) => {
-      if (data.connection_id == currentConnId) {
-        receiveGameAnswer(data);
-      }
-    });
-
-    socket.on('vibe-score-updated', (data) => {
-      if (data.connectionId == currentConnId) {
-        handleVibeScoreUpdated(data);
-      }
-    });
-  }
-}
+  }, 60000);}
 
 // ===== Mark Messages as Read =====
 function markMessagesAsRead() {
