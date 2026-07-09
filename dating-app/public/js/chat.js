@@ -10,6 +10,7 @@ let closeModalTimeout = null;
 let otherUserId = null;
 let otherLastReadAt = null;
 let hasReadMessagesInView = false;
+let lastMessageTimestamp = null;
 let pollingTimeout = null;
 let statusPollTimeout = null;
 let pollInterval = 4000;
@@ -52,7 +53,7 @@ function checkUserIdle() {
 async function pollDelta() {
   if (!currentConnId) return false;
   try {
-    const since = typeof messageCache !== 'undefined' ? await messageCache.getLastMessageTime(currentConnId) : null;
+    const since = lastMessageTimestamp;
     const data = await apiCall(`/api/messages/${currentConnId}${since ? '?since=' + encodeURIComponent(since) : ''}`);
     
     if (data.messages && data.messages.length > 0) {
@@ -224,6 +225,7 @@ async function initializeChat() {
   }
   
   currentConnId = connId;
+  lastMessageTimestamp = null;
   loadChatInfo();
   
   // ── Socket setup ──────────────────────────────────────────────────────────
@@ -1079,7 +1081,7 @@ async function loadMessages(isInitial = false) {
     }
     
     // 2. Fetch delta sync from server (passing since timestamp parameter if available)
-    const since = typeof messageCache !== 'undefined' ? await messageCache.getLastMessageTime(currentConnId) : null;
+    const since = lastMessageTimestamp;
     const data = await apiCall(`/api/messages/${currentConnId}${since ? '?since=' + encodeURIComponent(since) : ''}`);
     
     if (data.messages && data.messages.length > 0) {
@@ -1228,6 +1230,9 @@ async function appendMessage(m, scrollToBottom = true) {
   
   // Add date divider if date changed
   if (m.created_at) {
+    if (!lastMessageTimestamp || m.created_at > lastMessageTimestamp) {
+      lastMessageTimestamp = m.created_at;
+    }
     const msgDate = new Date(m.created_at).toDateString();
     if (msgDate !== lastMessageDate) {
       lastMessageDate = msgDate;
