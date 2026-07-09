@@ -294,6 +294,7 @@ io.on('connection', async (socket) => {
   const userId = socket.request.session?.userId;
   if (!userId) {
     console.log(`Socket connection rejected: No session userId for socket ${socket.id}`);
+    socket.disconnect(true);
     return;
   }
 
