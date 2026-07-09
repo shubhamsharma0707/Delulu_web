@@ -804,16 +804,27 @@ const messageOps = {
     return { count };
   },
 
-  async getRecentForConnection(connectionId, limit = 50) {
-    const snapshot = await getDB().collection('messages')
-      .where('connection_id', '==', Number(connectionId))
-      .orderBy('created_at', 'desc')
-      .limit(limit)
-      .get();
+  async getRecentForConnection(connectionId, limit = 50, since = null) {
+    const firestore = getDB();
+    let query = firestore.collection('messages')
+      .where('connection_id', '==', Number(connectionId));
       
+    if (since) {
+      query = query.where('created_at', '>', since)
+                   .orderBy('created_at', 'asc');
+    } else {
+      query = query.orderBy('created_at', 'desc');
+    }
+    
+    const snapshot = await query.limit(limit).get();
     const messages = [];
     snapshot.forEach(doc => messages.push(doc.data()));
-    return messages.reverse();
+    
+    if (since) {
+      return messages;
+    } else {
+      return messages.reverse();
+    }
   }
 };
 
