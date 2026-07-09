@@ -97,6 +97,24 @@ function updateHeaderAvatar() {
   }
 }
 
+let reconnectBanner = null;
+
+function showReconnectBanner() {
+  if (reconnectBanner) return;
+  reconnectBanner = document.createElement('div');
+  reconnectBanner.id = 'reconnect-banner';
+  reconnectBanner.className = 'fixed top-0 left-0 w-full z-[9999] bg-error/90 text-white text-center text-xs font-bold py-2 px-4 backdrop-blur-sm';
+  reconnectBanner.innerHTML = '<span class="material-symbols-outlined text-sm align-middle mr-1">wifi_off</span> Connection lost. Reconnecting...';
+  document.body.prepend(reconnectBanner);
+}
+
+function hideReconnectBanner() {
+  if (reconnectBanner) {
+    reconnectBanner.remove();
+    reconnectBanner = null;
+  }
+}
+
 function initGlobalSocket() {
   if (typeof io !== 'undefined' && !socket) {
     // Connect with minimal transport options for speed
@@ -104,6 +122,24 @@ function initGlobalSocket() {
       transports: ['websocket', 'polling'], // prefer WebSocket for lower latency
       upgrade: false,
       forceNew: false
+    });
+    
+    socket.on('disconnect', (reason) => {
+      console.log('Socket disconnected:', reason);
+      showReconnectBanner();
+    });
+    
+    socket.on('connect', () => {
+      console.log('Socket reconnected');
+      hideReconnectBanner();
+    });
+    
+    socket.on('reconnect_attempt', () => {
+      console.log('Socket reconnecting...');
+    });
+    
+    socket.on('reconnect_error', (err) => {
+      console.error('Socket reconnect error:', err);
     });
   }
 }
