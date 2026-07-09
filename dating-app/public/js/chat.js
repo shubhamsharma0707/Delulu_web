@@ -93,6 +93,9 @@ async function initializeChat() {
     socket.on('connect', () => {
       const bar = document.getElementById('chat-connection-bar');
       if (bar) bar.classList.add('hidden');
+      if (currentConnId) {
+        socket.emit('join-chat', currentConnId);
+      }
     });
     socket.on('reconnect_error', () => {
       const text = document.getElementById('connection-bar-text');
@@ -302,12 +305,21 @@ async function initializeChat() {
           payload.iv = encrypted.iv;
         }
 
-        await apiCall('/api/messages/send', 'POST', payload);
+        const result = await apiCall('/api/messages/send', 'POST', payload);
         
-        // Remove sending state on success
+        // Remove sending state on success and set actual message ID on the element
         const msgEl = document.getElementById(tempId);
         if (msgEl) {
           msgEl.classList.remove('opacity-60');
+          if (result && result.message && result.message.id) {
+            msgEl.setAttribute('data-msg-id', result.message.id);
+            
+            // Update status icon to single checkmark
+            const statusIcon = msgEl.querySelector('.msg-status-icon');
+            if (statusIcon) {
+              statusIcon.innerHTML = '<span class="text-[11px] opacity-70 material-symbols-outlined text-[14px] align-middle">check</span>';
+            }
+          }
           msgEl.removeAttribute('id');
         }
       } catch (err) {
@@ -1043,7 +1055,13 @@ async function appendMessage(m, scrollToBottom = true) {
   actionsBtn.innerHTML = '<span class="material-symbols-outlined text-[16px]">more_vert</span>';
   actionsBtn.onclick = (e) => {
     e.stopPropagation();
-    showMessageMenu(e, m, inner);
+    const currentId = div.getAttribute('data-msg-id');
+    if (!currentId) {
+      alert('Please wait for the message to finish sending.');
+      return;
+    }
+    const currentMsg = { ...m, id: Number(currentId) };
+    showMessageMenu(e, currentMsg, inner);
   };
 
   if (isMe) {
