@@ -619,6 +619,53 @@ const connectionOps = {
     return { success: true, bothRevealed: false };
   },
 
+  async startGame(connectionId, gameType, question) {
+    const firestore = getDB();
+    const connDocRef = firestore.collection('connections').doc(String(connectionId));
+    const payload = {
+      game_type: gameType,
+      question,
+      answers: {},
+      created_at: new Date().toISOString()
+    };
+    await connDocRef.update({ active_game: payload });
+    return payload;
+  },
+
+  async submitGameAnswer(connectionId, userId, answer) {
+    const firestore = getDB();
+    const connDocRef = firestore.collection('connections').doc(String(connectionId));
+    
+    let bothAnswered = false;
+    let gameData = null;
+    await firestore.runTransaction(async (transaction) => {
+      const doc = await transaction.get(connDocRef);
+      if (!doc.exists) throw new Error('Connection not found');
+      const conn = doc.data();
+      const activeGame = conn.active_game || null;
+      if (!activeGame) throw new Error('No active game found');
+      
+      const answers = activeGame.answers || {};
+      answers[String(userId)] = answer;
+      activeGame.answers = answers;
+      
+      transaction.update(connDocRef, { active_game: activeGame });
+      
+      const otherId = conn.from_user_id === Number(userId) ? conn.to_user_id : conn.from_user_id;
+      bothAnswered = (answers[String(userId)] !== undefined) && (answers[String(otherId)] !== undefined);
+      gameData = activeGame;
+    });
+    
+    return { success: true, bothAnswered, gameData };
+  },
+
+  async clearGame(connectionId) {
+    const firestore = getDB();
+    const connDocRef = firestore.collection('connections').doc(String(connectionId));
+    await connDocRef.update({ active_game: null });
+    return { success: true };
+  },
+
   
   async sweepExpired() {
     const firestore = getDB();
