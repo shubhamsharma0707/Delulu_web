@@ -72,7 +72,7 @@ function createDateDivider(dateStr) {
 
 // Check if message should show read status
 function isMessageRead(msg) {
-  if (msg.sender_id !== currentUser.id) return false; // Only show for own messages
+  if (Number(msg.sender_id) !== Number(currentUser.id)) return false; // Only show for own messages
   if (msg.deleted) return false;
   if (otherLastReadAt && msg.created_at) {
     return new Date(msg.created_at) <= new Date(otherLastReadAt);
@@ -116,8 +116,9 @@ async function initializeChat() {
     socket.off('status_change');
 
     socket.on('new-message', (msg) => {
-      if (msg.connection_id == currentConnId) {
-        if (msg.sender_id !== currentUser.id) {
+      // Use Number() coercion for safe comparison regardless of int/string type
+      if (Number(msg.connection_id) === Number(currentConnId)) {
+        if (Number(msg.sender_id) !== Number(currentUser.id)) {
           appendMessage(msg, true);
           markMessagesAsRead();
         } else {
@@ -237,10 +238,11 @@ async function initializeChat() {
     // Register all message/presence listeners once
     setupChatSocketListeners();
 
-    // Always join the room on (re)connect — this covers initial connect AND reconnects
-    socket.off('disconnect.chatbar');
-    socket.off('connect.chatbar');
-    socket.off('reconnect_error.chatbar');
+    // Clean up any stale connection-lifecycle listeners before re-adding
+    socket.off('disconnect');
+    socket.off('connect');
+    socket.off('reconnect_error');
+    socket.off('room-joined');
 
     socket.on('disconnect', () => {
       const bar = document.getElementById('chat-connection-bar');
@@ -255,8 +257,16 @@ async function initializeChat() {
     socket.on('connect', () => {
       const bar = document.getElementById('chat-connection-bar');
       if (bar) bar.classList.add('hidden');
-      stopPollingFallback();
+      // Keep polling until server confirms the room join was successful
       joinChatRoom();
+    });
+
+    // Server confirms room join succeeded — ONLY then stop polling
+    socket.on('room-joined', (data) => {
+      if (data.connectionId == currentConnId) {
+        stopPollingFallback();
+        console.log('Room join confirmed by server, stopping polling fallback');
+      }
     });
 
     socket.on('reconnect_error', () => {
@@ -265,14 +275,14 @@ async function initializeChat() {
       startPollingFallback();
     });
 
-    // Join room now if already connected, otherwise wait for the 'connect' event above
+    // Always start polling initially — it stops only once server confirms room join
+    startPollingFallback();
+
+    // Attempt join now if already connected
     if (socket.connected) {
-      stopPollingFallback();
       joinChatRoom();
-    } else {
-      // Socket is still doing its initial handshake — start fallback poll until connected
-      startPollingFallback();
     }
+    // (If not connected, the 'connect' event above will call joinChatRoom)
   } else {
     // No socket at all — run polling fallback
     startPollingFallback();
@@ -1022,7 +1032,7 @@ function showMessageMenu(e, msg, bubbleEl) {
   
   const rect = btn.getBoundingClientRect();
   menu.style.top = `${rect.bottom + window.scrollY + 5}px`;
-  if (msg.sender_id === currentUser.id) {
+  if (Number(msg.sender_id) === Number(currentUser.id)) {
     menu.style.right = `${window.innerWidth - rect.right}px`;
   } else {
     menu.style.left = `${rect.left}px`;
@@ -1045,7 +1055,7 @@ function showMessageMenu(e, msg, bubbleEl) {
   });
   menu.appendChild(emojiRow);
 
-  if (msg.sender_id === currentUser.id) {
+  if (Number(msg.sender_id) === Number(currentUser.id)) {
     const delBtn = document.createElement('button');
     delBtn.className = 'w-full text-left px-3 py-1.5 text-error text-xs font-bold hover:bg-error/10 rounded-lg transition-colors flex items-center gap-2 cursor-pointer';
     delBtn.innerHTML = '<span class="material-symbols-outlined text-sm">delete</span> Delete Message';
@@ -1082,7 +1092,7 @@ let lastMessageDate = null;
 
 async function appendMessage(m, scrollToBottom = true) {
   const cont = document.getElementById('chat-messages');
-  const isMe = m.sender_id === currentUser.id;
+  const isMe = Number(m.sender_id) === Number(currentUser.id);
   const time = formatTime(m.created_at);
   
   // Add date divider if date changed
