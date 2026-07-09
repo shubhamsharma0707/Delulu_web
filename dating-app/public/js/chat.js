@@ -1662,6 +1662,12 @@ function showGameUI(gameType, question) {
           apiCall('/api/connections/increment-vibe-score', 'POST', { connectionId: currentConnId })
             .catch(err => console.error('Failed to increment vibe score:', err));
         }
+
+        // Dissolve/remove the card after 2 seconds
+        setTimeout(() => {
+          msgDiv.classList.add('transition-opacity', 'duration-500', 'opacity-0');
+          setTimeout(() => msgDiv.remove(), 500);
+        }, 2000);
       }
     };
   });
@@ -1729,6 +1735,12 @@ function receiveGameAnswer(data) {
         b.style.opacity = '0.5';
         b.disabled = true;
       });
+
+      // Dissolve/remove the card after 2 seconds
+      setTimeout(() => {
+        gameEl.classList.add('transition-opacity', 'duration-500', 'opacity-0');
+        setTimeout(() => gameEl.remove(), 500);
+      }, 2000);
     } else {
       // The current user hasn't answered yet — update text helper to NUDGE them without revealing the choice
       const statusTextEl = gameEl.querySelector('#game-status-text');
