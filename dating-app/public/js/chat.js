@@ -764,7 +764,7 @@ async function loadChatInfo() {
     }
     
     updateChatStatus(c);
-    loadMessages();
+    loadMessages(true);
     
     // Mark messages as read shortly after loading
     setTimeout(() => markMessagesAsRead(), 500);
@@ -893,12 +893,12 @@ function showChatSkeleton() {
   });
 }
 
-async function loadMessages() {
+async function loadMessages(isInitial = false) {
   const cont = document.getElementById('chat-messages');
   let hasCachedMessages = false;
   try {
-    // 1. Render from IndexedDB cache instantly (no network wait)
-    if (typeof messageCache !== 'undefined') {
+    // 1. Render from IndexedDB cache instantly on initial load (no network wait)
+    if (isInitial && typeof messageCache !== 'undefined') {
       const cached = await messageCache.getCachedMessages(currentConnId);
       if (cached.length > 0) {
         hasCachedMessages = true;
@@ -911,7 +911,8 @@ async function loadMessages() {
       }
     }
     
-    if (!hasCachedMessages) {
+    // Only show skeleton on initial load if no cache is present
+    if (isInitial && !hasCachedMessages) {
       showChatSkeleton();
     }
     
@@ -919,26 +920,30 @@ async function loadMessages() {
     const data = await apiCall(`/api/messages/${currentConnId}`);
     
     if (data.messages && data.messages.length > 0) {
-      if (hasCachedMessages) {
+      const existingIds = new Set();
+      cont.querySelectorAll('[data-msg-id]').forEach(el => {
+        existingIds.add(el.getAttribute('data-msg-id'));
+      });
+      
+      if (existingIds.size > 0) {
         // Only append messages not already in the DOM
-        const existingIds = new Set();
-        cont.querySelectorAll('[data-msg-id]').forEach(el => {
-          existingIds.add(el.getAttribute('data-msg-id'));
-        });
         const newMsgs = data.messages.filter(m => !existingIds.has(String(m.id)));
         if (newMsgs.length > 0) {
           for (const m of newMsgs) {
             await appendMessage(m, false);
           }
+          scrollToBottom();
         }
       } else {
-        // No cache — render all messages
+        // No messages in DOM — render all
         cont.innerHTML = '';
         lastMessageDate = null;
         for (const m of data.messages) {
           await appendMessage(m, false);
         }
+        scrollToBottom();
       }
+      
       // Cache all messages for next instant render
       if (typeof messageCache !== 'undefined') {
         messageCache.cacheMessages(currentConnId, data.messages).catch(() => {});
