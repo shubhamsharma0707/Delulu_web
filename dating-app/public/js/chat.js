@@ -7,6 +7,61 @@ let otherPublicKey = null;
 let sharedSecretKey = null;
 let isE2EEActive = false;
 let closeModalTimeout = null;
+let otherUserId = null;
+let otherLastReadAt = null;
+let hasReadMessagesInView = false;
+
+// Helper: format relative time for status
+function formatRelativeTime(dateStr) {
+  if (!dateStr) return '';
+  const now = new Date();
+  const d = new Date(dateStr);
+  const diffMs = now - d;
+  const diffSec = Math.floor(diffMs / 1000);
+  const diffMin = Math.floor(diffSec / 60);
+  const diffHour = Math.floor(diffMin / 60);
+  const diffDay = Math.floor(diffHour / 24);
+  
+  if (diffSec < 60) return 'just now';
+  if (diffMin < 60) return `${diffMin}m ago`;
+  if (diffHour < 24) return `${diffHour}h ago`;
+  if (diffDay < 7) return `${diffDay}d ago`;
+  return d.toLocaleDateString();
+}
+
+// Helper: create date divider element
+function createDateDivider(dateStr) {
+  const now = new Date();
+  const msgDate = new Date(dateStr);
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const msgDay = new Date(msgDate.getFullYear(), msgDate.getMonth(), msgDate.getDate());
+  const diffDays = Math.floor((today - msgDay) / (1000 * 60 * 60 * 24));
+  
+  let label;
+  if (diffDays === 0) label = 'Today';
+  else if (diffDays === 1) label = 'Yesterday';
+  else if (diffDays < 7) {
+    const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    label = days[msgDate.getDay()];
+  } else {
+    label = msgDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+  
+  const div = document.createElement('div');
+  div.className = 'flex justify-center my-3 fade-in';
+  div.innerHTML = `<span class="px-4 py-1 rounded-full bg-surface-variant/60 text-on-surface-variant text-[11px] font-semibold backdrop-blur-sm">${label}</span>`;
+  return div;
+}
+
+// Check if message should show read status
+function isMessageRead(msg) {
+  if (msg.sender_id !== currentUser.id) return false; // Only show for own messages
+  if (msg.deleted) return false;
+  if (otherLastReadAt && msg.created_at) {
+    return new Date(msg.created_at) <= new Date(otherLastReadAt);
+  }
+  return false;
+}
 
 async function initializeChat() {
   try {
@@ -26,13 +81,43 @@ async function initializeChat() {
   currentConnId = connId;
   loadChatInfo();
   
+  // Connection status bar
+  if (socket) {
+    socket.on('disconnect', () => {
+      const bar = document.getElementById('chat-connection-bar');
+      if (bar) {
+        bar.classList.remove('hidden');
+        document.getElementById('connection-bar-text').textContent = 'Reconnecting...';
+      }
+    });
+    socket.on('connect', () => {
+      const bar = document.getElementById('chat-connection-bar');
+      if (bar) bar.classList.add('hidden');
+    });
+    socket.on('reconnect_error', () => {
+      const text = document.getElementById('connection-bar-text');
+      if (text) text.textContent = 'Connection lost. Retrying...';
+    });
+  }
+  
   // Connect socket explicitly since shared.js initializes io
   if (socket) {
     socket.emit('join-chat', currentConnId);
     
     socket.on('new-message', (msg) => {
-      if (msg.connection_id == currentConnId && msg.sender_id !== currentUser.id) {
-        appendMessage(msg, true);
+      if (msg.connection_id == currentConnId) {
+        if (msg.sender_id !== currentUser.id) {
+          appendMessage(msg, true);
+          // Auto-mark as read if the chat is visible
+          markMessagesAsRead();
+        } else {
+          // Update our own sent message: replace temp if needed
+          const tempEl = document.querySelector(`[data-temp-id="${msg.tempId || ''}"]`);
+          if (tempEl) {
+            tempEl.removeAttribute('data-temp-id');
+            tempEl.setAttribute('data-msg-id', msg.id);
+          }
+        }
       }
     });
 
@@ -64,6 +149,46 @@ async function initializeChat() {
       }
     });
 
+    // Listen for read receipts
+    socket.on('messages-read', (data) => {
+      if (data.connectionId == currentConnId) {
+        otherLastReadAt = new Date().toISOString();
+        // Update all message status icons in view
+        document.querySelectorAll('[data-msg-id]').forEach(el => {
+          const msgId = el.getAttribute('data-msg-id');
+          const statusIcon = el.querySelector('.msg-status-icon');
+          if (statusIcon) {
+            statusIcon.innerHTML = '<span class="text-[11px] text-blue-500 material-symbols-outlined text-[14px] align-middle" style="font-variation-settings: \'FILL\' 1">done_all</span>';
+          }
+        });
+      }
+    });
+
+    // Listen for presence updates
+    socket.on('user-online', (data) => {
+      if (data.userId === otherUserId) {
+        const statusEl = document.getElementById('chat-status');
+        if (statusEl && !statusEl.querySelector('.animate-pulse')) {
+          statusEl.innerHTML = `<span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-green-500 inline-block"></span> Online</span>`;
+        }
+      }
+    });
+    
+    socket.on('user-offline', (data) => {
+      if (data.userId === otherUserId) {
+        const statusEl = document.getElementById('chat-status');
+        if (statusEl) {
+          statusEl.innerHTML = `Last seen ${formatRelativeTime(data.lastSeen)}`;
+        }
+      }
+    });
+    
+    socket.on('presence-bulk', (statuses) => {
+      if (otherUserId && statuses[otherUserId] !== undefined) {
+        updatePresenceDisplay(statuses[otherUserId]);
+      }
+    });
+
     let originalStatus = '';
     socket.on('typing', (data) => {
       if (data.userId !== currentUser.id) {
@@ -87,6 +212,27 @@ async function initializeChat() {
     });
   }
 
+  // Scroll to bottom button
+  const messagesContainer = document.getElementById('chat-messages');
+  const scrollBottomBtn = document.getElementById('btn-scroll-bottom');
+  
+  if (messagesContainer && scrollBottomBtn) {
+    messagesContainer.addEventListener('scroll', () => {
+      const isNearBottom = messagesContainer.scrollTop > -200;
+      if (isNearBottom) {
+        scrollBottomBtn.classList.add('opacity-0', 'pointer-events-none');
+        scrollBottomBtn.classList.remove('opacity-100', 'pointer-events-auto');
+      } else {
+        scrollBottomBtn.classList.remove('opacity-0', 'pointer-events-none');
+        scrollBottomBtn.classList.add('opacity-100', 'pointer-events-auto');
+      }
+    });
+    
+    scrollBottomBtn.onclick = () => {
+      scrollToBottom();
+    };
+  }
+  
   const chatForm = document.getElementById('chat-form');
   const chatInput = document.getElementById('chat-input');
   const chatSendBtn = document.getElementById('btn-chat-send');
@@ -392,6 +538,30 @@ async function initializeChat() {
   }
 }
 
+// ===== Mark Messages as Read =====
+function markMessagesAsRead() {
+  if (!socket || hasReadMessagesInView || !currentConnId) return;
+  hasReadMessagesInView = true;
+  socket.emit('mark-read', { connectionId: currentConnId });
+}
+
+// ===== Scroll to bottom =====
+function scrollToBottom() {
+  const cont = document.getElementById('chat-messages');
+  if (cont) {
+    cont.scrollTop = 0;
+  }
+}
+
+// ===== Presence Display =====
+function updatePresenceDisplay(isOnline) {
+  const statusEl = document.getElementById('chat-status');
+  if (!statusEl) return;
+  if (isOnline) {
+    statusEl.innerHTML = `<span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-green-500 inline-block"></span> Online</span>`;
+  }
+}
+
 // ===== Modal Event Delegation (setup outside initializeChat so it works even if init fails) =====
 function setupModalEventDelegation() {
   const overlay = document.getElementById('modal-overlay');
@@ -452,6 +622,8 @@ async function loadChatInfo() {
     const data = await apiCall(`/api/connections/${currentConnId}`);
     const c = data.connection;
     currentChatOther = c.other_username;
+    otherUserId = c.other_user_id;
+    otherLastReadAt = c.other_last_read_at || null;
     
     // E2EE Key Agreement setup
     const privateKeyJwkStr = window.localStorage.getItem('e2ee_private_key');
@@ -482,6 +654,9 @@ async function loadChatInfo() {
     
     updateChatStatus(c);
     loadMessages();
+    
+    // Mark messages as read shortly after loading
+    setTimeout(() => markMessagesAsRead(), 500);
   } catch (err) {
     console.error('loadChatInfo caught error:', err);
     fetch('/api/log-error', {
@@ -543,7 +718,7 @@ function updateChatStatus(c) {
           openModal('modal-vibe');
         }
       } else {
-        if (statusEl) statusEl.textContent = "Vibe submitted, waiting...";
+        if (statusEl) statusEl.innerHTML = `<span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-green-500 inline-block"></span> Online</span>`;
       }
     } else {
       const scoreStr = `<span class="material-symbols-outlined text-[12px] text-primary select-none" style="font-variation-settings: 'FILL' 1">favorite</span> Vibe Score: ${c.vibe_score || 0} ✨`;
@@ -615,10 +790,13 @@ async function loadMessages() {
     
     const data = await apiCall(`/api/messages/${currentConnId}`);
     cont.innerHTML = '';
+    lastMessageDate = null; // Reset date tracking
     // Use for...of to process message prepending in sequential async steps
     for (const m of data.messages) {
       await appendMessage(m, false);
     }
+    // Mark as read after loading
+    setTimeout(() => markMessagesAsRead(), 300);
   } catch (err) {
     console.error('loadMessages caught error:', err);
     await fetch('/api/log-error', {
@@ -732,14 +910,26 @@ function showMessageMenu(e, msg, bubbleEl) {
   }, 50);
 }
 
+let lastMessageDate = null;
+
 async function appendMessage(m, scrollToBottom = true) {
   const cont = document.getElementById('chat-messages');
   const isMe = m.sender_id === currentUser.id;
   const time = formatTime(m.created_at);
   
+  // Add date divider if date changed
+  if (m.created_at) {
+    const msgDate = new Date(m.created_at).toDateString();
+    if (msgDate !== lastMessageDate) {
+      lastMessageDate = msgDate;
+      const divider = createDateDivider(m.created_at);
+      cont.prepend(divider);
+    }
+  }
+  
   const div = document.createElement('div');
-  div.className = `flex group items-center gap-2 ${isMe ? 'justify-end' : 'justify-start'} w-full fade-in`;
-  div.setAttribute('data-msg-id', m.id);
+  div.className = `flex group items-end gap-2 ${isMe ? 'justify-end' : 'justify-start'} w-full fade-in mb-1`;
+  if (m.id) div.setAttribute('data-msg-id', m.id);
   if (m.tempId) div.id = m.tempId;
   if (m.is_sending) div.classList.add('opacity-60');
   
@@ -759,9 +949,7 @@ async function appendMessage(m, scrollToBottom = true) {
     
     div.appendChild(inner);
     cont.prepend(div);
-    if (scrollToBottom) {
-      cont.scrollTop = 0;
-    }
+    if (scrollToBottom) cont.scrollTop = 0;
     return;
   }
 
@@ -769,7 +957,7 @@ async function appendMessage(m, scrollToBottom = true) {
   const isEncrypted = Number(m.is_encrypted) === 1;
   let displayContent = m.content || '';
   
-  if (isEncrypted && displayContent) {
+  if (isEncrypted && displayContent && !displayContent.startsWith('/uploads/')) {
     if (isE2EEActive && sharedSecretKey && m.iv) {
       try {
         displayContent = await E2EECrypto.decryptMessage(displayContent, m.iv, sharedSecretKey);
@@ -782,7 +970,8 @@ async function appendMessage(m, scrollToBottom = true) {
     }
   }
 
-  if (m.is_voice || (displayContent && displayContent.startsWith('/uploads/voice/'))) {
+  // Handle voice messages
+  if (Number(m.is_voice) === 1 || (displayContent && displayContent.startsWith('/uploads/voice/'))) {
     // Custom audio player
     const voiceContainer = document.createElement('div');
     voiceContainer.className = `flex items-center gap-3 p-0.5 ${isMe ? 'text-white' : 'text-on-surface'}`;
@@ -821,15 +1010,36 @@ async function appendMessage(m, scrollToBottom = true) {
     inner.appendChild(p);
   }
   
-  const timeEl = document.createElement('div');
-  timeEl.className = `text-[10px] mt-1 text-right ${isMe ? 'text-white/70' : 'text-on-surface-variant/70'}`;
-  timeEl.textContent = time;
-  inner.appendChild(timeEl);
+  // Time + Status row
+  const metaRow = document.createElement('div');
+  metaRow.className = `text-[10px] mt-1 text-right flex items-center justify-end gap-0.5 ${isMe ? 'text-white/70' : 'text-on-surface-variant/70'}`;
+  
+  const timeSpan = document.createElement('span');
+  timeSpan.textContent = time;
+  metaRow.appendChild(timeSpan);
+  
+  // Message status icon (for own messages)
+  if (isMe && !m.is_sending && !m.deleted) {
+    const statusSpan = document.createElement('span');
+    statusSpan.className = 'msg-status-icon inline-flex items-center';
+    const read = isMessageRead(m);
+    statusSpan.innerHTML = read 
+      ? '<span class="text-[11px] text-blue-500 material-symbols-outlined text-[14px] align-middle" style="font-variation-settings: \'FILL\' 1">done_all</span>'
+      : '<span class="text-[11px] opacity-70 material-symbols-outlined text-[14px] align-middle">check</span>';
+    metaRow.appendChild(statusSpan);
+  } else if (m.is_sending) {
+    const statusSpan = document.createElement('span');
+    statusSpan.className = 'inline-flex items-center';
+    statusSpan.innerHTML = '<span class="text-[11px] opacity-50 material-symbols-outlined text-[14px]">schedule</span>';
+    metaRow.appendChild(statusSpan);
+  }
+  
+  inner.appendChild(metaRow);
   
   renderReactions(m, inner);
   
   const actionsBtn = document.createElement('button');
-  actionsBtn.className = 'more-actions-btn p-1 hover:bg-surface-container rounded-full text-on-surface-variant opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer flex items-center justify-center shrink-0';
+  actionsBtn.className = 'more-actions-btn p-1 hover:bg-surface-container rounded-full text-on-surface-variant opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer flex items-center justify-center shrink-0 self-end mb-1';
   actionsBtn.innerHTML = '<span class="material-symbols-outlined text-[16px]">more_vert</span>';
   actionsBtn.onclick = (e) => {
     e.stopPropagation();
