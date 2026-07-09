@@ -309,7 +309,9 @@ const connectionOps = {
       to_vibe: 0,
       reveal_from: 0,
       reveal_to: 0,
-      vibe_score: 0
+      vibe_score: 0,
+      from_last_read_at: null,
+      to_last_read_at: null
     });
     
     return { success: true };
@@ -338,12 +340,13 @@ const connectionOps = {
         created_at: new Date().toISOString(),
         chat_started_at: null,
         vibe_available_at: null,
-        reveal_available_at: null,
-        from_vibe: 0,
-        to_vibe: 0,
-        reveal_from: 0,
-        reveal_to: 0,
-        vibe_score: 0
+        reveal_available_at: null,      from_vibe: 0,
+      to_vibe: 0,
+      reveal_from: 0,
+      reveal_to: 0,
+      vibe_score: 0,
+      from_last_read_at: null,
+      to_last_read_at: null
       });
     }
     return { success: true };
@@ -475,13 +478,35 @@ const connectionOps = {
         const otherId = conn.from_user_id === Number(userId) ? conn.to_user_id : conn.from_user_id;
         const otherUser = await userOps.getById(otherId);
         if (otherUser) {
+          // Fetch the last message for this connection
+          let lastMsg = null;
+          try {
+            const msgSnapshot = await firestore.collection('messages')
+              .where('connection_id', '==', Number(conn.id))
+              .orderBy('created_at', 'desc')
+              .limit(1)
+              .get();
+            if (!msgSnapshot.empty) {
+              lastMsg = msgSnapshot.docs[0].data();
+            }
+          } catch (e) {
+            // Index may not exist yet, skip silently
+          }
+          
+          const isFrom = conn.from_user_id === Number(userId);
+          const myLastReadAt = isFrom ? conn.from_last_read_at : conn.to_last_read_at;
+          
           active.push({
             ...conn,
             other_username: otherUser.username,
             other_bio: otherUser.bio,
             other_hobbies: otherUser.hobbies,
             other_avatar: otherUser.avatar,
-            other_user_id: otherUser.id
+            other_user_id: otherUser.id,
+            last_message: lastMsg ? (Number(lastMsg.is_encrypted) === 1 ? '🔒 Encrypted message' : (lastMsg.is_voice === 1 ? '🎤 Voice note' : lastMsg.is_voice === 2 ? '📷 Photo' : lastMsg.content)) : null,
+            last_message_time: lastMsg ? lastMsg.created_at : null,
+            last_sender_id: lastMsg ? lastMsg.sender_id : null,
+            last_read: lastMsg ? (lastMsg.sender_id === Number(userId) ? true : (myLastReadAt && lastMsg.created_at <= myLastReadAt)) : true
           });
         }
       }
@@ -490,7 +515,11 @@ const connectionOps = {
     for (const doc of snap1.docs) await pushActive(doc.data());
     for (const doc of snap2.docs) await pushActive(doc.data());
     
-    return active.sort((a, b) => b.chat_started_at.localeCompare(a.chat_started_at));
+    return active.sort((a, b) => {
+      const aTime = a.last_message_time || a.chat_started_at;
+      const bTime = b.last_message_time || b.chat_started_at;
+      return bTime.localeCompare(aTime);
+    });
   },
 
   async getConnection(connectionId, userId) {
@@ -514,6 +543,8 @@ const connectionOps = {
       return { _dataIntegrityError: true, connectionId };
     }
     
+    const isFrom = conn.from_user_id === Number(userId);
+    
     return {
       ...conn,
       other_username: otherUser.username,
@@ -523,7 +554,9 @@ const connectionOps = {
       other_avatar: otherUser.avatar,
       other_user_id: otherUser.id,
       other_public_key: otherUser.public_key || null,
-      my_user_id: myUser.id
+      my_user_id: myUser.id,
+      my_last_read_at: isFrom ? conn.from_last_read_at : conn.to_last_read_at,
+      other_last_read_at: isFrom ? conn.to_last_read_at : conn.from_last_read_at
     };
   },
 
@@ -643,6 +676,7 @@ const messageOps = {
       voice_duration: Number(voiceDuration),
       is_encrypted: Number(isEncrypted),
       iv: iv || null,
+      read_at: null,
       reactions: {},
       deleted: 0,
       created_at: new Date().toISOString()
@@ -689,6 +723,38 @@ const messageOps = {
     const messages = [];
     snapshot.forEach(doc => messages.push(doc.data()));
     return messages.sort((a, b) => a.created_at.localeCompare(b.created_at));
+  },
+
+  async markAsRead(connectionId, userId) {
+    const firestore = getDB();
+    const now = new Date().toISOString();
+    const connRef = firestore.collection('connections').doc(String(connectionId));
+    const doc = await connRef.get();
+    if (!doc.exists) return { count: 0 };
+    
+    const conn = doc.data();
+    const prevLastReadAt = conn.from_user_id === Number(userId) ? conn.from_last_read_at : conn.to_last_read_at;
+    const field = conn.from_user_id === Number(userId) ? 'from_last_read_at' : 'to_last_read_at';
+    await connRef.update({ [field]: now });
+    
+    // Count unread messages (messages from the other user sent before this read event) without using orderBy to avoid composite index requirements
+    const otherId = conn.from_user_id === Number(userId) ? conn.to_user_id : conn.from_user_id;
+    const snapshot = await firestore.collection('messages')
+      .where('connection_id', '==', Number(connectionId))
+      .get();
+    
+    let count = 0;
+    snapshot.forEach(doc => {
+      const msg = doc.data();
+      if (msg.sender_id === Number(otherId)) {
+        const isNewer = !prevLastReadAt || (msg.created_at && msg.created_at > prevLastReadAt);
+        if (isNewer) {
+          count++;
+        }
+      }
+    });
+    
+    return { count };
   },
 
   async getRecentForConnection(connectionId, limit = 50) {
