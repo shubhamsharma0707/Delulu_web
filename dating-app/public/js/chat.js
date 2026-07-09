@@ -57,6 +57,10 @@ async function pollDelta() {
     const data = await apiCall(`/api/messages/${currentConnId}${since ? '?since=' + encodeURIComponent(since) : ''}`);
     
     if (data.messages && data.messages.length > 0) {
+      const latestMsg = data.messages[data.messages.length - 1];
+      if (latestMsg.created_at) {
+        lastMessageTimestamp = latestMsg.created_at;
+      }
       const cont = document.getElementById('chat-messages');
       const existingIds = new Set();
       cont.querySelectorAll('[data-msg-id]').forEach(el => {
@@ -453,7 +457,9 @@ async function initializeChat() {
       if (document.hidden) {
         stopPollingFallback();
       } else {
-        if (socket && !socket.connected) {
+        // Reset the idle activity timer when refocused so polling resumes instantly
+        resetIdleTimer();
+        if (!socket || !socket.connected) {
           startPollingFallback();
         }
         loadMessages().catch(() => {});
