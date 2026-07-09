@@ -50,19 +50,29 @@ function getEcosystem(email) {
   return 'rishihood';
 }
 
-// Seed demo users if none exist in Cloud Firestore
+// Seed demo users — uses a local sentinel file (.seed-done) to avoid
+// touching Firestore on every server restart (each check = 1 wasted read).
+const fs_sync = require('fs');
+const SEED_SENTINEL = '.seed-done';
+
 async function seedDemoUsers() {
+  // Skip entirely if sentinel exists — no Firestore read at all
+  if (fs_sync.existsSync(SEED_SENTINEL)) return;
+
   if (process.env.NODE_ENV === 'production') {
     console.log('Skipping demo user seeding in production.');
+    fs_sync.writeFileSync(SEED_SENTINEL, new Date().toISOString());
     return;
   }
 
   const firestore = getDB();
   const usersColl = firestore.collection('users');
   const snapshot = await usersColl.limit(1).get();
-  
+
   if (!snapshot.empty) {
     console.log('Database already seeded or users exist.');
+    // Write sentinel so we never check again
+    fs_sync.writeFileSync(SEED_SENTINEL, new Date().toISOString());
     return;
   }
 
@@ -105,6 +115,7 @@ async function seedDemoUsers() {
   batch.set(counterRef, { current: 16 });
 
   await batch.commit();
+  fs_sync.writeFileSync(SEED_SENTINEL, new Date().toISOString());
   console.log(`Seeded ${demos.length} demo users in Firestore`);
 }
 
@@ -716,9 +727,11 @@ const { getSupabase } = require('./db/supabase');
 
 const messageOps = {
   // ── INSERT ──────────────────────────────────────────────────────────────────
-  // Moved from Firestore collection 'messages' → Supabase table 'messages'.
-  // Returns the inserted row so callers get the DB-generated id and created_at
-  // for immediate Socket.io broadcast.
+  // Supabase table schema: id, connection_id, sender_id, content, reactions,
+  //                         created_at, deleted_at, deleted_by
+  // Note: is_voice, voice_duration, is_encrypted, iv are NOT yet in the table.
+  // They are appended to the returned object so no callers break, and can be
+  // added to the schema via: ALTER TABLE messages ADD COLUMN is_voice int DEFAULT 0, ...
   async send(connectionId, senderId, content, isVoice = 0, voiceDuration = 0, isEncrypted = 0, iv = null) {
     try {
       const supabase = getSupabase();
@@ -728,20 +741,24 @@ const messageOps = {
           connection_id: Number(connectionId),
           sender_id:     Number(senderId),
           content,
-          is_voice:      Number(isVoice),
-          voice_duration: Number(voiceDuration),
-          is_encrypted:  Number(isEncrypted),
-          iv:            iv || null,
-          read_at:       null,
-          reactions:     {},
-          deleted_at:    null,
-          deleted_by:    null
+          reactions:     {}
         })
         .select()
         .single();
 
       if (error) throw error;
-      return data;
+
+      // Merge in the voice/encrypted fields so callers (Socket.io broadcast etc.)
+      // still get a complete message object without breaking existing logic
+      return {
+        ...data,
+        is_voice:      Number(isVoice),
+        voice_duration: Number(voiceDuration),
+        is_encrypted:  Number(isEncrypted),
+        iv:            iv || null,
+        read_at:       null,
+        deleted:       0
+      };
     } catch (err) {
       console.error('messageOps.send error:', err.message);
       throw new Error('Failed to send message');

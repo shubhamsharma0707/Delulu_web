@@ -17,3 +17,6 @@ Thumbs.db
 # Uploads (user-generated, don't track)
 public/uploads/voice/*
 !public/uploads/voice/.gitkeep
+
+# Local seed sentinel (machine-specific, never commit)
+.seed-done
