@@ -117,7 +117,7 @@ function hideReconnectBanner() {
 
 function initGlobalSocket() {
   if (typeof io !== 'undefined' && !socket) {
-    socket = io();
+    socket = io({ transports: ['websocket', 'polling'] });
     
     socket.on('disconnect', (reason) => {
       console.log('Socket disconnected:', reason);
