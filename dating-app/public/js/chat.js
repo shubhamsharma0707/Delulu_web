@@ -10,6 +10,23 @@ let closeModalTimeout = null;
 let otherUserId = null;
 let otherLastReadAt = null;
 let hasReadMessagesInView = false;
+let pollingIntervalId = null;
+
+function startPollingFallback() {
+  if (pollingIntervalId) return;
+  pollingIntervalId = setInterval(() => {
+    if (!socket || !socket.connected) {
+      loadMessages().catch(() => {});
+    }
+  }, 4000);
+}
+
+function stopPollingFallback() {
+  if (pollingIntervalId) {
+    clearInterval(pollingIntervalId);
+    pollingIntervalId = null;
+  }
+}
 
 // Helper: format relative time for status
 function formatRelativeTime(dateStr) {
@@ -89,10 +106,12 @@ async function initializeChat() {
         bar.classList.remove('hidden');
         document.getElementById('connection-bar-text').textContent = 'Reconnecting...';
       }
+      startPollingFallback();
     });
     socket.on('connect', () => {
       const bar = document.getElementById('chat-connection-bar');
       if (bar) bar.classList.add('hidden');
+      stopPollingFallback();
       if (currentConnId) {
         socket.emit('join-chat', currentConnId);
         
@@ -123,11 +142,17 @@ async function initializeChat() {
     socket.on('reconnect_error', () => {
       const text = document.getElementById('connection-bar-text');
       if (text) text.textContent = 'Connection lost. Retrying...';
+      startPollingFallback();
     });
   }
   
   // Connect socket explicitly since shared.js initializes io
   if (socket) {
+    if (!socket.connected) {
+      startPollingFallback();
+    } else {
+      stopPollingFallback();
+    }
     socket.emit('join-chat', currentConnId);
     
     socket.on('new-message', (msg) => {
