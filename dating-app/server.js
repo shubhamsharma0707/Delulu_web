@@ -292,7 +292,10 @@ async function getConnectedUserIdsForPresence(userId) {
 // Socket.io connections for chat
 io.on('connection', async (socket) => {
   const userId = socket.request.session?.userId;
-  if (!userId) return;
+  if (!userId) {
+    console.log(`Socket connection rejected: No session userId for socket ${socket.id}`);
+    return;
+  }
 
   console.log(`User ${userId} connected via socket`);
 
