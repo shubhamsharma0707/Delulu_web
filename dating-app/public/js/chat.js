@@ -870,9 +870,9 @@ function showChatSkeleton() {
 
 async function loadMessages() {
   const cont = document.getElementById('chat-messages');
+  let hasCachedMessages = false;
   try {
     // 1. Render from IndexedDB cache instantly (no network wait)
-    let hasCachedMessages = false;
     if (typeof messageCache !== 'undefined') {
       const cached = await messageCache.getCachedMessages(currentConnId);
       if (cached.length > 0) {
@@ -915,7 +915,9 @@ async function loadMessages() {
         }
       }
       // Cache all messages for next instant render
-      messageCache.cacheMessages(currentConnId, data.messages).catch(() => {});
+      if (typeof messageCache !== 'undefined') {
+        messageCache.cacheMessages(currentConnId, data.messages).catch(() => {});
+      }
     }
     
     // Mark as read after loading
