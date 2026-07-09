@@ -58,12 +58,14 @@ const app = express();
 app.use(pinoHttp);
 
 const server = http.createServer(app);
-const io = new Server(server);
+const io = new Server(server, {
+  pingTimeout: 30000,
+  pingInterval: 10000
+});
 
-// Ensure uploads folder exists
+// Ensure upload folders exist
 fs.mkdirSync('public/uploads/voice', { recursive: true });
-
-const storage = multer.diskStorage({
+const voiceStorage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, 'public/uploads/voice/');
   },
@@ -72,11 +74,10 @@ const storage = multer.diskStorage({
     cb(null, 'voice-' + uniqueSuffix + '.webm');
   }
 });
-const upload = multer({
-  storage: storage,
+const voiceUpload = multer({
+  storage: voiceStorage,
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
   fileFilter: (req, file, cb) => {
-    // Allow standard audio files and encrypted octet-stream files (needed for client-side E2EE voice notes)
     if (!file.mimetype.startsWith('audio/') && file.mimetype !== 'application/octet-stream') {
       return cb(new Error('Only audio files are allowed'), false);
     }
@@ -271,15 +272,46 @@ io.use((socket, next) => {
   sessionMiddleware(socket.request, {}, next);
 });
 
+// ===== Presence Tracking =====
+const onlineUsers = new Map(); // userId -> { socketId, lastSeen }
+
+async function getConnectedUserIdsForPresence(userId) {
+  try {
+    const conns = await connectionOps.getActiveConnections(userId);
+    const ids = [];
+    conns.forEach(c => {
+      if (c.from_user_id === Number(userId)) ids.push(c.to_user_id);
+      else if (c.to_user_id === Number(userId)) ids.push(c.from_user_id);
+    });
+    return [...new Set(ids)];
+  } catch (e) {
+    return [];
+  }
+}
+
 // Socket.io connections for chat
-io.on('connection', (socket) => {
+io.on('connection', async (socket) => {
   const userId = socket.request.session?.userId;
   if (!userId) return;
 
   console.log(`User ${userId} connected via socket`);
 
+  // Presence: mark user as online
+  onlineUsers.set(Number(userId), { socketId: socket.id, lastSeen: Date.now() });
+  socket.broadcast.emit('user-online', { userId: Number(userId) });
+
   // Join user to their personal room
   socket.join(`user:${userId}`);
+
+  // Send current online status of their connections
+  try {
+    const connectedIds = await getConnectedUserIdsForPresence(userId);
+    const onlineStatuses = {};
+    connectedIds.forEach(id => {
+      onlineStatuses[id] = onlineUsers.has(id);
+    });
+    socket.emit('presence-bulk', onlineStatuses);
+  } catch (e) {}
 
   socket.on('join-chat', async (connectionId) => {
     if (!connectionId) return;
@@ -306,12 +338,51 @@ io.on('connection', (socket) => {
       ...msg,
       sender_id: userId
     });
+    // Also emit a chat-list update for the messages list
+    io.to(`chat:${connectionId}`).emit('chat-update', {
+      connectionId,
+      lastMessage: sanitizeText(content.trim()),
+      lastMessageTime: msg.created_at,
+      senderId: Number(userId)
+    });
   });
 
   socket.on('typing', (data) => {
     const { connectionId, isTyping } = data;
     if (!connectionId) return;
     socket.to(`chat:${connectionId}`).emit('typing', { userId, isTyping });
+  });
+
+  // Mark messages as read
+  socket.on('mark-read', async (data) => {
+    const { connectionId } = data;
+    if (!connectionId) return;
+    try {
+      const conn = await connectionOps.getConnection(connectionId, userId);
+      if (!conn || conn._dataIntegrityError) return;
+      
+      const otherId = conn.from_user_id === Number(userId) ? conn.to_user_id : conn.from_user_id;
+      const result = await messageOps.markAsRead(connectionId, Number(userId));
+      if (result.count > 0) {
+        // Notify the sender that their messages were read
+        io.to(`chat:${connectionId}`).emit('messages-read', {
+          connectionId,
+          readBy: Number(userId),
+          count: result.count
+        });
+      }
+    } catch (e) {
+      console.error('mark-read error:', e);
+    }
+  });
+
+  // Handle presence requests from client
+  socket.on('request-presence', (data) => {
+    const targetUserId = data.userId;
+    if (targetUserId) {
+      const isOnline = onlineUsers.has(Number(targetUserId));
+      socket.emit('presence-bulk', { [targetUserId]: isOnline });
+    }
   });
 
   // Icebreaker game events
@@ -348,6 +419,8 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     console.log(`User ${userId} disconnected`);
+    onlineUsers.delete(Number(userId));
+    socket.broadcast.emit('user-offline', { userId: Number(userId), lastSeen: new Date().toISOString() });
   });
 });
 
@@ -962,13 +1035,19 @@ app.post('/api/messages/send', requireAuth, async (req, res) => {
     ...msg,
     sender_id: req.session.userId
   });
+  io.to(`chat:${connection_id}`).emit('chat-update', {
+    connectionId: connection_id,
+    lastMessage: Number(is_encrypted) === 1 ? '🔒 Encrypted message' : sanitizeText(content.trim()),
+    lastMessageTime: msg.created_at,
+    senderId: Number(req.session.userId)
+  });
 
   res.json({ success: true, message: msg });
 });
 
 // Send voice message
 app.post('/api/messages/upload-voice', requireAuth, (req, res, next) => {
-  upload.single('audio')(req, res, (err) => {
+  voiceUpload.single('audio')(req, res, (err) => {
     if (err) {
       return res.status(400).json({ error: err.message || 'File upload failed' });
     }
@@ -1003,6 +1082,12 @@ app.post('/api/messages/upload-voice', requireAuth, (req, res, next) => {
     io.to(`chat:${connection_id}`).emit('new-message', {
       ...msg,
       sender_id: req.session.userId
+    });
+    io.to(`chat:${connection_id}`).emit('chat-update', {
+      connectionId: connection_id,
+      lastMessage: '🎤 Voice note',
+      lastMessageTime: msg.created_at,
+      senderId: Number(req.session.userId)
     });
 
     res.json({ success: true, message: msg });
