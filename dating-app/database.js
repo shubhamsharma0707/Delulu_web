@@ -672,6 +672,7 @@ const connectionOps = {
     const now = new Date().toISOString();
     const snapshot = await firestore.collection('connections')
       .where('status', '==', 'accepted')
+      .limit(100)
       .get();
       
     let vibeExpired = 0;
@@ -810,21 +811,14 @@ const messageOps = {
       .where('connection_id', '==', Number(connectionId));
       
     if (since) {
-      query = query.where('created_at', '>', since)
-                   .orderBy('created_at', 'asc');
-    } else {
-      query = query.orderBy('created_at', 'desc');
+      query = query.where('created_at', '>', since);
     }
+    query = query.orderBy('created_at', 'desc');
     
     const snapshot = await query.limit(limit).get();
     const messages = [];
     snapshot.forEach(doc => messages.push(doc.data()));
-    
-    if (since) {
-      return messages;
-    } else {
-      return messages.reverse();
-    }
+    return messages.reverse();
   }
 };
 
@@ -1038,6 +1032,7 @@ connectionOps.sweepExpiredRequests = async function() {
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const snapshot = await firestore.collection('connections')
     .where('status', '==', 'pending')
+    .limit(100)
     .get();
   
   let expiredCount = 0;
