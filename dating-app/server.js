@@ -1020,15 +1020,16 @@ app.post('/api/connections/:id/answer-game', requireAuth, async (req, res) => {
 });
 
 // Clear icebreaker game
+// IMPORTANT: Do NOT emit status_change here — both users already saw the game card dissolve
+// via handleBothAnswered's setTimeout. Emitting status_change creates a race condition where
+// a stale clear-game event can arrive AFTER start-game has created a new game, causing
+// syncActiveGame to see active_game=null and remove the NEW game card.
 app.post('/api/connections/:id/clear-game', requireAuth, async (req, res) => {
   try {
     const conn = await connectionOps.getConnection(req.params.id, req.session.userId);
     if (!conn || conn._dataIntegrityError) return res.status(404).json({ error: 'Connection not found' });
     
     const result = await connectionOps.clearGame(req.params.id);
-    
-    // Broadcast status change so both users reload connection state instantly
-    io.to(`chat:${req.params.id}`).emit('status_change', { connection_id: req.params.id });
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
