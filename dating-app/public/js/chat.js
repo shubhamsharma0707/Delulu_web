@@ -223,13 +223,13 @@ async function initializeChat() {
     
     socket.on('game-question', (data) => {
       if (data.connection_id == currentConnId) {
-        receiveGameQuestion(data);
+        loadChatInfo();
       }
     });
     
     socket.on('game-answer', (data) => {
       if (data.connection_id == currentConnId) {
-        receiveGameAnswer(data);
+        loadChatInfo();
       }
     });
 
@@ -782,6 +782,7 @@ async function loadChatInfo() {
     }
     
     updateChatStatus(c);
+    syncActiveGame(c);
     loadMessages(true);
     
     // Mark messages as read shortly after loading
@@ -1611,97 +1612,154 @@ function startGame(gameType) {
       "What is one goal you want to achieve before the year ends?"
     ];
     const randomQ = randomQs[Math.floor(Math.random() * randomQs.length)];
+    const msg = `🎲 Icebreaker Question: ${randomQ}`;
     
-    const msg = `*Icebreaker Question*: ${randomQ}`;
-    appendGameMessage(msg);
-    
-    socket.emit('icebreaker-question', {
-      connection_id: currentConnId,
-      question: randomQ
-    });
+    // Save random question permanently in the database so it never disappears on refresh
+    apiCall('/api/messages/send', 'POST', { connection_id: currentConnId, content: msg })
+      .catch(err => console.error('Failed to send random question message:', err));
   } else {
-    // Show game UI
-    showGameUI(gameType, q);
-    
-    socket.emit('icebreaker-game', {
-      connection_id: currentConnId,
-      game_type: gameType,
-      question: q
-    });
+    // Save interactive game in Firestore database to make it persistent
+    apiCall(`/api/connections/${currentConnId}/start-game`, 'POST', { game_type: gameType, question: q })
+      .catch(err => console.error('Failed to start persistent game:', err));
   }
-  
   closeModal();
 }
 
-function showGameUI(gameType, question) {
-  currentGame = { gameType, question, myAnswer: null, otherAnswer: null };
+function syncActiveGame(c) {
+  const existingGame = document.querySelector('[id^="game-"]');
+  if (!c.active_game) {
+    if (existingGame) {
+      existingGame.remove();
+      currentGame = null;
+    }
+    return;
+  }
   
-  const msgDiv = document.createElement('div');
-  msgDiv.className = 'w-full flex justify-center my-3 fade-in';
-  msgDiv.id = 'game-' + Date.now();
+  const game = c.active_game;
+  const gameId = 'game-' + new Date(game.created_at).getTime();
   
-  msgDiv.innerHTML = `
-    <div class="bg-surface-container-low rounded-2xl p-4 max-w-sm w-full border border-outline-variant/20 shadow-sm text-center">
-      <div class="text-xs font-bold text-primary mb-2 uppercase tracking-wider">${gameType === 'would-you-rather' ? 'Would You Rather' : 'This or That'}</div>
-      <p class="font-bold text-on-surface mb-3">${escapeHtml(question.q)}</p>
-      <div class="flex gap-3">
-        <button data-game-answer="A" class="flex-1 py-2 px-3 rounded-xl bg-surface-container-high text-on-surface hover:bg-primary hover:text-white font-semibold text-sm transition-all">${escapeHtml(question.a)}</button>
-        <button data-game-answer="B" class="flex-1 py-2 px-3 rounded-xl bg-surface-container-high text-on-surface hover:bg-primary hover:text-white font-semibold text-sm transition-all">${escapeHtml(question.b)}</button>
+  const myAnswer = game.answers[String(currentUser.id)] || null;
+  const otherId = c.from_user_id === currentUser.id ? c.to_user_id : c.from_user_id;
+  const otherAnswer = game.answers[String(otherId)] || null;
+  
+  if (!existingGame || existingGame.id !== gameId) {
+    if (existingGame) existingGame.remove();
+    
+    currentGame = { gameType: game.game_type, question: game.question, myAnswer, otherAnswer };
+    
+    const msgDiv = document.createElement('div');
+    msgDiv.className = 'w-full flex justify-center my-3 fade-in';
+    msgDiv.id = gameId;
+    
+    msgDiv.innerHTML = `
+      <div class="bg-surface-container-low rounded-2xl p-4 max-w-sm w-full border border-outline-variant/20 shadow-sm text-center">
+        <div class="text-xs font-bold text-primary mb-2 uppercase tracking-wider">${game.game_type === 'would-you-rather' ? 'Would You Rather' : 'This or That'}</div>
+        <p class="font-bold text-on-surface mb-3">${escapeHtml(game.question.q)}</p>
+        <div class="flex gap-3">
+          <button data-game-answer="A" class="flex-1 py-2 px-3 rounded-xl bg-surface-container-high text-on-surface hover:bg-primary hover:text-white font-semibold text-sm transition-all">${escapeHtml(game.question.a)}</button>
+          <button data-game-answer="B" class="flex-1 py-2 px-3 rounded-xl bg-surface-container-high text-on-surface hover:bg-primary hover:text-white font-semibold text-sm transition-all">${escapeHtml(game.question.b)}</button>
+        </div>
+        <p class="text-[10px] text-on-surface-variant mt-2" id="game-status-text">Wait for the other person to answer too...</p>
       </div>
-      <p class="text-[10px] text-on-surface-variant mt-2" id="game-status-text">Wait for the other person to answer too...</p>
-    </div>
-  `;
-  
-  const cont = document.getElementById('chat-messages');
-  cont.prepend(msgDiv);
-  
-  msgDiv.querySelectorAll('[data-game-answer]').forEach(btn => {
-    btn.onclick = async () => {
-      const answer = btn.getAttribute('data-game-answer');
-      btn.parentElement.querySelectorAll('[data-game-answer]').forEach(b => {
-        b.style.opacity = '0.5';
-        b.disabled = true;
-      });
-      btn.style.opacity = '1';
-      btn.style.background = 'var(--primary, #a53b29)';
-      btn.style.color = 'white';
-      
-      currentGame.myAnswer = answer;
-      
-      socket.emit('icebreaker-answer', {
-        connection_id: currentConnId,
-        game_type: gameType,
-        question: question,
-        answer: answer
-      });
-
-      // Check if other user has already answered
-      if (currentGame.otherAnswer) {
-        const isMatch = currentGame.myAnswer === currentGame.otherAnswer;
-        const resultText = isMatch 
-          ? 'You matched! Great minds think alike!'
-          : 'Different picks — opposites attract!';
+    `;
+    
+    const cont = document.getElementById('chat-messages');
+    cont.prepend(msgDiv);
+    
+    msgDiv.querySelectorAll('[data-game-answer]').forEach(btn => {
+      btn.onclick = async () => {
+        const answer = btn.getAttribute('data-game-answer');
+        btn.parentElement.querySelectorAll('[data-game-answer]').forEach(b => {
+          b.style.opacity = '0.5';
+          b.disabled = true;
+        });
+        btn.style.opacity = '1';
+        btn.style.background = 'var(--primary, #a53b29)';
+        btn.style.color = 'white';
         
-        const statusTextEl = msgDiv.querySelector('#game-status-text');
-        if (statusTextEl) {
-          statusTextEl.textContent = resultText;
-          statusTextEl.className = 'text-xs font-bold mt-2 ' + (isMatch ? 'text-green-600 dark:text-green-400' : 'text-primary');
+        currentGame.myAnswer = answer;
+        
+        try {
+          const res = await apiCall(`/api/connections/${currentConnId}/answer-game`, 'POST', { answer });
+          
+          // Emit socket event to make it instant for currently connected users
+          socket.emit('icebreaker-answer', {
+            connection_id: currentConnId,
+            game_type: game.game_type,
+            question: game.question,
+            answer: answer
+          });
+          
+          if (res.bothAnswered) {
+            handleBothAnswered(msgDiv, answer, res.gameData.answers[String(otherId)]);
+          }
+        } catch (err) {
+          alert(err.message);
         }
-
-        if (isMatch) {
-          // Increment score via API
-          apiCall('/api/connections/increment-vibe-score', 'POST', { connectionId: currentConnId })
-            .catch(err => console.error('Failed to increment vibe score:', err));
+      };
+    });
+  }
+  
+  const gameEl = document.getElementById(gameId);
+  if (gameEl) {
+    const statusTextEl = gameEl.querySelector('#game-status-text');
+    const buttons = gameEl.querySelectorAll('[data-game-answer]');
+    
+    if (myAnswer) {
+      buttons.forEach(btn => {
+        btn.disabled = true;
+        const ans = btn.getAttribute('data-game-answer');
+        if (ans === myAnswer) {
+          btn.style.opacity = '1';
+          btn.style.background = 'var(--primary, #a53b29)';
+          btn.style.color = 'white';
+        } else {
+          btn.style.opacity = '0.5';
         }
-
-        // Dissolve/remove the card after 2 seconds
-        setTimeout(() => {
-          msgDiv.classList.add('transition-opacity', 'duration-500', 'opacity-0');
-          setTimeout(() => msgDiv.remove(), 500);
-        }, 2000);
+      });
+    }
+    
+    if (myAnswer && otherAnswer) {
+      handleBothAnswered(gameEl, myAnswer, otherAnswer);
+    } else if (myAnswer) {
+      if (statusTextEl) {
+        statusTextEl.textContent = 'Wait for the other person to answer too...';
+        statusTextEl.className = 'text-[10px] text-on-surface-variant mt-2';
       }
-    };
+    } else if (otherAnswer) {
+      if (statusTextEl) {
+        statusTextEl.textContent = 'The other person has answered! Make your pick to see if you match.';
+        statusTextEl.className = 'text-[10px] text-primary font-semibold mt-2 animate-pulse';
+      }
+    }
+  }
+}
+
+function handleBothAnswered(gameEl, myAns, otherAns) {
+  const isMatch = myAns === otherAns;
+  const resultText = isMatch 
+    ? 'You matched! Great minds think alike!'
+    : 'Different picks — opposites attract!';
+  
+  const statusTextEl = gameEl.querySelector('#game-status-text');
+  if (statusTextEl) {
+    statusTextEl.textContent = resultText;
+    statusTextEl.className = 'text-xs font-bold mt-2 ' + (isMatch ? 'text-green-600 dark:text-green-400' : 'text-primary');
+  }
+  
+  gameEl.querySelectorAll('[data-game-answer]').forEach(b => {
+    b.style.opacity = '0.5';
+    b.disabled = true;
   });
+  
+  setTimeout(async () => {
+    gameEl.classList.add('transition-opacity', 'duration-500', 'opacity-0');
+    setTimeout(() => gameEl.remove(), 500);
+    
+    try {
+      await apiCall(`/api/connections/${currentConnId}/clear-game`, 'POST');
+    } catch (e) {}
+  }, 2000);
 }
 
 function appendGameMessage(text, isImportant = false) {
@@ -1723,64 +1781,6 @@ function appendGameMessage(text, isImportant = false) {
     `;
   }
   cont.prepend(div);
-}
-
-function receiveGameQuestion(data) {
-  if (!data.question) return;
-  
-  if (data.game_type && data.game_type !== 'question') {
-    // Show game UI with interactive options for the recipient as well
-    showGameUI(data.game_type, data.question);
-  } else {
-    // Plain text question fallback
-    appendGameMessage(`*Icebreaker Question*: ${data.question}`, true);
-  }
-}
-
-function receiveGameAnswer(data) {
-  if (!data.answer) return;
-  
-  if (currentGame) {
-    currentGame.otherAnswer = data.answer;
-  }
-  
-  const gameEl = document.querySelector('[id^="game-"]');
-  if (gameEl) {
-    gameEl.dataset.otherAnswer = data.answer;
-    
-    // Check if the current user has already selected their answer
-    if (currentGame && currentGame.myAnswer) {
-      const isMatch = currentGame.myAnswer === data.answer;
-      const resultText = isMatch 
-        ? 'You matched! Great minds think alike!'
-        : 'Different picks — opposites attract!';
-      
-      const statusTextEl = gameEl.querySelector('#game-status-text');
-      if (statusTextEl) {
-        statusTextEl.textContent = resultText;
-        statusTextEl.className = 'text-xs font-bold mt-2 ' + (isMatch ? 'text-green-600 dark:text-green-400' : 'text-primary');
-      }
-      
-      // Disable answer buttons on screen
-      gameEl.querySelectorAll('[data-game-answer]').forEach(b => {
-        b.style.opacity = '0.5';
-        b.disabled = true;
-      });
-
-      // Dissolve/remove the card after 2 seconds
-      setTimeout(() => {
-        gameEl.classList.add('transition-opacity', 'duration-500', 'opacity-0');
-        setTimeout(() => gameEl.remove(), 500);
-      }, 2000);
-    } else {
-      // The current user hasn't answered yet — update text helper to NUDGE them without revealing the choice
-      const statusTextEl = gameEl.querySelector('#game-status-text');
-      if (statusTextEl) {
-        statusTextEl.textContent = 'The other person has answered! Make your pick to see if you match.';
-        statusTextEl.className = 'text-[10px] text-primary font-semibold mt-2 animate-pulse';
-      }
-    }
-  }
 }
 
 // ===== Report & Block =====
