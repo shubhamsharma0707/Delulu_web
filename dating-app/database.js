@@ -573,57 +573,72 @@ const connectionOps = {
 
   async getConnection(connectionId, userId) {
     // ── Cache check ──────────────────────────────────────────────────────────
+    // NOTE: The cache stores only the raw Firestore connection fields plus the
+    // two derived last_read_at fields. Embedded partner profile data (username,
+    // avatar, bio, etc.) is intentionally NOT cached here — it is fetched fresh
+    // from userOps.getById() on every call. userOps has its own short-lived TTL
+    // cache so this costs at most one extra cache lookup, not a Firestore read.
+    // This means profile edits are reflected immediately without needing a
+    // separate cache-invalidation path wired to profile update routes.
     const cacheKey = `${connectionId}:${userId}`;
     const cached = _connCache.get(cacheKey);
-    if (cached && (Date.now() - cached.ts) < CONNECTION_CACHE_TTL_MS) {
-      return cached.data;
+    const isHit = cached && (Date.now() - cached.ts) < CONNECTION_CACHE_TTL_MS;
+
+    let conn;
+    if (isHit) {
+      // Cache hit — skip Firestore, use stored raw conn fields
+      conn = cached.data;
+    } else {
+      // Cache miss or expired — read from Firestore
+      const firestore = getDB();
+      const doc = await firestore.collection('connections').doc(String(connectionId)).get();
+      if (!doc.exists) return null;
+      conn = doc.data();
+
+      if (conn.from_user_id !== Number(userId) && conn.to_user_id !== Number(userId)) {
+        return null;
+      }
+
+      // ── Write-back: delete first to reset insertion order for LRU eviction ──
+      // Calling .set() without .delete() updates the value in-place but keeps
+      // the entry's original insertion position — so the cap would evict the
+      // wrong (no-longer-oldest) entry. Always delete-then-set.
+      if (_connCache.size >= CONNECTION_CACHE_MAX && !_connCache.has(cacheKey)) {
+        // Evict the oldest entry only when adding a brand-new key
+        _connCache.delete(_connCache.keys().next().value);
+      }
+      _connCache.delete(cacheKey);           // remove old position (no-op on first insert)
+      _connCache.set(cacheKey, { data: conn, ts: Date.now() }); // re-insert at tail
     }
-    // ── Cache miss — read from Firestore ─────────────────────────────────────
-    const firestore = getDB();
-    const doc = await firestore.collection('connections').doc(String(connectionId)).get();
-    if (!doc.exists) return null;
-    const conn = doc.data();
-    
-    if (conn.from_user_id !== Number(userId) && conn.to_user_id !== Number(userId)) {
-      return null;
-    }
-    
+
+    // ── Always fetch user profiles fresh (userOps has its own TTL cache) ──────
     const otherId = conn.from_user_id === Number(userId) ? conn.to_user_id : conn.from_user_id;
-    const myId = conn.from_user_id === Number(userId) ? conn.from_user_id : conn.to_user_id;
-    
+    const myId    = conn.from_user_id === Number(userId) ? conn.from_user_id : conn.to_user_id;
+
     const otherUser = await userOps.getById(otherId);
-    const myUser = await userOps.getById(myId);
-    
+    const myUser    = await userOps.getById(myId);
+
     if (!otherUser || !myUser) {
       console.error(`getConnection: connection ${connectionId} exists but user lookup failed — otherId=${otherId} found=${!!otherUser}, myId=${myId} found=${!!myUser}`);
       // Do NOT cache _dataIntegrityError — it may be transient
       return { _dataIntegrityError: true, connectionId };
     }
-    
+
     const isFrom = conn.from_user_id === Number(userId);
-    
-    const result = {
+
+    return {
       ...conn,
-      other_username: otherUser.username,
-      other_gender: otherUser.gender,
-      other_bio: otherUser.bio,
-      other_hobbies: otherUser.hobbies,
-      other_avatar: otherUser.avatar,
-      other_user_id: otherUser.id,
-      other_public_key: otherUser.public_key || null,
-      my_user_id: myUser.id,
-      my_last_read_at: isFrom ? conn.from_last_read_at : conn.to_last_read_at,
+      other_username:    otherUser.username,
+      other_gender:      otherUser.gender,
+      other_bio:         otherUser.bio,
+      other_hobbies:     otherUser.hobbies,
+      other_avatar:      otherUser.avatar,
+      other_user_id:     otherUser.id,
+      other_public_key:  otherUser.public_key || null,
+      my_user_id:        myUser.id,
+      my_last_read_at:   isFrom ? conn.from_last_read_at : conn.to_last_read_at,
       other_last_read_at: isFrom ? conn.to_last_read_at : conn.from_last_read_at
     };
-
-    // ── Write-back to cache, enforcing the size cap ───────────────────────────
-    if (_connCache.size >= CONNECTION_CACHE_MAX) {
-      // Evict the oldest entry (Map insertion order = iteration order)
-      _connCache.delete(_connCache.keys().next().value);
-    }
-    _connCache.set(cacheKey, { data: result, ts: Date.now() });
-
-    return result;
   },
 
   async submitVibe(connectionId, userId, vibe) {
@@ -639,20 +654,21 @@ const connectionOps = {
     if (vibe === 2) {
       // Not vibing — end the connection immediately, regardless of the other user's vote
       await connDocRef.update({ status: 'rejected', ended_reason: 'not_vibing' });
-      evictConnection(connectionId); // cache invalidation — status changed to 'rejected'
+      evictConnection(connectionId); // cache invalidation — status: rejected
       const otherId = isFrom ? conn.to_user_id : conn.from_user_id;
       return { success: true, ended: true, otherId };
     }
 
     const field = isFrom ? 'from_vibe' : 'to_vibe';
     await connDocRef.update({ [field]: 1 });
+    evictConnection(connectionId); // cache invalidation — from_vibe/to_vibe field changed
 
     const updated = (await connDocRef.get()).data();
     if (updated.from_vibe === 1 && updated.to_vibe === 1) {
       // Both vibing this round — reset votes and push the next check 7 days out
       const nextCheck = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
       await connDocRef.update({ from_vibe: 0, to_vibe: 0, next_vibe_check_at: nextCheck });
-      // No status change here — no eviction needed
+      evictConnection(connectionId); // cache invalidation — from_vibe/to_vibe reset + next_vibe_check_at changed
       return { success: true, ended: false, bothVibing: true, next_vibe_check_at: nextCheck };
     }
     return { success: true, ended: false, bothVibing: false };
@@ -669,6 +685,7 @@ const connectionOps = {
     const isFrom = conn.from_user_id === Number(userId);
     const field = isFrom ? 'reveal_from' : 'reveal_to';
     await connDocRef.update({ [field]: 1 });
+    evictConnection(connectionId); // cache invalidation — reveal_from/reveal_to field changed
 
     const updatedDoc = await connDocRef.get();
     const updated = updatedDoc.data();
