@@ -1767,6 +1767,9 @@ function startGame(gameType) {
 }
 
 function syncActiveGame(c) {
+  console.log("[syncActiveGame] c.active_game:", JSON.stringify(c.active_game || null));
+  console.log("[syncActiveGame] currentUser:", JSON.stringify(currentUser));
+  console.log("[syncActiveGame] connection info:", `from=${c.from_user_id}, to=${c.to_user_id}`);
   const existingGame = document.querySelector('[id^="game-"]');
   if (!c.active_game) {
     // Defense-in-depth: only remove if the tracked game matches.
