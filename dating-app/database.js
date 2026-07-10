@@ -728,37 +728,31 @@ const { getSupabase } = require('./db/supabase');
 const messageOps = {
   // ── INSERT ──────────────────────────────────────────────────────────────────
   // Supabase table schema: id, connection_id, sender_id, content, reactions,
-  //                         created_at, deleted_at, deleted_by
-  // Note: is_voice, voice_duration, is_encrypted, iv are NOT yet in the table.
-  // They are appended to the returned object so no callers break, and can be
-  // added to the schema via: ALTER TABLE messages ADD COLUMN is_voice int DEFAULT 0, ...
+  //   created_at, deleted_at, deleted_by, is_voice (int), voice_duration (int),
+  //   is_encrypted (int), iv (text), read_at (timestamptz)
+  // All fields are now persisted directly in the INSERT — no merge-patching.
   async send(connectionId, senderId, content, isVoice = 0, voiceDuration = 0, isEncrypted = 0, iv = null) {
     try {
       const supabase = getSupabase();
       const { data, error } = await supabase
         .from('messages')
         .insert({
-          connection_id: Number(connectionId),
-          sender_id:     Number(senderId),
+          connection_id:  Number(connectionId),
+          sender_id:      Number(senderId),
           content,
-          reactions:     {}
+          reactions:      {},
+          is_voice:       Number(isVoice),
+          voice_duration: Number(voiceDuration),
+          is_encrypted:   Number(isEncrypted),
+          iv:             iv || null
         })
         .select()
         .single();
 
       if (error) throw error;
 
-      // Merge in the voice/encrypted fields so callers (Socket.io broadcast etc.)
-      // still get a complete message object without breaking existing logic
-      return {
-        ...data,
-        is_voice:      Number(isVoice),
-        voice_duration: Number(voiceDuration),
-        is_encrypted:  Number(isEncrypted),
-        iv:            iv || null,
-        read_at:       null,
-        deleted:       0
-      };
+      // Return the actual inserted row — all fields come directly from Supabase.
+      return data;
     } catch (err) {
       console.error('messageOps.send error:', err.message);
       throw new Error('Failed to send message');
