@@ -940,8 +940,15 @@ const messageOps = {
 
   // ── MARK AS READ ─────────────────────────────────────────────────────────────
   // Ownership data (from_user_id, to_user_id) still lives on the Firestore
-  // connection doc, so we keep reading from there.  The last-read timestamp
+  // connection doc, so we keep reading from there. The last-read timestamp
   // is written back to Firestore (no changes to that Firestore field).
+  //
+  // NOTE: Cache eviction is intentionally SKIPPED here to minimize Firestore reads
+  // on active chats (where read markers update frequently). Real-time ticks are
+  // driven instantly by client Socket.io events ('messages-read'), so active sessions
+  // are unaffected. Stale read markers in the cache (up to 2 minutes) are only
+  // observable as minor cosmetic delays on cold page reload, which is acceptable.
+  //
   // The unread message COUNT is now queried from Supabase instead of Firestore.
   async markAsRead(connectionId, userId) {
     try {
