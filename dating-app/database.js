@@ -285,6 +285,38 @@ const userOps = {
   }
 };
 
+// ─── Connection read-reduction cache ──────────────────────────────────────────
+// This is a SHORT-LIVED in-memory cache (TTL 2 minutes) placed in front of
+// connectionOps.getConnection(). Its sole purpose is to reduce Firestore reads
+// on hot chat routes where the same connection doc is fetched for every message
+// API call (auth check, send, react, upload-voice, etc.).
+//
+// IMPORTANT — this is NOT an authorization decision cache:
+//   • Any mutation that changes a connection's status (block, reject, end, sweep)
+//     calls evictConnection() immediately, so a revoked connection cannot be
+//     served from stale cache.
+//   • At worst, a connection's non-status metadata (e.g. last_read_at timestamps)
+//     may be up to 2 minutes stale — this is acceptable because the client drives
+//     read-receipt updates via delta-sync, not via getConnection().
+// ───────────────────────────────────────────────────────────────────────────────
+const CONNECTION_CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes
+const CONNECTION_CACHE_MAX    = 10_000;          // hard cap — evict oldest when exceeded
+
+/** @type {Map<string, { data: object, ts: number }>} */
+const _connCache = new Map();
+
+/**
+ * Evict all cache entries for a given connectionId.
+ * Call this immediately after any write that changes connection status.
+ * The cache is keyed by "connId:userId", so we do a prefix scan.
+ */
+function evictConnection(connectionId) {
+  const prefix = `${connectionId}:`;
+  for (const key of _connCache.keys()) {
+    if (key.startsWith(prefix)) _connCache.delete(key);
+  }
+}
+
 // Connection operations
 const connectionOps = {
   async sendRequest(fromId, toId) {
@@ -341,6 +373,7 @@ const connectionOps = {
     const doc = !snap1.empty ? snap1.docs[0] : (!snap2.empty ? snap2.docs[0] : null);
     if (doc) {
       await doc.ref.update({ status: 'rejected' });
+      evictConnection(doc.data().id); // cache invalidation — status changed
     } else {
       const connId = await getNextId('connections');
       await firestore.collection('connections').doc(String(connId)).set({
@@ -351,14 +384,16 @@ const connectionOps = {
         created_at: new Date().toISOString(),
         chat_started_at: null,
         vibe_available_at: null,
-        reveal_available_at: null,      from_vibe: 0,
-      to_vibe: 0,
-      reveal_from: 0,
-      reveal_to: 0,
-      vibe_score: 0,
-      from_last_read_at: null,
-      to_last_read_at: null
+        reveal_available_at: null,
+        from_vibe: 0,
+        to_vibe: 0,
+        reveal_from: 0,
+        reveal_to: 0,
+        vibe_score: 0,
+        from_last_read_at: null,
+        to_last_read_at: null
       });
+      // New doc — nothing to evict
     }
     return { success: true };
   },
@@ -376,6 +411,7 @@ const connectionOps = {
       return { error: 'Cannot revoke a request that is not pending' };
     }
     await docRef.delete();
+    evictConnection(connectionId); // cache invalidation — document deleted
     return { success: true };
   },
 
@@ -462,6 +498,7 @@ const connectionOps = {
         reveal_from: 0,
         reveal_to: 0
       });
+      evictConnection(connectionId); // cache invalidation — status changed to 'accepted'
       return { 
         success: true, 
         chat_started_at: now.toISOString(), 
@@ -470,6 +507,7 @@ const connectionOps = {
       };
     } else {
       await connDocRef.update({ status: 'rejected' });
+      evictConnection(connectionId); // cache invalidation — status changed to 'rejected'
       return { success: true, status: 'rejected' };
     }
   },
@@ -534,6 +572,13 @@ const connectionOps = {
   },
 
   async getConnection(connectionId, userId) {
+    // ── Cache check ──────────────────────────────────────────────────────────
+    const cacheKey = `${connectionId}:${userId}`;
+    const cached = _connCache.get(cacheKey);
+    if (cached && (Date.now() - cached.ts) < CONNECTION_CACHE_TTL_MS) {
+      return cached.data;
+    }
+    // ── Cache miss — read from Firestore ─────────────────────────────────────
     const firestore = getDB();
     const doc = await firestore.collection('connections').doc(String(connectionId)).get();
     if (!doc.exists) return null;
@@ -551,12 +596,13 @@ const connectionOps = {
     
     if (!otherUser || !myUser) {
       console.error(`getConnection: connection ${connectionId} exists but user lookup failed — otherId=${otherId} found=${!!otherUser}, myId=${myId} found=${!!myUser}`);
+      // Do NOT cache _dataIntegrityError — it may be transient
       return { _dataIntegrityError: true, connectionId };
     }
     
     const isFrom = conn.from_user_id === Number(userId);
     
-    return {
+    const result = {
       ...conn,
       other_username: otherUser.username,
       other_gender: otherUser.gender,
@@ -569,6 +615,15 @@ const connectionOps = {
       my_last_read_at: isFrom ? conn.from_last_read_at : conn.to_last_read_at,
       other_last_read_at: isFrom ? conn.to_last_read_at : conn.from_last_read_at
     };
+
+    // ── Write-back to cache, enforcing the size cap ───────────────────────────
+    if (_connCache.size >= CONNECTION_CACHE_MAX) {
+      // Evict the oldest entry (Map insertion order = iteration order)
+      _connCache.delete(_connCache.keys().next().value);
+    }
+    _connCache.set(cacheKey, { data: result, ts: Date.now() });
+
+    return result;
   },
 
   async submitVibe(connectionId, userId, vibe) {
@@ -584,6 +639,7 @@ const connectionOps = {
     if (vibe === 2) {
       // Not vibing — end the connection immediately, regardless of the other user's vote
       await connDocRef.update({ status: 'rejected', ended_reason: 'not_vibing' });
+      evictConnection(connectionId); // cache invalidation — status changed to 'rejected'
       const otherId = isFrom ? conn.to_user_id : conn.from_user_id;
       return { success: true, ended: true, otherId };
     }
@@ -596,6 +652,7 @@ const connectionOps = {
       // Both vibing this round — reset votes and push the next check 7 days out
       const nextCheck = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
       await connDocRef.update({ from_vibe: 0, to_vibe: 0, next_vibe_check_at: nextCheck });
+      // No status change here — no eviction needed
       return { success: true, ended: false, bothVibing: true, next_vibe_check_at: nextCheck };
     }
     return { success: true, ended: false, bothVibing: false };
@@ -621,6 +678,7 @@ const connectionOps = {
       const otherId = isFrom ? conn.to_user_id : conn.from_user_id;
       const otherUser = await userOps.getById(otherId);
       await connDocRef.update({ status: 'revealed' });
+      evictConnection(connectionId); // cache invalidation — status changed to 'revealed'
       return { 
         success: true, 
         bothRevealed: true, 
@@ -691,12 +749,14 @@ const connectionOps = {
     const batch = firestore.batch();
     
     // ponytail: iterates all 'accepted' connections in JS — add compound index + Firestore query filter when >1000 connections.
+    const expiredIds = [];
     snapshot.forEach(doc => {
       const conn = doc.data();
       
       // Sweep 1: Reveal period expired without both users revealing
       if (conn.reveal_available_at && conn.reveal_available_at < now && (conn.reveal_from === 0 || conn.reveal_to === 0)) {
         batch.update(doc.ref, { status: 'expired', ended_reason: 'reveal_timeout' });
+        expiredIds.push(conn.id);
         revealsExpired++;
         return;
       }
@@ -705,12 +765,15 @@ const connectionOps = {
       if (conn.next_vibe_check_at && conn.next_vibe_check_at < now) {
         if (conn.from_vibe === 0 && conn.to_vibe === 0) {
           batch.update(doc.ref, { status: 'rejected', ended_reason: 'vibe_timeout' });
+          expiredIds.push(conn.id);
           vibeExpired++;
         }
       }
     });
     
     await batch.commit();
+    // cache invalidation — evict all connections whose status just changed
+    for (const id of expiredIds) evictConnection(id);
     return { vibeExpired, revealsExpired };
   },
 
@@ -1080,6 +1143,7 @@ const blockOps = {
     for (const conn of connections) {
       if (['pending', 'accepted'].includes(conn.status)) {
         await firestore.collection('connections').doc(String(conn.id)).update({ status: 'rejected', ended_reason: 'blocked' });
+        evictConnection(conn.id); // cache invalidation — status changed due to block
       }
     }
     
@@ -1159,16 +1223,20 @@ connectionOps.sweepExpiredRequests = async function() {
   
   let expiredCount = 0;
   const batch = firestore.batch();
+  const expiredIds = [];
   
   snapshot.forEach(doc => {
     const conn = doc.data();
     if (conn.created_at < cutoff) {
       batch.update(doc.ref, { status: 'expired', ended_reason: 'timeout' });
+      expiredIds.push(conn.id);
       expiredCount++;
     }
   });
   
   await batch.commit();
+  // cache invalidation — evict all connections whose status just changed
+  for (const id of expiredIds) evictConnection(id);
   return { expiredCount };
 };
 
