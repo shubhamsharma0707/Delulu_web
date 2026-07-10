@@ -715,6 +715,7 @@ const connectionOps = {
       created_at: new Date().toISOString()
     };
     await connDocRef.update({ active_game: payload });
+    evictConnection(connectionId); // cache invalidation — active_game field set
     return payload;
   },
 
@@ -741,6 +742,7 @@ const connectionOps = {
       bothAnswered = (answers[String(userId)] !== undefined) && (answers[String(otherId)] !== undefined);
       gameData = activeGame;
     });
+    evictConnection(connectionId); // cache invalidation — active_game.answers updated (transaction committed)
     
     return { success: true, bothAnswered, gameData };
   },
@@ -749,6 +751,7 @@ const connectionOps = {
     const firestore = getDB();
     const connDocRef = firestore.collection('connections').doc(String(connectionId));
     await connDocRef.update({ active_game: null });
+    evictConnection(connectionId); // cache invalidation — active_game cleared
     return { success: true };
   },
 
