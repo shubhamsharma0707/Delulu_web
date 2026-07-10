@@ -929,8 +929,8 @@ async function loadChatInfo() {
     }
     
     updateChatStatus(c);
+    await loadMessages(true);
     syncActiveGame(c);
-    loadMessages(true);
     
     // Mark messages as read shortly after loading
     setTimeout(() => markMessagesAsRead(), 500);
@@ -1089,6 +1089,11 @@ async function loadMessages(isInitial = false) {
     // 2. Fetch delta sync from server (passing since timestamp parameter if available)
     const since = lastMessageTimestamp;
     const data = await apiCall(`/api/messages/${currentConnId}${since ? '?since=' + encodeURIComponent(since) : ''}`);
+    
+    // Clear skeletons if we loaded the initial set from network
+    if (isInitial && !hasCachedMessages) {
+      cont.innerHTML = '';
+    }
     
     if (data.messages && data.messages.length > 0) {
       const existingIds = new Set();
