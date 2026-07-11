@@ -1,5 +1,11 @@
 let currentUser = null;
-let socket = null;
+let socket = {
+  on: function() { return this; },
+  off: function() { return this; },
+  emit: function() { return this; },
+  disconnect: function() { return this; },
+  connected: false
+};
 
 // Global client error logger to diagnose browser-specific issues
 window.onerror = function (message, source, lineno, colno, error) {
@@ -116,27 +122,7 @@ function hideReconnectBanner() {
 }
 
 function initGlobalSocket() {
-  if (typeof io !== 'undefined' && !socket) {
-    socket = io({ transports: ['websocket', 'polling'] });
-    
-    socket.on('disconnect', (reason) => {
-      console.log('Socket disconnected:', reason);
-      showReconnectBanner();
-    });
-    
-    socket.on('connect', () => {
-      console.log('Socket reconnected');
-      hideReconnectBanner();
-    });
-    
-    socket.on('reconnect_attempt', () => {
-      console.log('Socket reconnecting...');
-    });
-    
-    socket.on('reconnect_error', (err) => {
-      console.error('Socket reconnect error:', err);
-    });
-  }
+  // Socket.io disabled by user request. Mock socket is used globally.
 }
 
 async function apiCall(url, method = 'GET', body = null) {
