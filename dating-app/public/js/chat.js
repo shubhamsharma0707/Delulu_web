@@ -345,8 +345,7 @@ async function initializeChat() {
     socket.off('typing');
     socket.off('status_change');
     socket.off('connection-ended');
-    socket.off('game-question');
-    socket.off('game-answer');
+
     socket.off('identity-revealed');
     socket.off('face-revealed');
     socket.off('face-reveal-declined');
@@ -473,46 +472,6 @@ async function initializeChat() {
       }
     });
     
-    socket.on('game-question', (data) => {
-      if (data.connection_id == currentConnId) {
-        // INSTANT render from socket data — no Firestore fetch needed.
-        // The created_at comes from Firestore (passed through startGame->socket->server),
-        // so the gameId computed here matches what the API fetch will compute later.
-        // This means zero latency between clicking "Would You Rather" and seeing the
-        // game card for the other user — it appears immediately via WebSocket.
-        // Fallback timestamp ensures gameId is valid even if created_at is somehow missing
-        const createdAt = data.created_at || new Date().toISOString();
-        const fakeConn = {
-          from_user_id: otherUserId,
-          to_user_id: currentUser.id,
-          active_game: {
-            game_type: data.game_type,
-            question: data.question,
-            answers: {},
-            created_at: createdAt
-          }
-        };
-        syncActiveGame(fakeConn);
-        
-        // BACKGROUND: fetch full connection data for proper state sync
-        // (answers, status, etc.). syncActiveGame will find the existing game
-        // card via matching gameId and just update its state object.
-        apiCall(`/api/connections/${currentConnId}`).then(d => {
-          const c = d.connection;
-          updateChatStatus(c);
-          syncActiveGame(c);
-        }).catch(() => loadChatInfo());
-      }
-    });
-    
-    socket.on('game-answer', (data) => {
-      if (data.connection_id == currentConnId) {
-        // Directly update the game card without going through loadChatInfo.
-        // This avoids the race condition where loadMessages(true) clears the
-        // messages container while handleBothAnswered's 2s timer is pending.
-        onGameAnswer(data);
-      }
-    });
 
     socket.on('identity-revealed', (data) => {
       if (data.connection_id == currentConnId) {
@@ -2036,27 +1995,14 @@ async function startGame(gameType) {
     apiCall('/api/messages/send', 'POST', { connection_id: currentConnId, content: msg })
       .catch(err => console.error('Failed to send random question message:', err));
   } else {
-    // STEP 1: Save game to Firestore FIRST (await ensures it's written before socket notify)
+    // STEP 1: Save game to Firestore FIRST
     let activeGame;
     try {
       const result = await apiCall(`/api/connections/${currentConnId}/start-game`, 'POST', { game_type: gameType, question: q });
       activeGame = result.active_game; // includes created_at from Firestore
     } catch (err) {
       console.error('Failed to start persistent game:', err);
-      return; // Don't emit socket if save failed
-    }
-    
-    // STEP 2: Now that Firestore has the game, notify the other user via socket.
-    // Use the EXACT SAME created_at from Firestore so both users' syncActiveGame
-    // calls compute the identical gameId — the second call (from API fetch) will
-    // find the existing game card and update state instead of creating a duplicate.
-    if (socket) {
-      socket.emit('icebreaker-game', {
-        connection_id: currentConnId,
-        game_type: gameType,
-        question: q,
-        created_at: activeGame.created_at
-      });
+      return;
     }
     
     // Proactively render for ourselves if Firestore is not active (polling fallback)
@@ -2139,14 +2085,6 @@ function syncActiveGame(c) {
         
         try {
           const res = await apiCall(`/api/connections/${currentConnId}/answer-game`, 'POST', { answer });
-          
-          // Emit socket event to make it instant for currently connected users
-          socket.emit('icebreaker-answer', {
-            connection_id: currentConnId,
-            game_type: game.game_type,
-            question: game.question,
-            answer: answer
-          });
           
           if (res.bothAnswered) {
             handleBothAnswered(msgDiv, answer, res.gameData.answers[String(otherId)]);
@@ -2295,24 +2233,5 @@ async function blockUser() {
   }
 }
 
-function onGameAnswer(data) {
-  // Directly find the game card and update it with the other person's answer
-  const gameEl = document.querySelector('[id^="game-"]');
-  if (!gameEl) return;
-  
-  const statusTextEl = gameEl.querySelector('#game-status-text');
-  if (!statusTextEl) return;
-  
-  const theirAnswer = data.answer; // 'A' or 'B'
-  
-  if (currentGame && currentGame.myAnswer) {
-    // Both have answered — show result immediately
-    handleBothAnswered(gameEl, currentGame.myAnswer, theirAnswer);
-  } else {
-    // The other person answered first — nudge user to pick
-    statusTextEl.textContent = 'The other person has answered! Make your pick to see if you match.';
-    statusTextEl.className = 'text-[10px] text-primary font-semibold mt-2 animate-pulse';
-  }
-}
 
 // Removed: handleVibeScoreUpdated - no longer needed with the new reveal system
