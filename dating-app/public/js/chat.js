@@ -110,9 +110,10 @@ async function pollStatus() {
     let changed = false;
     if (!lastConnectionState || 
         lastConnectionState.status !== c.status ||
-        lastConnectionState.vibe_score !== c.vibe_score ||
-        lastConnectionState.my_reveal !== c.my_reveal ||
-        lastConnectionState.both_revealed !== c.both_revealed) {
+        lastConnectionState.my_identity_reveal !== c.my_identity_reveal ||
+        lastConnectionState.my_face_reveal !== c.my_face_reveal ||
+        lastConnectionState.both_identity_revealed !== c.both_identity_revealed ||
+        lastConnectionState.both_face_revealed !== c.both_face_revealed) {
       changed = true;
     }
     
@@ -251,7 +252,9 @@ async function initializeChat() {
     socket.off('connection-ended');
     socket.off('game-question');
     socket.off('game-answer');
-    socket.off('vibe-score-updated');
+    socket.off('identity-revealed');
+    socket.off('face-revealed');
+    socket.off('face-reveal-declined');
 
     socket.on('new-message', (msg) => {
       // Use Number() coercion for safe comparison regardless of int/string type
@@ -369,8 +372,26 @@ async function initializeChat() {
     
     socket.on('game-question', (data) => {
       if (data.connection_id == currentConnId) {
-        // Lightweight sync: fetch fresh connection data and sync active game directly.
-        // Avoids the heavy loadChatInfo() -> loadMessages(true) full re-render path.
+        // INSTANT render from socket data — no Firestore fetch needed.
+        // The created_at comes from Firestore (passed through startGame->socket->server),
+        // so the gameId computed here matches what the API fetch will compute later.
+        // This means zero latency between clicking "Would You Rather" and seeing the
+        // game card for the other user — it appears immediately via WebSocket.
+        // Fallback timestamp ensures gameId is valid even if created_at is somehow missing
+        const createdAt = data.created_at || new Date().toISOString();
+        const fakeConn = {
+          active_game: {
+            game_type: data.game_type,
+            question: data.question,
+            answers: {},
+            created_at: createdAt
+          }
+        };
+        syncActiveGame(fakeConn);
+        
+        // BACKGROUND: fetch full connection data for proper state sync
+        // (answers, status, etc.). syncActiveGame will find the existing game
+        // card via matching gameId and just update its state object.
         apiCall(`/api/connections/${currentConnId}`).then(d => {
           const c = d.connection;
           updateChatStatus(c);
@@ -388,9 +409,50 @@ async function initializeChat() {
       }
     });
 
-    socket.on('vibe-score-updated', (data) => {
+    socket.on('identity-revealed', (data) => {
+      if (data.connection_id == currentConnId) {
+        // This event only fires when BOTH have revealed (server condition).
+        // Meeting code is always present — show modal and update status directly.
+        if (data.meeting_code) showMeetingModal(data.meeting_code);
+        
+        // Update status bar directly — no API fetch needed
+        const statusEl = document.getElementById('chat-status');
+        if (statusEl && data.meeting_code) {
+          statusEl.innerHTML = `<span class="flex items-center gap-1 text-green-600"><span class="material-symbols-outlined text-[14px]">videocam</span> Meeting ready! <a href="#" onclick="showMeetingModal('${data.meeting_code}'); return false;" class="underline font-semibold">Join</a></span>`;
+        }
+        // Hide the reveal button since both agreed
+        const idBtn = document.getElementById('btn-identity-reveal');
+        if (idBtn) idBtn.classList.add('hidden');
+      }
+    });
+    
+    socket.on('face-revealed', (data) => {
+      if (data.connection_id == currentConnId) {
+        // This event only fires when BOTH have revealed (server condition).
+        // Meeting code is always present — show modal and update status directly.
+        if (data.meeting_code) showMeetingModal(data.meeting_code);
+        
+        // Update status bar directly — no API fetch needed
+        const statusEl = document.getElementById('chat-status');
+        if (statusEl && data.meeting_code) {
+          statusEl.innerHTML = `<span class="flex items-center gap-1 text-green-600"><span class="material-symbols-outlined text-[14px]">videocam</span> Ready to meet! <a href="#" onclick="showMeetingModal('${data.meeting_code}'); return false;" class="underline font-semibold">Join</a></span>`;
+        }
+        // Hide the face reveal button since both agreed
+        const faceBtn = document.getElementById('btn-face-reveal');
+        if (faceBtn) faceBtn.classList.add('hidden');
+      }
+    });
+    
+    socket.on('face-reveal-declined', (data) => {
       if (data.connectionId == currentConnId) {
-        handleVibeScoreUpdated(data);
+        // Update status directly — no API fetch needed
+        const statusEl = document.getElementById('chat-status');
+        if (statusEl) statusEl.textContent = 'Face reveal was declined.';
+        // Hide the face reveal button
+        const faceBtn = document.getElementById('btn-face-reveal');
+        if (faceBtn) faceBtn.classList.add('hidden');
+        // Show the declined modal
+        openModal('modal-face-declined');
       }
     });
   }
@@ -779,20 +841,29 @@ async function initializeChat() {
     });
   }
   
-  const btnVibeCheck = document.getElementById('btn-vibe-check');
-  if (btnVibeCheck) btnVibeCheck.onclick = () => openModal('modal-vibe');
+  const btnNotVibing = document.getElementById('btn-not-vibing');
+  if (btnNotVibing) btnNotVibing.onclick = () => submitNotVibing();
 
-  const btnReveal = document.getElementById('btn-reveal');
-  if (btnReveal) btnReveal.onclick = () => openModal('modal-reveal');
+  const btnIdentityReveal = document.getElementById('btn-identity-reveal');
+  if (btnIdentityReveal) btnIdentityReveal.onclick = () => openModal('modal-identity-reveal');
   
-  const vibeYes = document.getElementById('vibe-yes');
-  if (vibeYes) vibeYes.onclick = () => submitVibeAction(1);
+  const btnFaceReveal = document.getElementById('btn-face-reveal');
+  if (btnFaceReveal) btnFaceReveal.onclick = () => openModal('modal-face-reveal');
+  
+  const identityRevealYes = document.getElementById('identity-reveal-yes');
+  if (identityRevealYes) identityRevealYes.onclick = () => submitIdentityRevealAction();
 
-  const vibeNo = document.getElementById('vibe-no');
-  if (vibeNo) vibeNo.onclick = () => submitVibeAction(2);
+  const identityRevealNo = document.getElementById('identity-reveal-no');
+  if (identityRevealNo) identityRevealNo.onclick = () => { closeModal(); };
 
-  const revealYes = document.getElementById('reveal-yes');
-  if (revealYes) revealYes.onclick = () => submitRevealAction();
+  const faceRevealYes = document.getElementById('face-reveal-yes');
+  if (faceRevealYes) faceRevealYes.onclick = () => submitFaceRevealAction();
+
+  const faceRevealNo = document.getElementById('face-reveal-no');
+  if (faceRevealNo) faceRevealNo.onclick = () => submitDeclineFaceReveal();
+  
+  const faceDeclinedDisconnect = document.getElementById('face-declined-disconnect');
+  if (faceDeclinedDisconnect) faceDeclinedDisconnect.onclick = () => disconnectAfterDecline();
 
   // Profile Peek trigger
   const chatName = document.getElementById('chat-name');
@@ -812,11 +883,12 @@ async function initializeChat() {
     };
   }
 
+  // Remove the vibing/not-vibing buttons from profile peek (replaced by header Not Vibing button)
   const peekVibing = document.getElementById('peek-vibing');
-  if (peekVibing) peekVibing.onclick = () => submitVibeAction(1);
+  if (peekVibing) peekVibing.remove();
 
   const peekNotVibing = document.getElementById('peek-not-vibing');
-  if (peekNotVibing) peekNotVibing.onclick = () => submitVibeAction(2);
+  if (peekNotVibing) peekNotVibing.remove();
 
 }
 
@@ -972,52 +1044,102 @@ async function loadChatInfo() {
 
 function updateChatStatus(c) {
   const statusEl = document.getElementById('chat-status');
-  const vibeBtn = document.getElementById('btn-vibe-check');
-  const revealBtn = document.getElementById('btn-reveal');
+  const notVibingBtn = document.getElementById('btn-not-vibing');
+  const identityRevealBtn = document.getElementById('btn-identity-reveal');
+  const faceRevealBtn = document.getElementById('btn-face-reveal');
   
-  if (vibeBtn) vibeBtn.classList.add('hidden');
-  if (revealBtn) revealBtn.classList.add('hidden');
+  if (notVibingBtn) notVibingBtn.classList.add('hidden');
+  if (identityRevealBtn) identityRevealBtn.classList.add('hidden');
+  if (faceRevealBtn) faceRevealBtn.classList.add('hidden');
   
   if (c.status === 'accepted') {
-    const isFrom = c.from_user_id === currentUser.id;
-    const myVibe = isFrom ? c.from_vibe : c.to_vibe;
-    const myReveal = c.my_reveal;
-    
     const now = Date.now();
-    const isVibeDue = c.next_vibe_check_at ? now >= new Date(c.next_vibe_check_at) : false;
-    const isRevealDue = c.reveal_available_at ? now >= new Date(c.reveal_available_at) : false;
+    const chatStarted = new Date(c.chat_started_at).getTime();
+    const daysSinceChatStarted = Math.floor((now - chatStarted) / (24 * 60 * 60 * 1000));
     
-    if (isRevealDue) {
-      if (myReveal === 0) {
-        if (revealBtn) revealBtn.classList.remove('hidden');
-      }
-      if (statusEl) statusEl.textContent = c.both_revealed
-        ? ''
-        : "Face reveal hasn't been unlocked yet because both users haven't agreed.";
-    } else if (isVibeDue) {
-      if (myVibe === 0) {
-        if (vibeBtn) vibeBtn.classList.remove('hidden');
-        // Automatically show soft-gate popup if they haven't voted yet and it's not already shown
-        const vibeModal = document.getElementById('modal-vibe');
-        const alreadyShown = vibeModal && vibeModal.classList.contains('scale-100');
-        if (!alreadyShown) {
-          openModal('modal-vibe');
+    const isIdentityRevealDue = c.identity_reveal_available_at ? now >= new Date(c.identity_reveal_available_at) : false;
+    const isFaceRevealDue = c.face_reveal_available_at ? now >= new Date(c.face_reveal_available_at) : false;
+    
+    // Show Not Vibing button always (for accepted connections)
+    if (notVibingBtn) notVibingBtn.classList.remove('hidden');
+    
+    if (isFaceRevealDue) {
+      // Day 14+: Face Reveal phase
+      if (c.both_face_revealed) {
+        // Both agreed - show the Google Meet modal
+        if (c.meeting_code && !document.getElementById('modal-google-meet').classList.contains('scale-100')) {
+          showMeetingModal(c.meeting_code);
+        }
+        if (statusEl) {
+          statusEl.innerHTML = `<span class="flex items-center gap-1 text-green-600"><span class="material-symbols-outlined text-[14px]">videocam</span> Ready to meet! <a href="#" onclick="showMeetingModal('${c.meeting_code}'); return false;" class="underline font-semibold">Join</a></span>`;
+        }
+      } else if (c.face_reveal_declined_by_other) {
+        // Other person declined face reveal - show popup
+        if (statusEl) {
+          statusEl.textContent = 'Face reveal was declined.';
+        }
+        if (!document.getElementById('modal-face-declined').classList.contains('scale-100')) {
+          openModal('modal-face-declined');
         }
       } else {
-        if (statusEl) statusEl.innerHTML = `<span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-green-500 inline-block"></span> Online</span>`;
+        // Show face reveal button
+        if (faceRevealBtn) {
+          faceRevealBtn.classList.remove('hidden');
+          faceRevealBtn.textContent = c.my_face_reveal === 0 ? "Let's Meet" : 'Waiting for them...';
+          faceRevealBtn.disabled = c.my_face_reveal === 1;
+        }
+        if (c.my_face_reveal === 0) {
+          // Auto-show the face reveal modal
+          const faceModal = document.getElementById('modal-face-reveal');
+          if (faceModal && !faceModal.classList.contains('scale-100')) {
+            openModal('modal-face-reveal');
+          }
+        }
+        if (statusEl) {
+          statusEl.textContent = c.my_face_reveal === 1 
+            ? 'Waiting for them to agree to face reveal...' 
+            : `Day ${daysSinceChatStarted} - Face reveal available!`;
+        }
+      }
+    } else if (isIdentityRevealDue) {
+      // Day 7-13: Identity Reveal phase
+      if (c.both_identity_revealed) {
+        // Both have revealed - show meeting
+        if (c.meeting_code && !document.getElementById('modal-google-meet').classList.contains('scale-100')) {
+          showMeetingModal(c.meeting_code);
+        }
+        if (statusEl) {
+          statusEl.innerHTML = `<span class="flex items-center gap-1 text-green-600"><span class="material-symbols-outlined text-[14px]">videocam</span> Meeting ready! <a href="#" onclick="showMeetingModal('${c.meeting_code}'); return false;" class="underline font-semibold">Join</a></span>`;
+        }
+      } else {
+        // Show identity reveal button
+        if (identityRevealBtn) {
+          identityRevealBtn.classList.remove('hidden');
+          identityRevealBtn.textContent = c.my_identity_reveal === 0 ? 'Reveal' : 'Waiting...';
+          identityRevealBtn.disabled = c.my_identity_reveal === 1;
+        }
+        if (c.my_identity_reveal === 0) {
+          // Auto-show the identity reveal modal
+          const idModal = document.getElementById('modal-identity-reveal');
+          if (idModal && !idModal.classList.contains('scale-100')) {
+            openModal('modal-identity-reveal');
+          }
+        }
+        if (statusEl) {
+          statusEl.textContent = c.my_identity_reveal === 1 
+            ? 'Waiting for them to reveal too...' 
+            : `Day ${daysSinceChatStarted} - Identity reveal available!`;
+        }
       }
     } else {
-      const scoreStr = `<span class="material-symbols-outlined text-[12px] text-primary select-none" style="font-variation-settings: 'FILL' 1">favorite</span> Vibe Score: ${c.vibe_score || 0} ✨`;
-      if (c.next_vibe_check_at) {
-        const nextCheckDiff = new Date(c.next_vibe_check_at) - now;
-        const daysLeft = Math.ceil(nextCheckDiff / (24 * 60 * 60 * 1000));
-        if (statusEl) statusEl.innerHTML = `${scoreStr} &nbsp;|&nbsp; Next Vibe Check in ${daysLeft}d`;
-      } else {
-        if (statusEl) statusEl.innerHTML = scoreStr;
+      // Before Day 7: Just chatting
+      const daysUntilIdentity = Math.ceil((new Date(c.identity_reveal_available_at) - now) / (24 * 60 * 60 * 1000));
+      if (statusEl) {
+        statusEl.innerHTML = `<span class="text-on-surface-variant">Identity reveal in ${daysUntilIdentity}d</span>`;
       }
     }
   } else if (c.status === 'revealed') {
-    if (statusEl) statusEl.innerHTML = `<span class="material-symbols-outlined text-[12px]">lock_open</span> Identities Revealed`;
+    if (statusEl) statusEl.innerHTML = `<span class="flex items-center gap-1"><span class="material-symbols-outlined text-[12px]">lock_open</span> Identities Revealed</span>`;
   } else {
     if (statusEl) statusEl.textContent = c.status;
   }
@@ -1482,7 +1604,7 @@ window.openModal = function(id) {
 };
 
 function setAllModalsHidden(hidden) {
-  ['modal-vibe', 'modal-reveal', 'modal-profile-peek', 'modal-icebreaker', 'modal-report', 'modal-chat-more'].forEach(id => {
+  ['modal-identity-reveal', 'modal-face-reveal', 'modal-face-declined', 'modal-google-meet', 'modal-profile-peek', 'modal-icebreaker', 'modal-report', 'modal-chat-more'].forEach(id => {
     const m = document.getElementById(id);
     if (m) {
       if (hidden) {
@@ -1505,7 +1627,7 @@ window.closeModal = function() {
     overlay.classList.add('hidden');
     overlay.classList.remove('flex');
   }
-  ['modal-vibe', 'modal-reveal', 'modal-profile-peek', 'modal-icebreaker', 'modal-report', 'modal-chat-more'].forEach(id => {
+  ['modal-identity-reveal', 'modal-face-reveal', 'modal-face-declined', 'modal-google-meet', 'modal-profile-peek', 'modal-icebreaker', 'modal-report', 'modal-chat-more'].forEach(id => {
     const m = document.getElementById(id);
     if (m) {
       m.classList.remove('scale-100');
@@ -1519,25 +1641,58 @@ window.closeModal = function() {
   }, 200);
 };
 
-async function submitVibeAction(vibe) {
+async function submitNotVibing() {
+  if (!confirm('Are you sure you want to end this chat? This cannot be undone.')) return;
   try {
-    const data = await apiCall('/api/connections/vibe', 'POST', { connection_id: currentConnId, vibe });
-    closeModal();
-    if (data.ended) {
-      alert('This chat connection has ended.');
-      window.location.href = '/discover';
-    } else {
-      loadChatInfo();
-    }
+    await apiCall('/api/connections/end', 'POST', { connection_id: currentConnId });
+    window.location.href = '/discover';
   } catch(err) { alert(err.message); }
 }
 
-async function submitRevealAction() {
+async function submitIdentityRevealAction() {
   try {
-    await apiCall('/api/connections/reveal', 'POST', { connection_id: currentConnId });
+    const data = await apiCall('/api/connections/identity-reveal', 'POST', { connection_id: currentConnId });
     closeModal();
+    if (data.bothRevealed && data.meeting_code) {
+      showMeetingModal(data.meeting_code);
+    }
     loadChatInfo();
   } catch(err) { alert(err.message); }
+}
+
+async function submitFaceRevealAction() {
+  try {
+    const data = await apiCall('/api/connections/face-reveal', 'POST', { connection_id: currentConnId });
+    closeModal();
+    if (data.bothRevealed && data.meeting_code) {
+      showMeetingModal(data.meeting_code);
+    }
+    loadChatInfo();
+  } catch(err) { alert(err.message); }
+}
+
+async function submitDeclineFaceReveal() {
+  try {
+    closeModal();
+    await apiCall('/api/connections/decline-face-reveal', 'POST', { connection_id: currentConnId });
+    loadChatInfo();
+  } catch(err) { alert(err.message); }
+}
+
+async function disconnectAfterDecline() {
+  try {
+    closeModal();
+    await apiCall('/api/connections/end-after-decline', 'POST', { connection_id: currentConnId });
+    window.location.href = '/discover';
+  } catch(err) { alert(err.message); }
+}
+
+function showMeetingModal(meetingCode) {
+  const linkBtn = document.getElementById('meet-link-btn');
+  if (linkBtn) {
+    linkBtn.href = `https://meet.google.com/${meetingCode}`;
+  }
+  openModal('modal-google-meet');
 }
 
 // ===== Icebreaker Games =====
@@ -1694,7 +1849,7 @@ function openIcebreakerModal() {
   });
 }
 
-function startGame(gameType) {
+async function startGame(gameType) {
   const questions = GAME_QUESTIONS[gameType] || GAME_QUESTIONS['would-you-rather'];
   const q = questions[Math.floor(Math.random() * questions.length)];
   
@@ -1768,17 +1923,26 @@ function startGame(gameType) {
     apiCall('/api/messages/send', 'POST', { connection_id: currentConnId, content: msg })
       .catch(err => console.error('Failed to send random question message:', err));
   } else {
-    // Save interactive game in Firestore database to make it persistent
-    apiCall(`/api/connections/${currentConnId}/start-game`, 'POST', { game_type: gameType, question: q })
-      .catch(err => console.error('Failed to start persistent game:', err));
+    // STEP 1: Save game to Firestore FIRST (await ensures it's written before socket notify)
+    let activeGame;
+    try {
+      const result = await apiCall(`/api/connections/${currentConnId}/start-game`, 'POST', { game_type: gameType, question: q });
+      activeGame = result.active_game; // includes created_at from Firestore
+    } catch (err) {
+      console.error('Failed to start persistent game:', err);
+      return; // Don't emit socket if save failed
+    }
     
-    // Immediately emit socket event so server broadcasts game-question to the other user.
-    // This provides a real-time notification path alongside the status_change from the API handler.
+    // STEP 2: Now that Firestore has the game, notify the other user via socket.
+    // Use the EXACT SAME created_at from Firestore so both users' syncActiveGame
+    // calls compute the identical gameId — the second call (from API fetch) will
+    // find the existing game card and update state instead of creating a duplicate.
     if (socket) {
       socket.emit('icebreaker-game', {
         connection_id: currentConnId,
         game_type: gameType,
-        question: q
+        question: q,
+        created_at: activeGame.created_at
       });
     }
   }
@@ -2022,10 +2186,4 @@ function onGameAnswer(data) {
   }
 }
 
-function handleVibeScoreUpdated(data) {
-  // Refresh connection data and UI to show new score
-  loadChatInfo();
-  
-  // Show match celebration pill inside the chat feed
-  appendGameMessage(`✨ Match! Your Vibe Score increased to ${data.vibe_score}! ✨`, true);
-}
+// Removed: handleVibeScoreUpdated - no longer needed with the new reveal system
