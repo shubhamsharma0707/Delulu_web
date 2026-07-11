@@ -116,11 +116,14 @@
           <button id="btn-icebreaker" class="px-2 py-1 bg-surface-variant text-on-surface-variant rounded-full text-xs font-bold hover:bg-surface-container-high transition-colors shadow-sm" title="Icebreaker Games">
             <span class="material-symbols-outlined text-sm">casino</span>
           </button>
-          <button id="btn-vibe-check" class="px-3 py-1 bg-secondary-container text-on-secondary-container rounded-full text-xs font-bold hover:bg-secondary-container/80 transition-colors shadow-sm hidden">
-            Vibe Check
+          <button id="btn-not-vibing" class="px-3 py-1 bg-error/10 text-error rounded-full text-xs font-bold hover:bg-error/20 transition-colors shadow-sm hidden">
+            Not Vibing
           </button>
-          <button id="btn-reveal" class="px-3 py-1 bg-primary text-white rounded-full text-xs font-bold hover:bg-primary/90 transition-colors shadow-sm hidden">
+          <button id="btn-identity-reveal" class="px-3 py-1 bg-primary text-white rounded-full text-xs font-bold hover:bg-primary/90 transition-colors shadow-sm hidden">
             Reveal
+          </button>
+          <button id="btn-face-reveal" class="px-3 py-1 bg-gradient-to-r from-primary to-primary-container text-white rounded-full text-xs font-bold hover:opacity-90 transition-all shadow-sm hidden">
+            Let's Meet
           </button>
           <button id="btn-theme-toggle-chat" class="p-1 text-on-surface-variant hover:text-primary transition-colors" title="Toggle theme">
             <span class="material-symbols-outlined text-lg">dark_mode</span>
@@ -185,26 +188,53 @@
   
   <!-- MODALS -->
   <div id="modal-overlay" class="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] hidden flex items-center justify-center p-4">
-    <!-- Vibe Check Modal -->
-    <div id="modal-vibe" class="bg-surface rounded-3xl p-6 w-full max-w-sm ambient-shadow hidden transform scale-95 transition-all">
-      <h3 class="text-2xl font-bold text-primary mb-2 text-center">Vibe Check!</h3>
-      <p class="text-on-surface-variant text-center text-sm mb-6">Are you feeling the connection? You can submit your vibe early. If both feel it, you unlock the reveal phase!</p>
-      <div class="flex gap-4">
-        <button id="vibe-yes" class="flex-1 py-3 bg-gradient-to-r from-primary to-primary-container text-white font-bold rounded-xl hover:shadow-md transition-all">Yes, Vibe!</button>
-        <button id="vibe-no" class="flex-1 py-3 bg-surface-variant text-on-surface-variant font-bold rounded-xl hover:bg-surface-dim transition-all">Not feeling it</button>
-      </div>
-      <button data-action="close" class="w-full mt-4 text-outline font-semibold text-sm py-2">Maybe later</button>
-    </div>
-    
-    <!-- Reveal Modal -->
-    <div id="modal-reveal" class="bg-surface rounded-3xl p-6 w-full max-w-sm ambient-shadow hidden transform scale-95 transition-all text-center">
+    <!-- Identity Reveal Modal (Day 7) -->
+    <div id="modal-identity-reveal" class="bg-surface rounded-3xl p-6 w-full max-w-sm ambient-shadow hidden transform scale-95 transition-all text-center">
       <div class="w-20 h-20 bg-primary-container text-on-primary-container rounded-full flex items-center justify-center mx-auto mb-4 pulse-heart">
         <span class="material-symbols-outlined text-4xl material-fill">lock_open</span>
       </div>
-      <h3 class="text-2xl font-bold text-primary mb-2">Ready to Reveal?</h3>
-      <p class="text-on-surface-variant text-sm mb-6">Both of you passed the vibe check! Are you ready to reveal your photos to each other?</p>
-      <button id="reveal-yes" class="w-full py-3 bg-gradient-to-r from-primary to-primary-container text-white font-bold rounded-xl hover:shadow-md transition-all mb-3">Reveal My Identity</button>
-      <button data-action="close" class="w-full text-outline font-semibold text-sm py-2">Not yet</button>
+      <h3 class="text-2xl font-bold text-primary mb-2">Identity Reveal!</h3>
+      <p class="text-on-surface-variant text-sm mb-2">It's time! Both of you can now reveal yourselves.</p>
+      <p class="text-on-surface-variant text-xs mb-6">If both agree, you'll receive a Google Meet link to see each other face-to-face!</p>
+      <button id="identity-reveal-yes" class="w-full py-3 bg-gradient-to-r from-primary to-primary-container text-white font-bold rounded-xl hover:shadow-md transition-all mb-3">Yes, Let's Reveal!</button>
+      <button id="identity-reveal-no" class="w-full text-outline font-semibold text-sm py-2 hover:text-on-surface transition-colors">Not yet</button>
+    </div>
+
+    <!-- Face Reveal Modal (Day 14) -->
+    <div id="modal-face-reveal" class="bg-surface rounded-3xl p-6 w-full max-w-sm ambient-shadow hidden transform scale-95 transition-all text-center">
+      <div class="w-20 h-20 bg-gradient-to-br from-primary to-secondary-container rounded-full flex items-center justify-center mx-auto mb-4 pulse-heart">
+        <span class="material-symbols-outlined text-4xl text-white material-fill">videocam</span>
+      </div>
+      <h3 class="text-2xl font-bold text-primary mb-2">Face Reveal Time!</h3>
+      <p class="text-on-surface-variant text-sm mb-2">Ready to meet face-to-face? If both agree, you'll get a Google Meet link to video call each other!</p>
+      <p class="text-on-surface-variant text-xs mb-6">You can still keep chatting even after the call.</p>
+      <button id="face-reveal-yes" class="w-full py-3 bg-gradient-to-r from-primary to-primary-container text-white font-bold rounded-xl hover:shadow-md transition-all mb-3">Yes, Let's Meet!</button>
+      <button id="face-reveal-no" class="w-full py-3 bg-surface-variant text-on-surface-variant font-bold rounded-xl hover:bg-surface-dim transition-all">Not ready for this</button>
+    </div>
+
+    <!-- Face Reveal Declined Modal -->
+    <div id="modal-face-declined" class="bg-surface rounded-3xl p-6 w-full max-w-sm ambient-shadow hidden transform scale-95 transition-all text-center">
+      <div class="w-20 h-20 bg-error/10 text-error rounded-full flex items-center justify-center mx-auto mb-4">
+        <span class="material-symbols-outlined text-4xl">sentiment_dissatisfied</span>
+      </div>
+      <h3 class="text-2xl font-bold text-primary mb-2">They're Not Ready</h3>
+      <p class="text-on-surface-variant text-sm mb-6">The other person doesn't want to show their face right now. You can send them a last message or just move on.</p>
+      <button id="face-declined-disconnect" class="w-full py-3 bg-gradient-to-r from-primary to-primary-container text-white font-bold rounded-xl hover:shadow-md transition-all mb-3">Move to Discover</button>
+      <button data-action="close" class="w-full text-outline font-semibold text-sm py-2 hover:text-on-surface transition-colors">Send them a message first</button>
+    </div>
+
+    <!-- Google Meet Modal -->
+    <div id="modal-google-meet" class="bg-surface rounded-3xl p-6 w-full max-w-sm ambient-shadow hidden transform scale-95 transition-all text-center">
+      <div class="w-20 h-20 bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded-full flex items-center justify-center mx-auto mb-4">
+        <span class="material-symbols-outlined text-4xl material-fill">video_call</span>
+      </div>
+      <h3 class="text-2xl font-bold text-primary mb-2">Meeting Ready!</h3>
+      <p class="text-on-surface-variant text-sm mb-2">Your Google Meet link is ready! Click below to join the video call.</p>
+      <p class="text-on-surface-variant text-xs mb-6">You can continue chatting here after the call too!</p>
+      <a id="meet-link-btn" href="#" target="_blank" rel="noopener noreferrer" class="block w-full py-3 bg-gradient-to-r from-green-500 to-green-600 text-white font-bold rounded-xl hover:shadow-md hover:opacity-90 transition-all mb-3">
+        <span class="material-symbols-outlined text-sm align-middle mr-1">open_in_new</span> Join Google Meet
+      </a>
+      <button data-action="close" class="w-full text-outline font-semibold text-sm py-2 hover:text-on-surface transition-colors">Close</button>
     </div>
 
     <!-- Profile Peek Modal -->
@@ -212,10 +242,6 @@
       <div id="peek-avatar" class="w-20 h-20 rounded-full overflow-hidden mx-auto mb-3 border border-outline-variant/30 bg-primary/20 flex items-center justify-center text-primary font-bold"></div>
       <h3 id="peek-name" class="text-xl font-bold text-on-surface mb-1"></h3>
       <p id="peek-bio" class="text-on-surface-variant text-sm mb-6"></p>
-      <div class="flex gap-3">
-        <button id="peek-vibing" class="flex-1 py-3 bg-gradient-to-r from-primary to-primary-container text-white font-bold rounded-xl hover:shadow-md transition-all">Vibing</button>
-        <button id="peek-not-vibing" class="flex-1 py-3 bg-surface-variant text-on-surface-variant font-bold rounded-xl hover:bg-surface-dim transition-all">Not Vibing</button>
-      </div>
       <button data-action="close" class="w-full mt-3 text-outline font-semibold text-sm py-2">Close</button>
     </div>
     <div id="modal-icebreaker" class="bg-surface rounded-3xl p-6 w-full max-w-sm ambient-shadow hidden transform scale-95 transition-all">
