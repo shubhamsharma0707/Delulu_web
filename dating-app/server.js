@@ -113,6 +113,16 @@ if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && proc
   console.log('Firebase not configured — OTP endpoint will use local verification only');
 }
 
+// Firebase client config for Firestore realtime listener (onSnapshot for connection document)
+// Set FIREBASE_API_KEY to your Firebase Web SDK's API key (from Console > Project Settings > Web API Key).
+// The listener replaces wasteful HTTP polling for connection state (active_game, reveal status, etc.).
+const FIREBASE_CLIENT_CONFIG = process.env.FIREBASE_API_KEY ? {
+  apiKey: process.env.FIREBASE_API_KEY,
+  authDomain: process.env.FIREBASE_AUTH_DOMAIN || `${process.env.FIREBASE_PROJECT_ID}.firebaseapp.com`,
+  projectId: process.env.FIREBASE_PROJECT_ID,
+  storageBucket: process.env.FIREBASE_STORAGE_BUCKET || `${process.env.FIREBASE_PROJECT_ID}.appspot.com`
+} : null;
+
 // Hard-fail if SESSION_SECRET is not set — a dating app must never run with a guessable session secret
 if (!process.env.SESSION_SECRET) {
   throw new Error('FATAL: SESSION_SECRET environment variable is not set. Generate one with: node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'hex\'))"');
@@ -143,7 +153,7 @@ app.use(helmet({
       styleSrc: ["'self'", "'unsafe-inline'", "fonts.googleapis.com", "cdn.tailwindcss.com"],
       fontSrc: ["'self'", "fonts.gstatic.com"],
       imgSrc: ["'self'", "data:", "blob:"],
-      connectSrc: ["'self'", "wss:", "ws:", "https://identitytoolkit.googleapis.com", "https://securetoken.googleapis.com", "https://www.googleapis.com", "https://cdnjs.cloudflare.com", "https://cdn.socket.io"],
+      connectSrc: ["'self'", "wss:", "ws:", "https://identitytoolkit.googleapis.com", "https://securetoken.googleapis.com", "https://www.googleapis.com", "https://firestore.googleapis.com", "https://cdnjs.cloudflare.com", "https://cdn.socket.io"],
       frameSrc: ["'self'", `https://${process.env.FIREBASE_PROJECT_ID}.firebaseapp.com`, "https://apis.google.com"],
     },
   },
@@ -1345,6 +1355,29 @@ app.post('/api/push/unsubscribe', requireAuth, async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Failed to unsubscribe' });
+  }
+});
+
+// Firebase client config for Firestore realtime listener
+app.get('/api/firebase/config', (req, res) => {
+  if (FIREBASE_CLIENT_CONFIG) {
+    res.json({ enabled: true, ...FIREBASE_CLIENT_CONFIG });
+  } else {
+    res.json({ enabled: false });
+  }
+});
+
+// Firebase custom auth token for client-side Firestore onSnapshot
+app.get('/api/firebase/token', requireAuth, async (req, res) => {
+  if (!firebaseAuth) {
+    return res.status(503).json({ error: 'Firebase Auth not configured' });
+  }
+  try {
+    const token = await firebaseAuth.createCustomToken(String(req.session.userId));
+    res.json({ token });
+  } catch (err) {
+    console.error('Firebase custom token error:', err.message);
+    res.status(500).json({ error: 'Failed to generate token' });
   }
 });
 
