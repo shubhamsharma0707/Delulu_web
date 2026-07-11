@@ -464,6 +464,15 @@ async function initializeChat() {
       }
     });
     
+    socket.on('status_change', (data) => {
+      if (Number(data.connection_id) === Number(currentConnId)) {
+        if (!firestoreReady) {
+          console.log('[Socket] status_change received — updating chat info');
+          loadChatInfo();
+        }
+      }
+    });
+    
     socket.on('game-question', (data) => {
       if (data.connection_id == currentConnId) {
         // INSTANT render from socket data — no Firestore fetch needed.
@@ -474,6 +483,8 @@ async function initializeChat() {
         // Fallback timestamp ensures gameId is valid even if created_at is somehow missing
         const createdAt = data.created_at || new Date().toISOString();
         const fakeConn = {
+          from_user_id: otherUserId,
+          to_user_id: currentUser.id,
           active_game: {
             game_type: data.game_type,
             question: data.question,
@@ -2047,6 +2058,16 @@ async function startGame(gameType) {
         created_at: activeGame.created_at
       });
     }
+    
+    // Proactively render for ourselves if Firestore is not active (polling fallback)
+    if (!firestoreReady) {
+      const fakeConn = {
+        from_user_id: currentUser.id,
+        to_user_id: otherUserId,
+        active_game: activeGame
+      };
+      syncActiveGame(fakeConn);
+    }
   }
   closeModal();
 }
@@ -2079,7 +2100,7 @@ function syncActiveGame(c) {
   if (!existingGame || existingGame.id !== gameId) {
     if (existingGame) existingGame.remove();
     
-    currentGame = { domId: gameId, gameType: game.game_type, question: game.question, myAnswer, otherAnswer };
+    currentGame = { domId: gameId, gameType: game.game_type, question: game.question, myAnswer, otherAnswer, created_at: game.created_at };
     
     const msgDiv = document.createElement('div');
     msgDiv.className = 'w-full flex justify-center my-3 fade-in';
@@ -2093,7 +2114,7 @@ function syncActiveGame(c) {
           <button data-game-answer="A" class="flex-1 py-2 px-3 rounded-xl bg-surface-container-high text-on-surface hover:bg-primary hover:text-white font-semibold text-sm transition-all">${escapeHtml(game.question.a)}</button>
           <button data-game-answer="B" class="flex-1 py-2 px-3 rounded-xl bg-surface-container-high text-on-surface hover:bg-primary hover:text-white font-semibold text-sm transition-all">${escapeHtml(game.question.b)}</button>
         </div>
-        <p class="text-[10px] text-on-surface-variant mt-2" id="game-status-text">Wait for the other person to answer too...</p>
+        <p class="text-[10px] text-on-surface-variant mt-2" id="game-status-text">Make your pick to see if you match!</p>
       </div>
     `;
     
@@ -2168,6 +2189,11 @@ function syncActiveGame(c) {
         statusTextEl.textContent = 'The other person has answered! Make your pick to see if you match.';
         statusTextEl.className = 'text-[10px] text-primary font-semibold mt-2 animate-pulse';
       }
+    } else {
+      if (statusTextEl) {
+        statusTextEl.textContent = 'Make your pick to see if you match!';
+        statusTextEl.className = 'text-[10px] text-on-surface-variant mt-2';
+      }
     }
   }
 }
@@ -2194,7 +2220,8 @@ function handleBothAnswered(gameEl, myAns, otherAns) {
     setTimeout(() => gameEl.remove(), 500);
     
     try {
-      await apiCall(`/api/connections/${currentConnId}/clear-game`, 'POST');
+      const createdAt = currentGame ? currentGame.created_at : null;
+      await apiCall(`/api/connections/${currentConnId}/clear-game`, 'POST', { game_created_at: createdAt });
     } catch (e) {}
   }, 2000);
 }
