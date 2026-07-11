@@ -344,18 +344,17 @@ const connectionOps = {
       from_user_id: Number(fromId),
       to_user_id: Number(toId),
       status: 'pending',
-      created_at: new Date().toISOString(),
-      chat_started_at: null,
-      vibe_available_at: null,
-      reveal_available_at: null,
-      from_vibe: 0,
-      to_vibe: 0,
-      reveal_from: 0,
-      reveal_to: 0,
-      vibe_score: 0,
-      from_last_read_at: null,
-      to_last_read_at: null
-    });
+      created_at: new Date().toISOString(),      chat_started_at: null,
+          identity_reveal_available_at: null,
+          face_reveal_available_at: null,
+          from_identity_reveal: 0,
+          to_identity_reveal: 0,
+          from_face_reveal: 0,
+          to_face_reveal: 0,
+          meeting_code: null,
+          from_last_read_at: null,
+          to_last_read_at: null
+        });
     
     return { success: true };
   },
@@ -383,13 +382,13 @@ const connectionOps = {
         status: 'rejected',
         created_at: new Date().toISOString(),
         chat_started_at: null,
-        vibe_available_at: null,
-        reveal_available_at: null,
-        from_vibe: 0,
-        to_vibe: 0,
-        reveal_from: 0,
-        reveal_to: 0,
-        vibe_score: 0,
+        identity_reveal_available_at: null,
+        face_reveal_available_at: null,
+        from_identity_reveal: 0,
+        to_identity_reveal: 0,
+        from_face_reveal: 0,
+        to_face_reveal: 0,
+        meeting_code: null,
         from_last_read_at: null,
         to_last_read_at: null
       });
@@ -486,24 +485,25 @@ const connectionOps = {
 
     if (action === 'accept') {
       const now = new Date();
-      const nextVibeCheck = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
-      const revealAvailable = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString();
+      const identityRevealAvailable = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      const faceRevealAvailable = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString();
       await connDocRef.update({
         status: 'accepted',
         chat_started_at: now.toISOString(),
-        next_vibe_check_at: nextVibeCheck,
-        reveal_available_at: revealAvailable,
-        from_vibe: 0,
-        to_vibe: 0,
-        reveal_from: 0,
-        reveal_to: 0
+        identity_reveal_available_at: identityRevealAvailable,
+        face_reveal_available_at: faceRevealAvailable,
+        from_identity_reveal: 0,
+        to_identity_reveal: 0,
+        from_face_reveal: 0,
+        to_face_reveal: 0,
+        meeting_code: null
       });
       evictConnection(connectionId); // cache invalidation — status changed to 'accepted'
       return { 
         success: true, 
         chat_started_at: now.toISOString(), 
-        next_vibe_check_at: nextVibeCheck,
-        reveal_available_at: revealAvailable
+        identity_reveal_available_at: identityRevealAvailable,
+        face_reveal_available_at: faceRevealAvailable
       };
     } else {
       await connDocRef.update({ status: 'rejected' });
@@ -641,7 +641,8 @@ const connectionOps = {
     };
   },
 
-  async submitVibe(connectionId, userId, vibe) {
+  // End connection immediately ("Not Vibing" button)
+  async endConnection(connectionId, userId) {
     const firestore = getDB();
     const connDocRef = firestore.collection('connections').doc(String(connectionId));
     const doc = await connDocRef.get();
@@ -650,59 +651,93 @@ const connectionOps = {
     if (conn.status !== 'accepted') return { error: 'Connection not active' };
 
     const isFrom = conn.from_user_id === Number(userId);
-
-    if (vibe === 2) {
-      // Not vibing — end the connection immediately, regardless of the other user's vote
-      await connDocRef.update({ status: 'rejected', ended_reason: 'not_vibing' });
-      evictConnection(connectionId); // cache invalidation — status: rejected
-      const otherId = isFrom ? conn.to_user_id : conn.from_user_id;
-      return { success: true, ended: true, otherId };
-    }
-
-    const field = isFrom ? 'from_vibe' : 'to_vibe';
-    await connDocRef.update({ [field]: 1 });
-    evictConnection(connectionId); // cache invalidation — from_vibe/to_vibe field changed
-
-    const updated = (await connDocRef.get()).data();
-    if (updated.from_vibe === 1 && updated.to_vibe === 1) {
-      // Both vibing this round — reset votes and push the next check 7 days out
-      const nextCheck = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-      await connDocRef.update({ from_vibe: 0, to_vibe: 0, next_vibe_check_at: nextCheck });
-      evictConnection(connectionId); // cache invalidation — from_vibe/to_vibe reset + next_vibe_check_at changed
-      return { success: true, ended: false, bothVibing: true, next_vibe_check_at: nextCheck };
-    }
-    return { success: true, ended: false, bothVibing: false };
+    await connDocRef.update({ status: 'rejected', ended_reason: 'not_vibing' });
+    evictConnection(connectionId);
+    const otherId = isFrom ? conn.to_user_id : conn.from_user_id;
+    return { success: true, ended: true, otherId };
   },
 
-  async submitReveal(connectionId, userId) {
+  // Identity Reveal (Day 7): User agrees to reveal identity via Google Meet
+  async submitIdentityReveal(connectionId, userId) {
     const firestore = getDB();
     const connDocRef = firestore.collection('connections').doc(String(connectionId));
     const doc = await connDocRef.get();
-    
     if (!doc.exists) return { error: 'Connection not found' };
     const conn = doc.data();
-    
+    if (conn.status !== 'accepted') return { error: 'Connection not active' };
+
     const isFrom = conn.from_user_id === Number(userId);
-    const field = isFrom ? 'reveal_from' : 'reveal_to';
+    const field = isFrom ? 'from_identity_reveal' : 'to_identity_reveal';
     await connDocRef.update({ [field]: 1 });
-    evictConnection(connectionId); // cache invalidation — reveal_from/reveal_to field changed
+    evictConnection(connectionId);
 
     const updatedDoc = await connDocRef.get();
     const updated = updatedDoc.data();
-    const bothRevealed = updated.reveal_from === 1 && updated.reveal_to === 1;
+    const bothRevealed = updated.from_identity_reveal === 1 && updated.to_identity_reveal === 1;
 
     if (bothRevealed) {
-      const otherId = isFrom ? conn.to_user_id : conn.from_user_id;
-      const otherUser = await userOps.getById(otherId);
-      await connDocRef.update({ status: 'revealed' });
-      evictConnection(connectionId); // cache invalidation — status changed to 'revealed'
-      return { 
-        success: true, 
-        bothRevealed: true, 
-        otherUser: { id: otherUser.id, username: otherUser.username, avatar: otherUser.avatar } 
-      };
+      // Generate meeting code when both agree
+      const meetingCode = generateMeetingCode();
+      await connDocRef.update({ meeting_code: meetingCode });
+      evictConnection(connectionId);
+      return { success: true, bothRevealed: true, meeting_code: meetingCode };
     }
     return { success: true, bothRevealed: false };
+  },
+
+  // Face Reveal (Day 14): User agrees to face reveal via Google Meet
+  async submitFaceReveal(connectionId, userId) {
+    const firestore = getDB();
+    const connDocRef = firestore.collection('connections').doc(String(connectionId));
+    const doc = await connDocRef.get();
+    if (!doc.exists) return { error: 'Connection not found' };
+    const conn = doc.data();
+    if (conn.status !== 'accepted') return { error: 'Connection not active' };
+
+    const isFrom = conn.from_user_id === Number(userId);
+    const field = isFrom ? 'from_face_reveal' : 'to_face_reveal';
+    await connDocRef.update({ [field]: 1 });
+    evictConnection(connectionId);
+
+    const updatedDoc = await connDocRef.get();
+    const updated = updatedDoc.data();
+    const bothRevealed = updated.from_face_reveal === 1 && updated.to_face_reveal === 1;
+
+    if (bothRevealed) {
+      // Generate meeting code when both agree
+      const meetingCode = generateMeetingCode();
+      await connDocRef.update({ meeting_code: meetingCode });
+      evictConnection(connectionId);
+      return { success: true, bothRevealed: true, meeting_code: meetingCode };
+    }
+    return { success: true, bothRevealed: false };
+  },
+
+  // Face Reveal Decline: One user said no to face reveal
+  async declineFaceReveal(connectionId, userId) {
+    const firestore = getDB();
+    const connDocRef = firestore.collection('connections').doc(String(connectionId));
+    const doc = await connDocRef.get();
+    if (!doc.exists) return { error: 'Connection not found' };
+    const conn = doc.data();
+    if (conn.status !== 'accepted') return { error: 'Connection not active' };
+
+    const isFrom = conn.from_user_id === Number(userId);
+    const otherId = isFrom ? conn.to_user_id : conn.from_user_id;
+    
+    // Mark that face reveal was declined so the other user gets a popup
+    await connDocRef.update({ face_reveal_declined_by: Number(userId) });
+    evictConnection(connectionId);
+    return { success: true, declined: true, otherId };
+  },
+
+  // End connection after face reveal decline (user chose to disconnect)
+  async endAfterDecline(connectionId, userId) {
+    const firestore = getDB();
+    const connDocRef = firestore.collection('connections').doc(String(connectionId));
+    await connDocRef.update({ status: 'rejected', ended_reason: 'face_reveal_decline' });
+    evictConnection(connectionId);
+    return { success: true };
   },
 
   async startGame(connectionId, gameType, question) {
@@ -764,37 +799,37 @@ const connectionOps = {
       .limit(100)
       .get();
       
-    let vibeExpired = 0;
-    let revealsExpired = 0;
+    let identityRevealsExpired = 0;
+    let faceRevealsExpired = 0;
     const batch = firestore.batch();
     
-    // ponytail: iterates all 'accepted' connections in JS — add compound index + Firestore query filter when >1000 connections.
     const expiredIds = [];
     snapshot.forEach(doc => {
       const conn = doc.data();
       
-      // Sweep 1: Reveal period expired without both users revealing
-      if (conn.reveal_available_at && conn.reveal_available_at < now && (conn.reveal_from === 0 || conn.reveal_to === 0)) {
-        batch.update(doc.ref, { status: 'expired', ended_reason: 'reveal_timeout' });
-        expiredIds.push(conn.id);
-        revealsExpired++;
-        return;
+      // Sweep 1: Face reveal period expired without both users agreeing
+      if (conn.face_reveal_available_at && conn.face_reveal_available_at < now) {
+        if (conn.from_face_reveal === 0 || conn.to_face_reveal === 0) {
+          batch.update(doc.ref, { status: 'expired', ended_reason: 'face_reveal_timeout' });
+          expiredIds.push(conn.id);
+          faceRevealsExpired++;
+          return;
+        }
       }
       
-      // Sweep 2: Vibe check due and neither user has voted — auto-close
-      if (conn.next_vibe_check_at && conn.next_vibe_check_at < now) {
-        if (conn.from_vibe === 0 && conn.to_vibe === 0) {
-          batch.update(doc.ref, { status: 'rejected', ended_reason: 'vibe_timeout' });
+      // Sweep 2: Identity reveal period expired without both users agreeing
+      if (conn.identity_reveal_available_at && conn.identity_reveal_available_at < now) {
+        if (conn.from_identity_reveal === 0 && conn.to_identity_reveal === 0) {
+          batch.update(doc.ref, { status: 'expired', ended_reason: 'identity_reveal_timeout' });
           expiredIds.push(conn.id);
-          vibeExpired++;
+          identityRevealsExpired++;
         }
       }
     });
     
     await batch.commit();
-    // cache invalidation — evict all connections whose status just changed
     for (const id of expiredIds) evictConnection(id);
-    return { vibeExpired, revealsExpired };
+    return { identityRevealsExpired, faceRevealsExpired };
   },
 
   async getConnectionById(connectionId) {
@@ -1202,6 +1237,15 @@ const blockOps = {
     return !snap1.empty || !snap2.empty;
   }
 };
+
+// Generate a random Google Meet meeting code (xxx-xxxx-xxx format)
+function generateMeetingCode() {
+  const chars = 'abcdefghijklmnopqrstuvwxyz';
+  const p1 = Array.from({ length: 3 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+  const p2 = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+  const p3 = Array.from({ length: 3 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+  return `${p1}-${p2}-${p3}`;
+}
 
 // ===== Push Subscription Operations =====
 const pushOps = {
