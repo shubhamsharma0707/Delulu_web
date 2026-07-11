@@ -69,6 +69,10 @@ async function pollDelta() {
       
       const newMsgs = data.messages.filter(m => !existingIds.has(String(m.id)));
       if (newMsgs.length > 0) {
+        const otherNewMsgs = newMsgs.filter(m => Number(m.sender_id) !== Number(currentUser.id));
+        if (otherNewMsgs.length > 0) {
+          hasReadMessagesInView = false;
+        }
         for (const m of newMsgs) {
           await appendMessage(m, false);
         }
@@ -351,6 +355,7 @@ async function initializeChat() {
       // Use Number() coercion for safe comparison regardless of int/string type
       if (Number(msg.connection_id) === Number(currentConnId)) {
         if (Number(msg.sender_id) !== Number(currentUser.id)) {
+          hasReadMessagesInView = false;
           appendMessage(msg, true);
           markMessagesAsRead();
           
@@ -2068,7 +2073,7 @@ function syncActiveGame(c) {
   const gameId = 'game-' + new Date(game.created_at).getTime();
   
   const myAnswer = game.answers[String(currentUser.id)] || null;
-  const otherId = c.from_user_id === currentUser.id ? c.to_user_id : c.from_user_id;
+  const otherId = Number(c.from_user_id) === Number(currentUser.id) ? Number(c.to_user_id) : Number(c.from_user_id);
   const otherAnswer = game.answers[String(otherId)] || null;
   
   if (!existingGame || existingGame.id !== gameId) {
