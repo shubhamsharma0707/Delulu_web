@@ -369,7 +369,13 @@ async function initializeChat() {
     
     socket.on('game-question', (data) => {
       if (data.connection_id == currentConnId) {
-        loadChatInfo();
+        // Lightweight sync: fetch fresh connection data and sync active game directly.
+        // Avoids the heavy loadChatInfo() -> loadMessages(true) full re-render path.
+        apiCall(`/api/connections/${currentConnId}`).then(d => {
+          const c = d.connection;
+          updateChatStatus(c);
+          syncActiveGame(c);
+        }).catch(() => loadChatInfo());
       }
     });
     
@@ -931,6 +937,9 @@ async function loadChatInfo() {
     updateChatStatus(c);
     await loadMessages(true);
     syncActiveGame(c);
+    
+    // Scroll to ensure game cards and latest messages are visible
+    scrollToBottom();
     
     // Mark messages as read shortly after loading
     setTimeout(() => markMessagesAsRead(), 500);
@@ -1762,6 +1771,16 @@ function startGame(gameType) {
     // Save interactive game in Firestore database to make it persistent
     apiCall(`/api/connections/${currentConnId}/start-game`, 'POST', { game_type: gameType, question: q })
       .catch(err => console.error('Failed to start persistent game:', err));
+    
+    // Immediately emit socket event so server broadcasts game-question to the other user.
+    // This provides a real-time notification path alongside the status_change from the API handler.
+    if (socket) {
+      socket.emit('icebreaker-game', {
+        connection_id: currentConnId,
+        game_type: gameType,
+        question: q
+      });
+    }
   }
   closeModal();
 }
@@ -1814,6 +1833,9 @@ function syncActiveGame(c) {
     
     const cont = document.getElementById('chat-messages');
     cont.prepend(msgDiv);
+    
+    // Scroll to show the game card (prepended at bottom of flex-col-reverse)
+    scrollToBottom();
     
     msgDiv.querySelectorAll('[data-game-answer]').forEach(btn => {
       btn.onclick = async () => {
