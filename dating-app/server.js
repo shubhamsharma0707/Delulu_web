@@ -402,12 +402,13 @@ io.on('connection', async (socket) => {
 
   // Icebreaker game events
   socket.on('icebreaker-game', (data) => {
-    const { connection_id, game_type, question } = data;
+    const { connection_id, game_type, question, created_at } = data;
     if (!connection_id || !game_type || !question) return;
     socket.to(`chat:${connection_id}`).emit('game-question', {
       connection_id,
       game_type,
-      question
+      question,
+      created_at: created_at || null
     });
   });
 
@@ -469,17 +470,28 @@ function sanitizeUser(user) {
 function sanitizeConnection(c, userId) {
   if (!c) return null;
   const isFrom = c.from_user_id === Number(userId);
-  const bothRevealed = c.reveal_from === 1 && c.reveal_to === 1;
-  const myReveal = isFrom ? c.reveal_from : c.reveal_to;
   
   const copy = { ...c };
-  delete copy.reveal_from;
-  delete copy.reveal_to;
+  
+  // Backward compatibility: map old fields (reveal_available_at, reveal_from/reveal_to) to new ones
+  const fromIdentityReveal = c.from_identity_reveal !== undefined ? c.from_identity_reveal : c.reveal_from || 0;
+  const toIdentityReveal = c.to_identity_reveal !== undefined ? c.to_identity_reveal : c.reveal_to || 0;
+  const identityRevealAvailable = c.identity_reveal_available_at || c.reveal_available_at || null;
+  const faceRevealAvailable = c.face_reveal_available_at || c.reveal_available_at || null;
   
   return {
     ...copy,
-    my_reveal: myReveal,
-    both_revealed: bothRevealed
+    identity_reveal_available_at: identityRevealAvailable,
+    face_reveal_available_at: faceRevealAvailable,
+    my_identity_reveal: isFrom ? fromIdentityReveal : toIdentityReveal,
+    other_identity_reveal: isFrom ? toIdentityReveal : fromIdentityReveal,
+    both_identity_revealed: fromIdentityReveal === 1 && toIdentityReveal === 1,
+    my_face_reveal: isFrom ? c.from_face_reveal || 0 : c.to_face_reveal || 0,
+    other_face_reveal: isFrom ? c.to_face_reveal || 0 : c.from_face_reveal || 0,
+    both_face_revealed: (c.from_face_reveal || 0) === 1 && (c.to_face_reveal || 0) === 1,
+    face_reveal_declined_by_other: isFrom 
+      ? c.face_reveal_declined_by === c.to_user_id 
+      : c.face_reveal_declined_by === c.from_user_id
   };
 }
 
@@ -925,15 +937,10 @@ app.delete('/api/connections/:id', requireAuth, async (req, res) => {
 app.get('/api/connections/active', requireAuth, async (req, res) => {
   const connections = await connectionOps.getActiveConnections(req.session.userId);
   
-  const now = new Date();
   const enriched = connections.map(c => {
-    const isFrom = c.from_user_id === req.session.userId;
     const sanitized = sanitizeConnection(c, req.session.userId);
     return {
-      ...sanitized,
-      is_vibe_available: c.vibe_available_at ? new Date(c.vibe_available_at) <= now : false,
-      my_vote: isFrom ? c.from_vibe : c.to_vibe,
-      other_vote: isFrom ? c.to_vibe : c.from_vibe
+      ...sanitized
     };
   });
 
@@ -953,34 +960,81 @@ app.get('/api/connections/:id', requireAuth, async (req, res) => {
   });
 });
 
-// Submit vibe/not vibe
-app.post('/api/connections/vibe', requireAuth, async (req, res) => {
-  const { connection_id, vibe } = req.body;
-  if (!connection_id || ![1, 2].includes(vibe)) {
-    return res.status(400).json({ error: 'Invalid vibe value' });
-  }
-  const result = await connectionOps.submitVibe(connection_id, req.session.userId, vibe);
+// End connection ("Not Vibing")
+app.post('/api/connections/end', requireAuth, async (req, res) => {
+  const { connection_id } = req.body;
+  if (!connection_id) return res.status(400).json({ error: 'Missing connection id' });
+  const result = await connectionOps.endConnection(connection_id, req.session.userId);
   if (result.error) return res.status(400).json(result);
 
   if (result.ended && result.otherId) {
     io.to(`user:${result.otherId}`).emit('connection-ended', {
       connectionId: connection_id,
-      message: "Your chat partner has decided not to continue. This chat has ended."
+      message: "😔 Your chat partner wasn't feeling the vibe. This chat has ended. You'll be redirected to the discover page."
+    });
+    io.to(`chat:${connection_id}`).emit('status_change', { connection_id });
+  }
+  res.json(result);
+});
+
+// Submit identity reveal (Day 7)
+app.post('/api/connections/identity-reveal', requireAuth, async (req, res) => {
+  const { connection_id } = req.body;
+  if (!connection_id) return res.status(400).json({ error: 'Missing connection id' });
+  const result = await connectionOps.submitIdentityReveal(connection_id, req.session.userId);
+  if (result.error) return res.status(400).json(result);
+  
+  if (result.bothRevealed) {
+    io.to(`chat:${connection_id}`).emit('identity-revealed', { 
+      connection_id, 
+      meeting_code: result.meeting_code 
     });
   }
   res.json(result);
 });
 
-// Submit reveal
-app.post('/api/connections/reveal', requireAuth, async (req, res) => {
+// Submit face reveal (Day 14)
+app.post('/api/connections/face-reveal', requireAuth, async (req, res) => {
   const { connection_id } = req.body;
   if (!connection_id) return res.status(400).json({ error: 'Missing connection id' });
-  const result = await connectionOps.submitReveal(connection_id, req.session.userId);
+  const result = await connectionOps.submitFaceReveal(connection_id, req.session.userId);
   if (result.error) return res.status(400).json(result);
   
   if (result.bothRevealed) {
-    io.to(`chat:${connection_id}`).emit('status_change', { connection_id });
+    io.to(`chat:${connection_id}`).emit('face-revealed', { 
+      connection_id, 
+      meeting_code: result.meeting_code 
+    });
   }
+  res.json(result);
+});
+
+// Decline face reveal
+app.post('/api/connections/decline-face-reveal', requireAuth, async (req, res) => {
+  const { connection_id } = req.body;
+  if (!connection_id) return res.status(400).json({ error: 'Missing connection id' });
+  const result = await connectionOps.declineFaceReveal(connection_id, req.session.userId);
+  if (result.error) return res.status(400).json(result);
+  
+  if (result.declined && result.otherId) {
+    io.to(`user:${result.otherId}`).emit('face-reveal-declined', {
+      connectionId: connection_id
+    });
+  }
+  res.json(result);
+});
+
+// End connection after face reveal decline
+app.post('/api/connections/end-after-decline', requireAuth, async (req, res) => {
+  const { connection_id } = req.body;
+  if (!connection_id) return res.status(400).json({ error: 'Missing connection id' });
+  const result = await connectionOps.endAfterDecline(connection_id, req.session.userId);
+  if (result.error) return res.status(400).json(result);
+  
+  io.to(`chat:${connection_id}`).emit('connection-ended', {
+    connectionId: connection_id,
+    message: "The other person decided to disconnect after the face reveal decline."
+  });
   res.json(result);
 });
 
@@ -1037,35 +1091,7 @@ app.post('/api/connections/:id/clear-game', requireAuth, async (req, res) => {
   }
 });
 
-// Increment Vibe Score on connection match
-app.post('/api/connections/increment-vibe-score', requireAuth, async (req, res) => {
-  const { connectionId } = req.body;
-  if (!connectionId) return res.status(400).json({ error: 'Connection ID is required' });
-  
-  try {
-    const firestore = getDB();
-    const connRef = firestore.collection('connections').doc(String(connectionId));
-    const connDoc = await connRef.get();
-    if (!connDoc.exists) {
-      return res.status(404).json({ error: 'Connection not found' });
-    }
-    
-    const data = connDoc.data();
-    const newScore = (data.vibe_score || 0) + 1;
-    await connRef.update({ vibe_score: newScore });
-    
-    // Broadcast the new score to both users in the chat room
-    io.to(`chat:${connectionId}`).emit('vibe-score-updated', {
-      connectionId,
-      vibe_score: newScore
-    });
-    
-    res.json({ success: true, vibe_score: newScore });
-  } catch (err) {
-    console.error('Error incrementing vibe score:', err);
-    res.status(500).json({ error: 'Failed to increment vibe score' });
-  }
-});
+
 
 // Get messages for a connection
 app.get('/api/messages/:connectionId', requireAuth, async (req, res) => {
@@ -1385,8 +1411,8 @@ setInterval(async () => {
   try {
     const sweepResult = await connectionOps.sweepExpired();
     const reqSweep = await connectionOps.sweepExpiredRequests();
-    if (sweepResult.vibeExpired > 0 || sweepResult.revealsExpired > 0 || reqSweep.expiredCount > 0) {
-      console.log(`[Sweep] Expired ${sweepResult.vibeExpired} vibes, ${sweepResult.revealsExpired} reveals, ${reqSweep.expiredCount} pending requests.`);
+    if (sweepResult.identityRevealsExpired > 0 || sweepResult.faceRevealsExpired > 0 || reqSweep.expiredCount > 0) {
+      console.log(`[Sweep] Expired ${sweepResult.identityRevealsExpired} identity reveals, ${sweepResult.faceRevealsExpired} face reveals, ${reqSweep.expiredCount} pending requests.`);
     }
   } catch (err) {
     console.error('[Sweep Error]', err);
