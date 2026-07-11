@@ -782,10 +782,22 @@ const connectionOps = {
     return { success: true, bothAnswered, gameData };
   },
 
-  async clearGame(connectionId) {
+  async clearGame(connectionId, gameCreatedAt = null) {
     const firestore = getDB();
     const connDocRef = firestore.collection('connections').doc(String(connectionId));
-    await connDocRef.update({ active_game: null });
+    if (gameCreatedAt) {
+      await firestore.runTransaction(async (transaction) => {
+        const doc = await transaction.get(connDocRef);
+        if (!doc.exists) return;
+        const conn = doc.data();
+        const activeGame = conn.active_game || null;
+        if (activeGame && activeGame.created_at === gameCreatedAt) {
+          transaction.update(connDocRef, { active_game: null });
+        }
+      });
+    } else {
+      await connDocRef.update({ active_game: null });
+    }
     evictConnection(connectionId); // cache invalidation — active_game cleared
     return { success: true };
   },
