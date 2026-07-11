@@ -410,38 +410,7 @@ io.on('connection', async (socket) => {
     }
   });
 
-  // Icebreaker game events
-  socket.on('icebreaker-game', (data) => {
-    const { connection_id, game_type, question, created_at } = data;
-    if (!connection_id || !game_type || !question) return;
-    socket.to(`chat:${connection_id}`).emit('game-question', {
-      connection_id,
-      game_type,
-      question,
-      created_at: created_at || null
-    });
-  });
 
-  socket.on('icebreaker-answer', (data) => {
-    const { connection_id, game_type, question, answer } = data;
-    if (!connection_id || !answer) return;
-    socket.to(`chat:${connection_id}`).emit('game-answer', {
-      connection_id,
-      game_type,
-      theirAnswer: answer === 'A' ? question.a : question.b,
-      answer,
-      match: false // We don't know yet, just relay
-    });
-  });
-
-  socket.on('icebreaker-question', (data) => {
-    const { connection_id, question } = data;
-    if (!connection_id || !question) return;
-    socket.to(`chat:${connection_id}`).emit('game-question', {
-      connection_id,
-      question: sanitizeText(question)
-    });
-  });
 
   socket.on('disconnect', () => {
     console.log(`User ${userId} disconnected`);
