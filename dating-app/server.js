@@ -64,6 +64,9 @@ const io = new Server(server, {
   transports: ['websocket', 'polling']
 });
 
+// Active in-memory games store (prevents Firestore write overload)
+const activeGames = new Map(); // connectionId -> active_game payload
+
 // Ensure upload folders exist
 fs.mkdirSync('public/uploads/voice', { recursive: true });
 const voiceStorage = multer.diskStorage({
@@ -515,7 +518,7 @@ async function sendBrevoEmail(email, subject, htmlContent) {
     body: JSON.stringify({
       sender: {
         name: 'Delulu Dating',
-        email: 'delulu.college.dating@gmail.com'
+        email: process.env.GMAIL_USER || 'delulu.college.dating@gmail.com'
       },
       to: [{ email }],
       subject: subject,
@@ -934,6 +937,13 @@ app.get('/api/connections/:id', requireAuth, async (req, res) => {
   }
   if (!conn) return res.status(404).json({ error: 'Connection not found' });
   
+  // Merge active in-memory game into connection object
+  if (activeGames.has(req.params.id)) {
+    conn.active_game = activeGames.get(req.params.id);
+  } else {
+    conn.active_game = null;
+  }
+  
   res.json({
     connection: sanitizeConnection(conn, req.session.userId)
   });
@@ -1025,10 +1035,26 @@ app.post('/api/connections/:id/start-game', requireAuth, async (req, res) => {
     const conn = await connectionOps.getConnection(req.params.id, req.session.userId);
     if (!conn || conn._dataIntegrityError) return res.status(404).json({ error: 'Connection not found' });
     
-    const payload = await connectionOps.startGame(req.params.id, game_type, question);
+    // In-memory active game payload
+    const payload = {
+      game_type,
+      question,
+      answers: {},
+      created_at: new Date().toISOString()
+    };
+    activeGames.set(req.params.id, payload);
     
     // Broadcast status change so both users reload connection state instantly
     io.to(`chat:${req.params.id}`).emit('status_change', { connection_id: req.params.id });
+    
+    // Broadcast the exact game update to both clients
+    io.to(`chat:${req.params.id}`).emit('game_update', {
+      connection_id: req.params.id,
+      from_user_id: conn.from_user_id,
+      to_user_id: conn.to_user_id,
+      active_game: payload
+    });
+    
     res.json({ success: true, active_game: payload });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1043,11 +1069,27 @@ app.post('/api/connections/:id/answer-game', requireAuth, async (req, res) => {
     const conn = await connectionOps.getConnection(req.params.id, req.session.userId);
     if (!conn || conn._dataIntegrityError) return res.status(404).json({ error: 'Connection not found' });
     
-    const result = await connectionOps.submitGameAnswer(req.params.id, req.session.userId, answer);
+    const activeGame = activeGames.get(req.params.id);
+    if (!activeGame) return res.status(400).json({ error: 'No active game found in memory' });
+    
+    activeGame.answers[String(req.session.userId)] = answer;
+    
+    const otherId = conn.from_user_id === Number(req.session.userId) ? conn.to_user_id : conn.from_user_id;
+    const bothAnswered = (activeGame.answers[String(req.session.userId)] !== undefined) && 
+                         (activeGame.answers[String(otherId)] !== undefined);
     
     // Broadcast status change so both users reload connection state instantly
     io.to(`chat:${req.params.id}`).emit('status_change', { connection_id: req.params.id });
-    res.json(result);
+    
+    // Broadcast exact game update to both clients
+    io.to(`chat:${req.params.id}`).emit('game_update', {
+      connection_id: req.params.id,
+      from_user_id: conn.from_user_id,
+      to_user_id: conn.to_user_id,
+      active_game: activeGame
+    });
+    
+    res.json({ success: true, bothAnswered, gameData: activeGame });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1064,8 +1106,24 @@ app.post('/api/connections/:id/clear-game', requireAuth, async (req, res) => {
     const conn = await connectionOps.getConnection(req.params.id, req.session.userId);
     if (!conn || conn._dataIntegrityError) return res.status(404).json({ error: 'Connection not found' });
     
-    const result = await connectionOps.clearGame(req.params.id, game_created_at);
-    res.json(result);
+    if (game_created_at) {
+      const activeGame = activeGames.get(req.params.id);
+      if (activeGame && activeGame.created_at === game_created_at) {
+        activeGames.delete(req.params.id);
+      }
+    } else {
+      activeGames.delete(req.params.id);
+    }
+    
+    // Broadcast the clear state to both clients
+    io.to(`chat:${req.params.id}`).emit('game_update', {
+      connection_id: req.params.id,
+      from_user_id: conn.from_user_id,
+      to_user_id: conn.to_user_id,
+      active_game: null
+    });
+    
+    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1202,7 +1260,7 @@ const vapidPublicKey = process.env.VAPID_PUBLIC_KEY;
 const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
 if (vapidPublicKey && vapidPrivateKey) {
   webPush.setVapidDetails(
-    'mailto:delulu.college.dating@gmail.com',
+    `mailto:${process.env.GMAIL_USER || 'delulu.college.dating@gmail.com'}`,
     vapidPublicKey,
     vapidPrivateKey
   );
