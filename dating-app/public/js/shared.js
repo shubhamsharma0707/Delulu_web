@@ -346,22 +346,21 @@ async function initPushNotifications() {
 }
 
 // ===== Connection Timeline Helper =====
-function getConnectionProgress(status, chatStartedAt, nextVibeCheckAt, revealAvailableAt) {
+function getConnectionProgress(status, chatStartedAt, identityRevealAvailableAt, faceRevealAvailableAt) {
   const now = Date.now();
   const stages = [
     { label: 'Matched', done: true },
     { label: 'Chatting', done: !!chatStartedAt }
   ];
   
-  if (status === 'revealed') {
-    stages.push({ label: 'Revealed', done: true });
-  } else if (revealAvailableAt && now >= new Date(revealAvailableAt)) {
-    stages.push({ label: 'Reveal Ready', done: false, active: true });
-  } else if (nextVibeCheckAt) {
-    const done = now >= new Date(nextVibeCheckAt);
-    stages.push({ label: 'Vibe Check', done, active: !done });
+  if (faceRevealAvailableAt && now >= new Date(faceRevealAvailableAt)) {
+    stages.push({ label: 'Face Reveal', done: false, active: true });
+  } else if (identityRevealAvailableAt && now >= new Date(identityRevealAvailableAt)) {
+    stages.push({ label: 'Identity Reveal', done: false, active: true });
+  } else if (identityRevealAvailableAt) {
+    stages.push({ label: 'Identity Reveal', done: false });
   } else {
-    stages.push({ label: 'Vibe Check', done: false });
+    stages.push({ label: 'Chatting', done: true });
   }
   
   return stages;
