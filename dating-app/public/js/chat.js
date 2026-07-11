@@ -12,13 +12,15 @@ let otherLastReadAt = null;
 let hasReadMessagesInView = false;
 let lastMessageTimestamp = null;
 let pollingTimeout = null;
-let statusPollTimeout = null;
 let pollInterval = 4000;
 const maxInterval = 30000;
 
-let statusPollInterval = 60000;
-const maxStatusInterval = 300000; // 5 minutes
-let lastConnectionState = null;
+// Firestore realtime listener — replaces HTTP polling for connection state.
+// By subscribing to the connection document via onSnapshot, connection-state
+// updates (active_game, reveal status, etc.) arrive instantly when Firestore
+// changes, eliminating the race condition between polling and DOM resets.
+let firestoreUnsubscribe = null;
+let firestoreReady = false;
 
 // User Activity Monitoring to prevent wasteful reads when the user is idle
 let lastActivityTime = Date.now();
@@ -30,9 +32,7 @@ function resetIdleTimer() {
     isIdle = false;
     console.log('User active — resuming polling fallback');
     pollInterval = 4000;
-    statusPollInterval = 60000;
     scheduleNextPoll();
-    scheduleStatusPoll();
   }
 }
 
@@ -101,53 +101,138 @@ function scheduleNextPoll() {
   }, pollInterval);
 }
 
-async function pollStatus() {
-  if (!currentConnId) return false;
-  try {
-    const data = await apiCall(`/api/connections/${currentConnId}`);
-    const c = data.connection;
-    
-    let changed = false;
-    if (!lastConnectionState || 
-        lastConnectionState.status !== c.status ||
-        lastConnectionState.my_identity_reveal !== c.my_identity_reveal ||
-        lastConnectionState.my_face_reveal !== c.my_face_reveal ||
-        lastConnectionState.both_identity_revealed !== c.both_identity_revealed ||
-        lastConnectionState.both_face_revealed !== c.both_face_revealed) {
-      changed = true;
-    }
-    
-    lastConnectionState = c;
-    updateChatStatus(c);
-    syncActiveGame(c);
-    return changed;
-  } catch (e) {
-    console.error('Failed to poll status:', e);
-  }
-  return false;
+// ── Firestore Connection Listener ───────────────────────────────────────────
+// Replaces HTTP polling for connection state (status, game, reveal fields).
+// Subscribes to a single document via onSnapshot — cheap, instant, no race conditions.
+// Falls back to polling if Firebase client config is not set.
+let _fsSanitizedCache = null;
+
+function clientSanitizeConnection(c, userId) {
+  if (!c) return null;
+  const isFrom = Number(c.from_user_id) === Number(userId);
+  
+  const fromIdentityReveal = c.from_identity_reveal !== undefined ? c.from_identity_reveal : (c.reveal_from || 0);
+  const toIdentityReveal = c.to_identity_reveal !== undefined ? c.to_identity_reveal : (c.reveal_to || 0);
+  const identityRevealAvailable = c.identity_reveal_available_at || c.reveal_available_at || null;
+  const faceRevealAvailable = c.face_reveal_available_at || c.reveal_available_at || null;
+  
+  return {
+    ...c,
+    identity_reveal_available_at: identityRevealAvailable,
+    face_reveal_available_at: faceRevealAvailable,
+    my_identity_reveal: isFrom ? fromIdentityReveal : toIdentityReveal,
+    other_identity_reveal: isFrom ? toIdentityReveal : fromIdentityReveal,
+    both_identity_revealed: fromIdentityReveal === 1 && toIdentityReveal === 1,
+    my_face_reveal: isFrom ? (c.from_face_reveal || 0) : (c.to_face_reveal || 0),
+    other_face_reveal: isFrom ? (c.to_face_reveal || 0) : (c.from_face_reveal || 0),
+    both_face_revealed: (c.from_face_reveal || 0) === 1 && (c.to_face_reveal || 0) === 1,
+    face_reveal_declined_by_other: isFrom 
+      ? c.face_reveal_declined_by === c.to_user_id 
+      : c.face_reveal_declined_by === c.from_user_id
+  };
 }
 
-function scheduleStatusPoll() {
-  if (statusPollTimeout) clearTimeout(statusPollTimeout);
-  if (socket && socket.connected) return; // Don't poll if socket is alive
-  if (document.hidden || checkUserIdle()) return; // Pause entirely if backgrounded or idle
+function stopStatusPolling() {
+  firestoreReady = true;
+}
+
+async function initFirestoreListener() {
+  if (!currentConnId || !currentUser || firestoreReady) return;
   
-  statusPollTimeout = setTimeout(async () => {
-    const changed = await pollStatus();
-    // Double interval up to 5 minutes if status is unchanged, reset to 60000ms immediately on change
-    statusPollInterval = changed 
-      ? 60000 
-      : Math.min(statusPollInterval * 2, maxStatusInterval);
-    scheduleStatusPoll();
-  }, statusPollInterval);
+  // 1. Fetch Firebase client config
+  let config;
+  try {
+    const res = await fetch('/api/firebase/config');
+    config = await res.json();
+    if (!config.enabled) {
+      console.log('[Firestore] Client not configured — keeping polling fallback');
+      return;
+    }
+  } catch (e) {
+    console.warn('[Firestore] Config unavailable, using polling fallback:', e.message);
+    return;
+  }
+  
+  // 2. Initialize Firebase Web SDK (compat mode loaded via CDN)
+  if (typeof firebase === 'undefined') {
+    console.warn('[Firestore] Firebase SDK not loaded — using polling fallback');
+    return;
+  }
+  try {
+    if (!firebase.apps.length) {
+      firebase.initializeApp(config);
+    }
+  } catch (e) {
+    console.warn('[Firestore] Init failed:', e.message);
+    return;
+  }
+  
+  // 3. Get custom auth token from server
+  let tokenData;
+  try {
+    const res = await fetch('/api/firebase/token');
+    tokenData = await res.json();
+    if (!tokenData.token) throw new Error('No token returned');
+  } catch (e) {
+    console.warn('[Firestore] Token unavailable:', e.message);
+    return;
+  }
+  
+  // 4. Sign in with custom token (uid === our app's user ID — matched in Firestore Security Rules)
+  try {
+    await firebase.auth().signInWithCustomToken(tokenData.token);
+  } catch (e) {
+    console.warn('[Firestore] Auth failed:', e.message);
+    return;
+  }
+  
+  // 5. Disable status polling — Firestore listener replaces it
+  stopStatusPolling();
+  
+  // 6. Set up onSnapshot listener on the single connection document
+  const db = firebase.firestore();
+  firestoreReady = true;
+  
+  firestoreUnsubscribe = db.collection('connections').doc(String(currentConnId))
+    .onSnapshot((snapshot) => {
+      if (!snapshot.exists) return;
+      const raw = snapshot.data();
+      const sanitized = clientSanitizeConnection(raw, currentUser.id);
+      
+      // Avoid redundant updates if snapshot fires with identical data
+      const snapshotKey = JSON.stringify(sanitized, (key, val) =>
+        ['from_last_read_at','to_last_read_at','other_username','other_bio','other_avatar','other_hobbies'].includes(key) ? undefined : val
+      );
+      if (snapshotKey === _fsSanitizedCache) return;
+      _fsSanitizedCache = snapshotKey;
+      
+      // If connection ended externally, redirect
+      if (['rejected', 'expired'].includes(sanitized.status)) {
+        // Only redirect if we haven't already (defense against double-fires)
+        if (window.location.pathname === '/chat') {
+          const endedModal = document.getElementById('modal-face-declined');
+          const isOpen = endedModal && endedModal.classList.contains('scale-100');
+          if (!isOpen && !sessionStorage.getItem('fs_redirected_' + currentConnId)) {
+            sessionStorage.setItem('fs_redirected_' + currentConnId, '1');
+            alert('This chat has ended.');
+            window.location.href = '/discover';
+          }
+        }
+        return;
+      }
+      
+      // Update connection state (status bar, buttons, game card)
+      updateChatStatus(sanitized);
+      syncActiveGame(sanitized);
+    }, (error) => {
+      console.error('[Firestore] onSnapshot error:', error.message);
+    });
 }
 
 function startPollingFallback() {
   if (socket && !socket.connected) {
     pollInterval = 4000;
-    statusPollInterval = 60000;
     scheduleNextPoll();
-    scheduleStatusPoll();
   }
 }
 
@@ -156,10 +241,16 @@ function stopPollingFallback() {
     clearTimeout(pollingTimeout);
     pollingTimeout = null;
   }
-  if (statusPollTimeout) {
-    clearTimeout(statusPollTimeout);
-    statusPollTimeout = null;
+}
+
+// Cleanup Firestore listener when leaving the page
+function cleanupFirestoreListener() {
+  if (firestoreUnsubscribe) {
+    firestoreUnsubscribe();
+    firestoreUnsubscribe = null;
   }
+  firestoreReady = false;
+  _fsSanitizedCache = null;
 }
 
 // Helper: format relative time for status
@@ -359,12 +450,10 @@ async function initializeChat() {
       }
     });
 
-    socket.on('status_change', (data) => {
-      if (data.connection_id == currentConnId) loadChatInfo();
-    });
-
     socket.on('connection-ended', ({ connectionId, message }) => {
       if (connectionId == currentConnId) {
+        // Set sessionStorage guard to prevent Firestore listener from double-alerting
+        sessionStorage.setItem('fs_redirected_' + connectionId, '1');
         alert(message);
         window.location.href = '/discover';
       }
@@ -882,15 +971,23 @@ async function initializeChat() {
       } catch(err) { alert(err.message); }
     };
   }
-
   // Remove the vibing/not-vibing buttons from profile peek (replaced by header Not Vibing button)
   const peekVibing = document.getElementById('peek-vibing');
   if (peekVibing) peekVibing.remove();
 
   const peekNotVibing = document.getElementById('peek-not-vibing');
   if (peekNotVibing) peekNotVibing.remove();
-
+  
+  // Kick off Firestore connection listener. If FIREBASE_API_KEY is configured, this
+  // replaces the wasteful HTTP polling for connection state with a real-time onSnapshot
+  // on the single connection document — no race conditions, no waste.
+  setTimeout(() => initFirestoreListener().catch(() => {}), 500);
 }
+
+// Clean up Firestore listener when the user navigates away
+window.addEventListener('beforeunload', () => {
+  cleanupFirestoreListener();
+});
 
 // ===== Mark Messages as Read =====
 function markMessagesAsRead() {
