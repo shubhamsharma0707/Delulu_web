@@ -90,17 +90,30 @@ async function pollDelta() {
   return false;
 }
 
+let _pollInFlight = false;
+
 function scheduleNextPoll() {
   if (pollingTimeout) clearTimeout(pollingTimeout);
   if (socket && socket.connected) return; // Don't poll if socket is alive
   if (document.hidden || checkUserIdle()) return; // Pause entirely if backgrounded or idle
+  if (_pollInFlight) {
+    // Reschedule for after current poll completes to prevent stacking
+    pollingTimeout = setTimeout(scheduleNextPoll, pollInterval);
+    return;
+  }
   
   pollingTimeout = setTimeout(async () => {
-    const hasNewMessages = await pollDelta();
-    // Double interval up to 30000ms if no new messages, reset to 4000ms immediately on new messages
-    pollInterval = hasNewMessages 
-      ? 4000 
-      : Math.min(pollInterval * 2, maxInterval);
+    if (_pollInFlight) return;
+    _pollInFlight = true;
+    try {
+      const hasNewMessages = await pollDelta();
+      // Double interval up to 30000ms if no new messages, reset to 4000ms immediately on new messages
+      pollInterval = hasNewMessages 
+        ? 4000 
+        : Math.min(pollInterval * 2, maxInterval);
+    } finally {
+      _pollInFlight = false;
+    }
     scheduleNextPoll();
   }, pollInterval);
 }
@@ -303,7 +316,8 @@ function createDateDivider(dateStr) {
 // Check if message should show read status
 function isMessageRead(msg) {
   if (Number(msg.sender_id) !== Number(currentUser.id)) return false; // Only show for own messages
-  if (msg.deleted) return false;
+  // If the message is deleted, don't show read status (the field is deleted_at, not deleted)
+  if (msg.deleted_at) return false;
   if (otherLastReadAt && msg.created_at) {
     return new Date(msg.created_at) <= new Date(otherLastReadAt);
   }
@@ -408,7 +422,8 @@ async function initializeChat() {
 
     socket.on('messages-read', (data) => {
       if (data.connectionId == currentConnId) {
-        otherLastReadAt = new Date().toISOString();
+        // Use the read timestamp from the server if provided, otherwise fall back to client time
+        otherLastReadAt = data.readAt || new Date().toISOString();
         document.querySelectorAll('[data-msg-id]').forEach(el => {
           const statusIcon = el.querySelector('.msg-status-icon');
           if (statusIcon) {
@@ -539,7 +554,8 @@ async function initializeChat() {
     if (!socket || !currentConnId) return;
     socket.emit('join-chat', currentConnId);
     if (typeof outboxQueue !== 'undefined') {
-      outboxQueue.flushPending(socket).catch(() => {});
+      // flushPending uses fetch internally — socket param is ignored but harmless
+      outboxQueue.flushPending().catch(() => {});
     }
     if (typeof initBroadcastChannel !== 'undefined') {
       initBroadcastChannel(currentConnId, (data) => {
@@ -560,13 +576,17 @@ async function initializeChat() {
     // Register all message/presence listeners once
     setupChatSocketListeners();
 
-    // Clean up any stale connection-lifecycle listeners before re-adding
-    socket.off('disconnect');
-    socket.off('connect');
-    socket.off('reconnect_error');
-    socket.off('room-joined');
+    // Remove previously registered connection-lifecycle listeners (by reference)
+    // to prevent duplicate handlers while not affecting other modules' handlers.
+    if (window.__chatSocketHandlers) {
+      const { onDisconnect, onConnect, onReconnectError, onRoomJoined } = window.__chatSocketHandlers;
+      socket.off('disconnect', onDisconnect);
+      socket.off('connect', onConnect);
+      socket.off('reconnect_error', onReconnectError);
+      socket.off('room-joined', onRoomJoined);
+    }
 
-    socket.on('disconnect', () => {
+    const onDisconnect = () => {
       const bar = document.getElementById('chat-connection-bar');
       if (bar) {
         bar.classList.remove('hidden');
@@ -574,21 +594,26 @@ async function initializeChat() {
         if (barText) barText.textContent = 'Reconnecting...';
       }
       startPollingFallback();
-    });
-
-    socket.on('connect', () => {
+    };
+    const onConnect = () => {
       const bar = document.getElementById('chat-connection-bar');
       if (bar) bar.classList.add('hidden');
       joinChatRoom();
       stopPollingFallback();
       loadMessages().catch(() => {});
       loadChatInfo().catch(() => {});
-    });
-
-    socket.on('reconnect_error', () => {
+    };
+    const onReconnectError = () => {
       const text = document.getElementById('connection-bar-text');
       if (text) text.textContent = 'Connection lost. Retrying...';
-    });
+    };
+    const onRoomJoined = () => {};
+
+    socket.on('disconnect', onDisconnect);
+    socket.on('connect', onConnect);
+    socket.on('reconnect_error', onReconnectError);
+    // Store references for cleanup on next initializeChat call
+    window.__chatSocketHandlers = { onDisconnect, onConnect, onReconnectError, onRoomJoined };
 
     // Start polling initially only if socket is not already connected
     if (socket.connected) {
@@ -898,6 +923,12 @@ async function initializeChat() {
         mediaRecorder.onstop = () => {
           clearInterval(recordTimerInterval);
           document.getElementById('recording-overlay').classList.add('hidden');
+          // Release the microphone tracks immediately on cancel
+          // Note: `stream` is accessible via the enclosing chatMicBtn.onclick closure
+          // Guard against stream being null (e.g. getUserMedia failed but state is 'recording')
+          if (typeof stream !== 'undefined' && stream) {
+            try { stream.getTracks().forEach(track => track.stop()); } catch(e) {}
+          }
         };
         mediaRecorder.stop();
       }
@@ -980,15 +1011,46 @@ async function initializeChat() {
   const peekNotVibing = document.getElementById('peek-not-vibing');
   if (peekNotVibing) peekNotVibing.remove();
   
+  // Start periodic outbox flush — works with or without socket.
+  // Checks every 15s for pending offline messages and sends them.
+  if (typeof startOutboxFlush !== 'undefined') {
+    startOutboxFlush(15000);
+  }
+
   // Kick off Firestore connection listener. If FIREBASE_API_KEY is configured, this
   // replaces the wasteful HTTP polling for connection state with a real-time onSnapshot
   // on the single connection document — no race conditions, no waste.
   setTimeout(() => initFirestoreListener().catch(() => {}), 500);
 }
 
-// Clean up Firestore listener when the user navigates away
-window.addEventListener('beforeunload', () => {
+// Clean up Firestore listener and audio blob URLs when the user navigates away.
+// We use both beforeunload AND visibilitychange=hidden as a backup because:
+// - beforeunload fires on desktop page navigation but NOT on iOS Safari
+// - visibilitychange fires on iOS when navigating away (tab change, app switch)
+// Using both ensures cleanup happens in all major browsers/OS combos.
+function cleanupChatResources() {
   cleanupFirestoreListener();
+  // Note: We do NOT stop the outbox flush here because this function is also
+  // called on visibilitychange=hidden (iOS Safari), and the outbox flush
+  // should continue running to retry pending messages. It's harmless to let
+  // it run in the background — it only does IndexedDB reads + fetches when
+  // there are pending messages. The interval is naturally cleaned up on page
+  // unload (beforeunload), and startOutboxFlush handles replacing old
+  // intervals if re-initialized.
+  // Revoke any pending audio blob URL to prevent memory leaks
+  if (currentPlayingAudio) {
+    currentPlayingAudio.pause();
+    if (currentPlayingAudio._blobUrl) {
+      URL.revokeObjectURL(currentPlayingAudio._blobUrl);
+    }
+    currentPlayingAudio = null;
+    currentPlayingBtn = null;
+  }
+}
+
+window.addEventListener('beforeunload', cleanupChatResources);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) cleanupChatResources();
 });
 
 // ===== Mark Messages as Read =====
@@ -999,10 +1061,12 @@ function markMessagesAsRead() {
 }
 
 // ===== Scroll to bottom =====
-function scrollToBottom() {
+function scrollToBottom(smooth = false) {
   const cont = document.getElementById('chat-messages');
   if (cont) {
-    cont.scrollTop = 0;
+    // With flex-col-reverse, scrollTop=0 shows the visual top (oldest messages).
+    // We want the visual bottom (newest messages) — scrollHeight achieves that.
+    cont.scrollTo({ top: cont.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
   }
 }
 
@@ -1298,6 +1362,11 @@ async function loadMessages(isInitial = false) {
       const cached = await messageCache.getCachedMessages(currentConnId);
       if (cached.length > 0) {
         hasCachedMessages = true;
+        // Restore lastMessageTimestamp from cache so the network fetch uses delta sync
+        const cacheLastTimestamp = await messageCache.getLastMessageTime(currentConnId);
+        if (cacheLastTimestamp && (!lastMessageTimestamp || cacheLastTimestamp > lastMessageTimestamp)) {
+          lastMessageTimestamp = cacheLastTimestamp;
+        }
         // Preserve game elements (icebreaker cards, game messages) when clearing
         const existingGames = cont.querySelectorAll('[id^="game-"], .w-full.flex.justify-center.my-2.fade-in');
         cont.innerHTML = '';
@@ -1471,7 +1540,7 @@ async function appendMessage(m, scrollToBottom = true) {
   
   // Add date divider if date changed
   if (m.created_at) {
-    if (!lastMessageTimestamp || m.created_at > lastMessageTimestamp) {
+    if (!lastMessageTimestamp || new Date(m.created_at) > new Date(lastMessageTimestamp)) {
       lastMessageTimestamp = m.created_at;
     }
     const msgDate = new Date(m.created_at).toDateString();
@@ -1491,7 +1560,7 @@ async function appendMessage(m, scrollToBottom = true) {
   const inner = document.createElement('div');
   inner.className = `max-w-[75%] rounded-2xl p-3 relative ${isMe ? 'bg-primary text-white rounded-tr-sm shadow-sm' : 'bg-surface-container-low text-on-surface rounded-tl-sm shadow-sm border border-outline-variant/10'}`;
   
-  if (m.deleted === 1) {
+  if (m.deleted_at !== null && m.deleted_at !== undefined) {
     const p = document.createElement('p');
     p.className = 'text-[15px] italic opacity-70 break-words';
     p.textContent = 'This message was deleted';
@@ -1504,7 +1573,7 @@ async function appendMessage(m, scrollToBottom = true) {
     
     div.appendChild(inner);
     cont.prepend(div);
-    if (scrollToBottom) cont.scrollTop = 0;
+    if (scrollToBottom) cont.scrollTop = cont.scrollHeight;
     return;
   }
 
@@ -1574,7 +1643,8 @@ async function appendMessage(m, scrollToBottom = true) {
   metaRow.appendChild(timeSpan);
   
   // Message status icon (for own messages)
-  if (isMe && !m.is_sending && !m.deleted) {
+  // Use deleted_at instead of the old field name 'deleted' which no longer exists
+  if (isMe && !m.is_sending && !m.deleted_at) {
     const statusSpan = document.createElement('span');
     statusSpan.className = 'msg-status-icon inline-flex items-center';
     const read = isMessageRead(m);
@@ -1618,7 +1688,7 @@ async function appendMessage(m, scrollToBottom = true) {
   cont.prepend(div);
   
   if (scrollToBottom) {
-    cont.scrollTop = 0;
+    cont.scrollTo({ top: cont.scrollHeight, behavior: 'auto' });
   }
   
   // Write to IndexedDB cache after rendering
@@ -1672,6 +1742,9 @@ window.playVoiceNote = async (btn, url, isEncrypted = 0, iv = null) => {
 
     const audio = new Audio(playUrl);
     audio._originalUrl = url;
+    if (playUrl.startsWith('blob:')) {
+      audio._blobUrl = playUrl; // Store for cleanup on navigation
+    }
     currentPlayingAudio = audio;
     currentPlayingBtn = btn;
     
@@ -1933,6 +2006,10 @@ const GAME_QUESTIONS = {
 
 let currentGame = null;
 let gameTimeout = null;
+// Minimum lifetime for game cards (in ms). Prevents transient Firestore snapshot
+// races from removing a game card that was just created.
+const GAME_CARD_MIN_LIFETIME = 3000;
+let _gameCardCreatedAt = 0;
 
 function openIcebreakerModal() {
   openModal('modal-icebreaker');
@@ -2045,8 +2122,10 @@ async function startGame(gameType) {
       return;
     }
     
-    // Proactively render for ourselves if Firestore is not active (polling fallback)
-    if (!firestoreReady) {
+    // Proactively render for ourselves if Firestore is not active (polling fallback).
+    // Skip if otherUserId hasn't loaded yet — the server always emits a game_update
+    // socket event on startGame, so the card will render via that path within ms.
+    if (!firestoreReady && otherUserId) {
       const fakeConn = {
         from_user_id: currentUser.id,
         to_user_id: otherUserId,
@@ -2064,6 +2143,13 @@ function syncActiveGame(c) {
   console.log("[syncActiveGame] connection info:", `from=${c.from_user_id}, to=${c.to_user_id}`);
   const existingGame = document.querySelector('[id^="game-"]');
   if (!c.active_game) {
+    // Minimum lifetime guard: don't remove game cards that were created within
+    // the last GAME_CARD_MIN_LIFETIME ms. This prevents transient Firestore
+    // snapshot races or connection-refetch issues from removing a card that
+    // was just created and hasn't propagated yet.
+    if (existingGame && Date.now() - _gameCardCreatedAt < GAME_CARD_MIN_LIFETIME) {
+      return;
+    }
     // Defense-in-depth: only remove if the tracked game matches.
     // Prevents a stale status_change from clear-game removing a newly created game.
     if (existingGame && currentGame && existingGame.id === currentGame.domId) {
@@ -2077,7 +2163,28 @@ function syncActiveGame(c) {
   }
   
   const game = c.active_game;
-  const gameId = 'game-' + new Date(game.created_at).getTime();
+  
+  // Helper: convert created_at (ISO string OR Firestore Timestamp object)
+  // to numeric milliseconds for safe comparison.
+  function _gameTime(ts) {
+    if (!ts) return 0;
+    if (typeof ts === 'object' && ts.toDate) return ts.toDate().getTime();
+    return new Date(ts).getTime();
+  }
+  
+  // Generate a stable game ID. If we already have a tracked game with the same
+  // created_at (same game), reuse its domId. Otherwise, the random suffix would
+  // change on every syncActiveGame call, causing the card to be removed/recreated
+  // on every Firestore snapshot or socket event.
+  // NOTE: created_at can be either an ISO string (from API JSON) or a
+  // Firestore Timestamp object (from onSnapshot). Using numeric comparison
+  // handles both formats.
+  let gameId;
+  if (currentGame && _gameTime(currentGame.created_at) === _gameTime(game.created_at)) {
+    gameId = currentGame.domId;
+  } else {
+    gameId = 'game-' + _gameTime(game.created_at) + '-' + Math.random().toString(36).slice(2, 6);
+  }
   
   const myAnswer = game.answers[String(currentUser.id)] || null;
   const otherId = otherUserId || (Number(c.from_user_id) === Number(currentUser.id) ? Number(c.to_user_id) : Number(c.from_user_id));
@@ -2086,7 +2193,14 @@ function syncActiveGame(c) {
   if (!existingGame || existingGame.id !== gameId) {
     if (existingGame) existingGame.remove();
     
-    currentGame = { domId: gameId, gameType: game.game_type, question: game.question, myAnswer, otherAnswer, created_at: game.created_at };
+    // Normalize created_at to a clean ISO string so the server's clearGame transaction
+    // can reliably compare it with activeGame.created_at via ===. Without this, the
+    // value could be a Firestore Timestamp object (from onSnapshot) which would fail
+    // string comparison against the ISO string stored in Firestore.
+    const createdMs = _gameTime(game.created_at);
+    currentGame = { domId: gameId, gameType: game.game_type, question: game.question, myAnswer, otherAnswer, created_at: new Date(createdMs).toISOString() };
+    // Record creation time for minimum lifetime guard
+    _gameCardCreatedAt = Date.now();
     
     const msgDiv = document.createElement('div');
     msgDiv.className = 'w-full flex justify-center my-3 fade-in';
@@ -2131,6 +2245,15 @@ function syncActiveGame(c) {
           }
         } catch (err) {
           alert(err.message);
+          // Re-enable buttons on API failure so the user can retry their answer.
+          // Without this, the buttons stay disabled and the game is stuck.
+          btn.parentElement.querySelectorAll('[data-game-answer]').forEach(b => {
+            b.style.opacity = '';
+            b.style.background = '';
+            b.style.color = '';
+            b.disabled = false;
+          });
+          currentGame.myAnswer = null;
         }
       };
     });
@@ -2194,35 +2317,21 @@ function handleBothAnswered(gameEl, myAns, otherAns) {
   });
   
   setTimeout(async () => {
+    // Guard: if the card was already removed by syncActiveGame (via a
+    // clear-game socket event arriving before this timeout), skip the
+    // fade-out and avoid a wasted clear-game API call.
+    if (!gameEl.isConnected) return;
+    
     gameEl.classList.add('transition-opacity', 'duration-500', 'opacity-0');
-    setTimeout(() => gameEl.remove(), 500);
+    setTimeout(() => {
+      if (gameEl.isConnected) gameEl.remove();
+    }, 500);
     
     try {
       const createdAt = currentGame ? currentGame.created_at : null;
       await apiCall(`/api/connections/${currentConnId}/clear-game`, 'POST', { game_created_at: createdAt });
     } catch (e) {}
   }, 2000);
-}
-
-function appendGameMessage(text, isImportant = false) {
-  const cont = document.getElementById('chat-messages');
-  const div = document.createElement('div');
-  div.className = 'w-full flex justify-center my-2 fade-in';
-  
-  if (isImportant) {
-    div.innerHTML = `
-      <div class="bg-gradient-to-r from-primary/10 to-secondary-container/20 rounded-2xl px-5 py-3 border border-primary/10 shadow-sm max-w-sm w-full">
-        <p class="text-sm text-center font-medium text-on-surface">${escapeHtml(text)}</p>
-      </div>
-    `;
-  } else {
-    div.innerHTML = `
-      <div class="bg-surface-container-low rounded-2xl px-4 py-2 border border-outline-variant/20 text-sm text-center max-w-sm">
-        ${escapeHtml(text)}
-      </div>
-    `;
-  }
-  cont.prepend(div);
 }
 
 // ===== Report & Block =====
@@ -2236,6 +2345,10 @@ async function submitReport() {
   }
   if (!reason) {
     alert('Please select or enter a reason');
+    return;
+  }
+  if (reason.length > 1000) {
+    alert('Report reason is too long. Please keep it under 1000 characters.');
     return;
   }
   
