@@ -434,6 +434,12 @@ body {
 .material-symbols-outlined {
     font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
 }
+
+/* Filled state with weight backup for broader browser compatibility */
+.material-symbols-outlined.material-fill {
+    font-variation-settings: 'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 24;
+    font-weight: 500; /* fallback for browsers with limited variable font support */
+}
 .glass-card {
     background: rgba(255, 255, 255, 0.6);
     backdrop-filter: blur(20px);
