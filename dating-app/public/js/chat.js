@@ -227,7 +227,8 @@ async function initFirestoreListener() {
       
       // Update connection state (status bar, buttons, game card)
       updateChatStatus(sanitized);
-      syncActiveGame(sanitized);
+      // active_game is managed in-memory via socket.io to conserve Firestore reads/writes
+      // syncActiveGame(sanitized);
     }, (error) => {
       console.error('[Firestore] onSnapshot error:', error.message);
     });
@@ -345,6 +346,7 @@ async function initializeChat() {
     socket.off('typing');
     socket.off('status_change');
     socket.off('connection-ended');
+    socket.off('game_update');
 
     socket.off('identity-revealed');
     socket.off('face-revealed');
@@ -472,6 +474,17 @@ async function initializeChat() {
       }
     });
     
+
+    socket.on('game_update', (data) => {
+      if (Number(data.connection_id) === Number(currentConnId)) {
+        console.log('[Socket] game_update received:', data);
+        syncActiveGame({
+          from_user_id: data.from_user_id,
+          to_user_id: data.to_user_id,
+          active_game: data.active_game
+        });
+      }
+    });
 
     socket.on('identity-revealed', (data) => {
       if (data.connection_id == currentConnId) {
@@ -809,7 +822,20 @@ async function initializeChat() {
           return;
         }
 
-        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+        const recordedMimeType = (mediaRecorder && mediaRecorder.mimeType) || 'audio/webm';
+        const audioBlob = new Blob(audioChunks, { type: recordedMimeType });
+        
+        let ext = 'webm';
+        if (recordedMimeType.includes('mp4') || recordedMimeType.includes('m4a')) {
+          ext = 'm4a';
+        } else if (recordedMimeType.includes('wav')) {
+          ext = 'wav';
+        } else if (recordedMimeType.includes('aac')) {
+          ext = 'aac';
+        } else if (recordedMimeType.includes('ogg')) {
+          ext = 'ogg';
+        }
+
         const formData = new FormData();
         formData.append('connection_id', currentConnId);
         formData.append('duration', duration);
@@ -817,11 +843,11 @@ async function initializeChat() {
         try {
           if (isE2EEActive && sharedSecretKey) {
             const encrypted = await E2EECrypto.encryptBlob(audioBlob, sharedSecretKey);
-            formData.append('audio', encrypted.encryptedBlob);
+            formData.append('audio', encrypted.encryptedBlob, `voice.${ext}`);
             formData.append('is_encrypted', 1);
             formData.append('iv', encrypted.iv);
           } else {
-            formData.append('audio', audioBlob);
+            formData.append('audio', audioBlob, `voice.${ext}`);
           }
 
           const res = await fetch('/api/messages/upload-voice', {
@@ -1626,7 +1652,20 @@ window.playVoiceNote = async (btn, url, isEncrypted = 0, iv = null) => {
       const res = await fetch(url);
       if (!res.ok) throw new Error('Failed to fetch encrypted voice note file');
       const encryptedBuffer = await res.arrayBuffer();
-      const decryptedBlob = await E2EECrypto.decryptBlob(encryptedBuffer, iv, sharedSecretKey);
+      
+      // Determine original recording MIME type from the file URL's extension
+      let mimeType = 'audio/webm';
+      if (url.endsWith('.m4a') || url.endsWith('.mp4')) {
+        mimeType = 'audio/mp4';
+      } else if (url.endsWith('.wav')) {
+        mimeType = 'audio/wav';
+      } else if (url.endsWith('.aac')) {
+        mimeType = 'audio/aac';
+      } else if (url.endsWith('.ogg')) {
+        mimeType = 'audio/ogg';
+      }
+
+      const decryptedBlob = await E2EECrypto.decryptBlob(encryptedBuffer, iv, sharedSecretKey, mimeType);
       playUrl = URL.createObjectURL(decryptedBlob);
     }
 

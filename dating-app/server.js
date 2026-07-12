@@ -75,7 +75,8 @@ const voiceStorage = multer.diskStorage({
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, 'voice-' + uniqueSuffix + '.webm');
+    const originalExt = path.extname(file.originalname) || '.webm';
+    cb(null, 'voice-' + uniqueSuffix + originalExt);
   }
 });
 const voiceUpload = multer({
