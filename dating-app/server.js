@@ -1191,6 +1191,11 @@ app.post('/api/messages/send', requireAuth, async (req, res) => {
     senderId: Number(req.session.userId)
   });
 
+  const firestore = getDB();
+  firestore.collection('connections').doc(String(connection_id)).update({
+    last_message_at: new Date().toISOString()
+  }).catch(err => console.error('Failed to update last_message_at in Firestore:', err));
+
   res.json({ success: true, message: msg });
 });
 
@@ -1238,6 +1243,11 @@ app.post('/api/messages/upload-voice', requireAuth, (req, res, next) => {
       lastMessageTime: msg.created_at,
       senderId: Number(req.session.userId)
     });
+
+    const firestore = getDB();
+    firestore.collection('connections').doc(String(connection_id)).update({
+      last_message_at: new Date().toISOString()
+    }).catch(err => console.error('Failed to update last_message_at in Firestore:', err));
 
     res.json({ success: true, message: msg });
   } catch (err) {
