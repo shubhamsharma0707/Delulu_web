@@ -939,10 +939,8 @@ app.get('/api/connections/:id', requireAuth, async (req, res) => {
   }
   if (!conn) return res.status(404).json({ error: 'Connection not found' });
   
-  // Merge active in-memory game into connection object
-  if (activeGames.has(req.params.id)) {
-    conn.active_game = activeGames.get(req.params.id);
-  } else {
+  // Use active game from connection object (which now comes directly from Firestore)
+  if (!conn.active_game) {
     conn.active_game = null;
   }
   
@@ -1037,16 +1035,10 @@ app.post('/api/connections/:id/start-game', requireAuth, async (req, res) => {
     const conn = await connectionOps.getConnection(req.params.id, req.session.userId);
     if (!conn || conn._dataIntegrityError) return res.status(404).json({ error: 'Connection not found' });
     
-    // In-memory active game payload
-    const payload = {
-      game_type,
-      question,
-      answers: {},
-      created_at: new Date().toISOString()
-    };
-    activeGames.set(req.params.id, payload);
+    // Save to Firestore so clients receive it via real-time connection doc snapshot listener
+    const payload = await connectionOps.startGame(req.params.id, game_type, question);
     
-    // Broadcast status change so both users reload connection state instantly
+    // Broadcast status change so both users reload connection state instantly (for socket fallback compatibility)
     io.to(`chat:${req.params.id}`).emit('status_change', { connection_id: req.params.id });
     
     // Broadcast the exact game update to both clients
@@ -1071,14 +1063,9 @@ app.post('/api/connections/:id/answer-game', requireAuth, async (req, res) => {
     const conn = await connectionOps.getConnection(req.params.id, req.session.userId);
     if (!conn || conn._dataIntegrityError) return res.status(404).json({ error: 'Connection not found' });
     
-    const activeGame = activeGames.get(req.params.id);
-    if (!activeGame) return res.status(400).json({ error: 'No active game found in memory' });
-    
-    activeGame.answers[String(req.session.userId)] = answer;
-    
-    const otherId = conn.from_user_id === Number(req.session.userId) ? conn.to_user_id : conn.from_user_id;
-    const bothAnswered = (activeGame.answers[String(req.session.userId)] !== undefined) && 
-                         (activeGame.answers[String(otherId)] !== undefined);
+    // Save answer to Firestore connection doc
+    const result = await connectionOps.submitGameAnswer(req.params.id, req.session.userId, answer);
+    if (result.error) return res.status(400).json(result);
     
     // Broadcast status change so both users reload connection state instantly
     io.to(`chat:${req.params.id}`).emit('status_change', { connection_id: req.params.id });
@@ -1088,10 +1075,10 @@ app.post('/api/connections/:id/answer-game', requireAuth, async (req, res) => {
       connection_id: req.params.id,
       from_user_id: conn.from_user_id,
       to_user_id: conn.to_user_id,
-      active_game: activeGame
+      active_game: result.gameData
     });
     
-    res.json({ success: true, bothAnswered, gameData: activeGame });
+    res.json({ success: true, bothAnswered: result.bothAnswered, gameData: result.gameData });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1108,14 +1095,8 @@ app.post('/api/connections/:id/clear-game', requireAuth, async (req, res) => {
     const conn = await connectionOps.getConnection(req.params.id, req.session.userId);
     if (!conn || conn._dataIntegrityError) return res.status(404).json({ error: 'Connection not found' });
     
-    if (game_created_at) {
-      const activeGame = activeGames.get(req.params.id);
-      if (activeGame && activeGame.created_at === game_created_at) {
-        activeGames.delete(req.params.id);
-      }
-    } else {
-      activeGames.delete(req.params.id);
-    }
+    // Clear game in Firestore connection doc
+    await connectionOps.clearGame(req.params.id, game_created_at);
     
     // Broadcast the clear state to both clients
     io.to(`chat:${req.params.id}`).emit('game_update', {
