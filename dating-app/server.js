@@ -157,6 +157,7 @@ app.use(helmet({
       styleSrc: ["'self'", "'unsafe-inline'", "fonts.googleapis.com", "cdn.tailwindcss.com"],
       fontSrc: ["'self'", "fonts.gstatic.com"],
       imgSrc: ["'self'", "data:", "blob:"],
+      mediaSrc: ["'self'", "blob:", "data:"],
       connectSrc: ["'self'", "wss:", "ws:", "https://identitytoolkit.googleapis.com", "https://securetoken.googleapis.com", "https://www.googleapis.com", "https://firestore.googleapis.com", "https://cdnjs.cloudflare.com", "https://www.gstatic.com"],
       frameSrc: ["'self'", `https://${process.env.FIREBASE_PROJECT_ID}.firebaseapp.com`, "https://apis.google.com"],
     },
