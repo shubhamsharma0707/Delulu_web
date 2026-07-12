@@ -227,8 +227,8 @@ async function initFirestoreListener() {
       
       // Update connection state (status bar, buttons, game card)
       updateChatStatus(sanitized);
-      // active_game is managed in-memory via socket.io to conserve Firestore reads/writes
-      // syncActiveGame(sanitized);
+      // Sync active game state from Firestore connection document updates
+      syncActiveGame(sanitized);
     }, (error) => {
       console.error('[Firestore] onSnapshot error:', error.message);
     });
@@ -476,7 +476,8 @@ async function initializeChat() {
     
 
     socket.on('game_update', (data) => {
-      if (Number(data.connection_id) === Number(currentConnId)) {
+      const connId = data.connection_id || data.connectionId;
+      if (Number(connId) === Number(currentConnId)) {
         console.log('[Socket] game_update received:', data);
         syncActiveGame({
           from_user_id: data.from_user_id,
@@ -2079,7 +2080,7 @@ function syncActiveGame(c) {
   const gameId = 'game-' + new Date(game.created_at).getTime();
   
   const myAnswer = game.answers[String(currentUser.id)] || null;
-  const otherId = Number(c.from_user_id) === Number(currentUser.id) ? Number(c.to_user_id) : Number(c.from_user_id);
+  const otherId = otherUserId || (Number(c.from_user_id) === Number(currentUser.id) ? Number(c.to_user_id) : Number(c.from_user_id));
   const otherAnswer = game.answers[String(otherId)] || null;
   
   if (!existingGame || existingGame.id !== gameId) {
