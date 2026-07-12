@@ -50,12 +50,15 @@ const messageCache = {
 
   async getCachedMessages(connectionId) {
     try {
+      // sortBy returns ascending = oldest first (chronological).
+      // We then reverse to get newest-first, which is what we need when
+      // prepending into the flex-col-reverse chat container (prepend newest
+      // first so oldest ends up at visual top and newest at visual bottom).
       const msgs = await CHAT_CACHE_DB.messages
         .where('connection_id')
         .equals(String(connectionId))
-        .reverse()
         .sortBy('created_at');
-      return msgs.reverse(); // Return chronologically
+      return msgs.reverse();
     } catch (e) {
       return [];
     }
@@ -78,7 +81,8 @@ const outboxQueue = {
       await CHAT_CACHE_DB.pending.put({
         ...message,
         client_uuid: message.client_uuid || ('out-' + Date.now() + '-' + Math.random().toString(36).slice(2)),
-        created_at: message.created_at || new Date().toISOString()
+        created_at: message.created_at || new Date().toISOString(),
+        retry_count: 0
       });
     } catch (e) {
       console.warn('Outbox enqueue failed:', e);
@@ -109,6 +113,14 @@ const outboxQueue = {
     try {
       const all = await CHAT_CACHE_DB.pending.toArray();
       for (const item of all) {
+        // Skip items that have exceeded max retries (5 attempts = permanently failed)
+        if ((item.retry_count || 0) >= 5) {
+          // Remove permanently failed messages so they don't block the queue
+          await outboxQueue.dequeue(item.client_uuid);
+          console.warn('Outbox: dropped message after 5 failed retries', item.client_uuid);
+          continue;
+        }
+        
         try {
           const payload = { connection_id: item.connection_id, content: item.content };
           if (item.is_encrypted) {
@@ -123,8 +135,17 @@ const outboxQueue = {
           const data = await res.json();
           if (res.ok && data.success) {
             await outboxQueue.dequeue(item.client_uuid);
+          } else {
+            // Increment retry count for non-API errors (server returned error)
+            try {
+              await CHAT_CACHE_DB.pending.update(item.client_uuid, { retry_count: (item.retry_count || 0) + 1 });
+            } catch (e) {}
           }
         } catch (e) {
+          // Network failure — increment retry count
+          try {
+            await CHAT_CACHE_DB.pending.update(item.client_uuid, { retry_count: (item.retry_count || 0) + 1 });
+          } catch (innerErr) {}
           console.warn('Outbox flush item failed (will retry):', e);
         }
       }
@@ -164,4 +185,23 @@ function closeBroadcastChannel() {
       broadcastChannel = null;
     }
   } catch (e) {}
+}
+
+// ===== Periodic Outbox Flush =====
+// Runs on an interval so pending messages get sent even when no socket is active.
+// The interval automatically short-ciruits when the outbox is empty (quick IndexedDB read).
+let _outboxFlushInterval = null;
+
+function startOutboxFlush(intervalMs = 15000) {
+  stopOutboxFlush();
+  _outboxFlushInterval = setInterval(() => {
+    outboxQueue.flushPending().catch(() => {});
+  }, intervalMs);
+}
+
+function stopOutboxFlush() {
+  if (_outboxFlushInterval) {
+    clearInterval(_outboxFlushInterval);
+    _outboxFlushInterval = null;
+  }
 }

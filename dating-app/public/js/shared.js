@@ -1,6 +1,8 @@
 let currentUser = null;
 let socket = {
   on: function() { return this; },
+  // NOTE: In mock mode (socket.io disabled), off() is a no-op that returns this.
+  // If socket.io is ever re-enabled, real socket.off() properly removes listeners.
   off: function() { return this; },
   emit: function() { return this; },
   disconnect: function() { return this; },
@@ -299,14 +301,19 @@ function showSkeleton(containerId, count = 3, type = 'line') {
 // ===== Push Notification Subscription =====
 async function initPushNotifications() {
   if (!('Notification' in window) || !('PushManager' in window) || !('serviceWorker' in navigator)) return;
-  // ponytail: no SW registered after sw.js removal. navigator.serviceWorker.ready hangs forever without one.
-  if (!navigator.serviceWorker.controller) return;
   
   try {
     const perm = await Notification.requestPermission();
     if (perm !== 'granted') return;
     
-    const reg = await navigator.serviceWorker.ready;
+    // Register the service worker if not already active
+    let reg;
+    if (navigator.serviceWorker.controller) {
+      reg = await navigator.serviceWorker.ready;
+    } else {
+      // First registration — register sw.js (only happens once per browser)
+      reg = await navigator.serviceWorker.register('/sw.js');
+    }
     
     // Get VAPID key from server
     const keyRes = await fetch('/api/push/vapid-key');
@@ -315,7 +322,7 @@ async function initPushNotifications() {
     
     const existingSub = await reg.pushManager.getSubscription();
     if (existingSub) {
-      // Already subscribed, just verify on server
+      // Already subscribed — no extra cost
       return;
     }
     

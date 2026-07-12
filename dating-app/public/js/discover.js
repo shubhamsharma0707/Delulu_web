@@ -351,14 +351,14 @@ function checkEmptyState() {
   if (!discoverProfiles || discoverProfiles.length === 0) {
     if (container) container.classList.add('hidden');
     if (overlay) overlay.classList.add('hidden');
-    if (navBtns) navBtns.parentElement.classList.add('hidden');
+    if (navBtns && navBtns.parentElement) navBtns.parentElement.classList.add('hidden');
     if (empty) {
       empty.classList.remove('hidden');
       empty.classList.add('flex');
     }
   } else {
     if (container) container.classList.remove('hidden');
-    if (navBtns) navBtns.parentElement.classList.remove('hidden');
+    if (navBtns && navBtns.parentElement) navBtns.parentElement.classList.remove('hidden');
     if (empty) {
       empty.classList.add('hidden');
       empty.classList.remove('flex');
@@ -386,7 +386,7 @@ window.connectFallback = async (index, btn) => {
   if (!profile) return;
   
   btn.disabled = true;
-  btn.innerHTML = 'Sending...';
+  btn.textContent = 'Sending...';
   
   try {
     await apiCall('/api/connections/request', 'POST', { to_user_id: profile.id });
@@ -395,7 +395,7 @@ window.connectFallback = async (index, btn) => {
     checkEmptyState();
   } catch (err) {
     alert(err.message);
-    btn.innerHTML = 'Connect';
+    btn.textContent = 'Connect';
     btn.disabled = false;
   }
 };

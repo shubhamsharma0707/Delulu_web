@@ -50,7 +50,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 // Cache of connection data for live updates
 let chatListCache = [];
 
+// In-flight guard to prevent concurrent API calls if multiple socket events fire
+// before the first fetch completes. The second call simply returns early.
+let _messagesListLoading = false;
+
 async function loadMessagesList() {
+  if (_messagesListLoading) return;
+  _messagesListLoading = true;
   const list = document.getElementById('messages-list');
   showSkeleton('messages-list', 4, 'card');
   try {
@@ -80,6 +86,8 @@ async function loadMessagesList() {
     }
   } catch (err) {
     list.innerHTML = `<div class="p-4 text-error">${escapeHtml(err.message)}</div>`;
+  } finally {
+    _messagesListLoading = false;
   }
 }
 
@@ -148,13 +156,19 @@ function formatChatTime(dateStr) {
 // Real-time update a single chat list item via socket
 function updateChatListItem(data) {
   const { connectionId, lastMessage, lastMessageTime, senderId } = data;
-  const conn = chatListCache.find(c => c.id == connectionId);
-  if (!conn) {
+  
+  // Use findIndex immediately to capture the index BEFORE any concurrent modification.
+  // Using indexOf(conn) after other operations is racy because a concurrent call
+  // may have already spliced the reference out of the array, causing splice(-1, 1)
+  // to remove the wrong element.
+  const idx = chatListCache.findIndex(c => c.id == connectionId);
+  if (idx === -1) {
     // Reload full list if we don't have this connection cached
     loadMessagesList();
     return;
   }
   
+  const conn = chatListCache[idx];
   conn.last_message = lastMessage;
   conn.last_message_time = lastMessageTime;
   conn.last_sender_id = senderId;
@@ -170,7 +184,6 @@ function updateChatListItem(data) {
   if (!list) return;
   
   // Move this connection to the top and re-render
-  const idx = chatListCache.indexOf(conn);
   chatListCache.splice(idx, 1);
   chatListCache.unshift(conn);
   
