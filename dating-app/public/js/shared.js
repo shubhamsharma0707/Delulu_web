@@ -6,7 +6,8 @@ let socket = {
   off: function() { return this; },
   emit: function() { return this; },
   disconnect: function() { return this; },
-  connected: false
+  connected: false,
+  isMock: true
 };
 
 // Global client error logger to diagnose browser-specific issues
