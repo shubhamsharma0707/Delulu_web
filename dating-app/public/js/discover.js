@@ -262,9 +262,9 @@ function showMatchCelebration(username, connectionId) {
   const card = document.createElement('div');
   card.className = 'match-card';
   card.innerHTML = `
-    <span class="material-symbols-outlined text-[64px] text-white material-fill animate-pulse">favorite</span>
-    <div class="match-title">It's a Match!</div>
-    <div class="match-subtitle">You and <strong>${escapeHtml(username)}</strong> liked each other</div>
+    <span class="material-symbols-outlined text-[64px] text-white material-fill animate-pulse">handshake</span>
+    <div class="match-title">New Connection!</div>
+    <div class="match-subtitle">You and <strong>${escapeHtml(username)}</strong> want to connect!</div>
     <div style="margin-top: 24px;">
       <button style="background: rgba(255,255,255,0.2); border: 2px solid rgba(255,255,255,0.4); color: white; padding: 12px 32px; border-radius: 16px; font-weight: bold; font-size: 1rem; cursor: pointer;">
         Start Chatting
