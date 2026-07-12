@@ -242,6 +242,8 @@ async function initFirestoreListener() {
       updateChatStatus(sanitized);
       // Sync active game state from Firestore connection document updates
       syncActiveGame(sanitized);
+      // Sync messages immediately in real-time when connection document updates
+      loadMessages().catch(() => {});
     }, (error) => {
       console.error('[Firestore] onSnapshot error:', error.message);
     });
@@ -732,8 +734,9 @@ async function initializeChat() {
           payload.iv = encrypted.iv;
         }
 
-        // Check if socket is connected — if not, queue for later
-        if (socket && !socket.connected && typeof outboxQueue !== 'undefined') {
+        // Check if socket is connected (or navigator is offline if using mock socket) — if so, queue for later
+        const isOffline = (socket && socket.isMock) ? !navigator.onLine : (socket && !socket.connected);
+        if (isOffline && typeof outboxQueue !== 'undefined') {
           await outboxQueue.enqueue({
             connection_id: currentConnId,
             content: payload.content,
