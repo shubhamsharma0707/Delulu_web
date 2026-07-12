@@ -47,12 +47,18 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const { initializeApp: firebaseInitializeApp, cert } = require('firebase-admin/app');
 const { getAuth: getFirebaseAuth } = require('firebase-admin/auth');
-const { getDB, seedDemoUsers, backfillDemoAvatars, userOps, connectionOps, messageOps, otpOps, invalidateUserCache, reportOps, blockOps, pushOps } = require('./database');
+const { getDB, seedDemoUsers, userOps, connectionOps, messageOps, otpOps, invalidateUserCache, reportOps, blockOps, pushOps } = require('./database');
 const multer = require('multer');
 const fs = require('fs');
 
 // Load environment variables
 require('dotenv').config();
+
+// Check Node.js version — Node 18+ required for global fetch used in sendBrevoEmail
+if (Number(process.versions.node.split('.')[0]) < 18) {
+  console.error(`FATAL: Node.js 18+ required (current: ${process.version}). Upgrade Node to use this app.`);
+  process.exit(1);
+}
 
 const app = express();
 app.use(pinoHttp);
@@ -92,8 +98,8 @@ const voiceUpload = multer({
 
 const PORT = process.env.PORT || 3000;
 
-// Allowed email domains
-const ALLOWED_SUFFIXES = ['rishihood.edu.in', 'vitbhopal.ac.in', 'nst.rishihood.edu.in'];
+// Note: email domain validation is defined inline in the send-verification-email handler
+// (keeping it next to the code that uses it for clarity)
 
 // ===== Firebase Admin SDK Initialization =====
 let firebaseInitialized = false;
@@ -159,7 +165,9 @@ app.use(helmet({
       imgSrc: ["'self'", "data:", "blob:"],
       mediaSrc: ["'self'", "blob:", "data:"],
       connectSrc: ["'self'", "wss:", "ws:", "https://identitytoolkit.googleapis.com", "https://securetoken.googleapis.com", "https://www.googleapis.com", "https://firestore.googleapis.com", "https://cdnjs.cloudflare.com", "https://www.gstatic.com"],
-      frameSrc: ["'self'", `https://${process.env.FIREBASE_PROJECT_ID}.firebaseapp.com`, "https://apis.google.com"],
+      frameSrc: ["'self'", "https://apis.google.com"].concat(
+        process.env.FIREBASE_PROJECT_ID ? [`https://${process.env.FIREBASE_PROJECT_ID}.firebaseapp.com`] : []
+      ),
     },
   },
   crossOriginEmbedderPolicy: false,
@@ -188,6 +196,15 @@ const otpLimiter = rateLimit({
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 60,
+  message: { error: 'Too many requests. Please slow down.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Looser limit for discovery routes (swiping/dismissing profiles)
+const discoverLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120,
   message: { error: 'Too many requests. Please slow down.' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -258,7 +275,10 @@ app.use((req, res, next) => {
     if (origin) {
       try {
         const originHostname = new URL(origin).hostname;
-        if (originHostname !== req.hostname) {
+        // Compare against both req.hostname and the Host header to handle
+        // mismatches like localhost vs 127.0.0.1 in development
+        const hostHeader = (req.headers.host || '').split(':')[0];
+        if (originHostname !== req.hostname && originHostname !== hostHeader) {
           return res.status(403).json({ error: 'Cross-origin request blocked' });
         }
       } catch (e) {
@@ -355,14 +375,14 @@ io.on('connection', async (socket) => {
   });
 
   socket.on('send-message', async (data) => {
-    const { connectionId, content } = data;
+    const { connectionId, content, is_encrypted, iv } = data;
     if (!connectionId || !content?.trim()) return;
 
     // Verify user is part of this connection
     const conn = await connectionOps.getConnection(connectionId, userId);
     if (!conn || conn._dataIntegrityError) return;
 
-    const msg = await messageOps.send(connectionId, userId, sanitizeText(content.trim()));
+    const msg = await messageOps.send(connectionId, userId, sanitizeText(content.trim()), 0, 0, Number(is_encrypted || 0), iv || null);
     // Emit to both users in the chat
     io.to(`chat:${connectionId}`).emit('new-message', {
       ...msg,
@@ -371,7 +391,7 @@ io.on('connection', async (socket) => {
     // Also emit a chat-list update for the messages list
     io.to(`chat:${connectionId}`).emit('chat-update', {
       connectionId,
-      lastMessage: sanitizeText(content.trim()),
+      lastMessage: Number(is_encrypted) === 1 ? '🔒 Encrypted message' : sanitizeText(content.trim()),
       lastMessageTime: msg.created_at,
       senderId: Number(userId)
     });
@@ -394,10 +414,12 @@ io.on('connection', async (socket) => {
       const otherId = conn.from_user_id === Number(userId) ? conn.to_user_id : conn.from_user_id;
       const result = await messageOps.markAsRead(connectionId, Number(userId));
       if (result.count > 0) {
-        // Notify the sender that their messages were read
+        // Notify the sender that their messages were read — send server timestamp
+        const now = new Date().toISOString();
         io.to(`chat:${connectionId}`).emit('messages-read', {
           connectionId,
           readBy: Number(userId),
+          readAt: now,
           count: result.count
         });
       }
@@ -771,15 +793,20 @@ app.put('/api/users/me', requireAuth, async (req, res) => {
       }
     }
   }
-  await userOps.update(req.session.userId, { 
-    bio: bio !== undefined ? sanitizeText(bio) : undefined, 
-    hobbies: hobbies ? hobbies.map(h => sanitizeText(h)) : undefined, 
-    avatar 
-  });
+  try {
+    await userOps.update(req.session.userId, { 
+      bio: bio !== undefined ? sanitizeText(bio) : undefined, 
+      hobbies: hobbies ? hobbies.map(h => sanitizeText(h)) : undefined, 
+      avatar 
+    });
+  } catch (updateErr) {
+    console.error('Profile update error:', updateErr);
+    return res.status(500).json({ error: 'Failed to update profile. Please try again.' });
+  }
   const user = await userOps.getById(req.session.userId);
   const safeUser = sanitizeUser(user);
   req.session.user = safeUser;
-  // Update cache immediately
+  // Update in-memory session cache immediately so stale data is never served
   setCachedUser(req.session.userId, safeUser);
   res.json({ success: true, user: safeUser });
 });
@@ -794,11 +821,15 @@ app.get('/api/discover', requireAuth, async (req, res) => {
   const excludeIds = await connectionOps.getConnectedUserIds(req.session.userId);
   const profiles = await userOps.getDiscoverable(req.session.userId, user.gender, excludeIds);
   
-  // Map profiles and calculate hobby matches
+  // Map profiles and calculate hobby matches (case-insensitive)
   const userHobbies = Array.isArray(user.hobbies) ? user.hobbies : JSON.parse(user.hobbies || '[]');
+  const userHobbiesLower = userHobbies.map(h => String(h).toLowerCase());
   const mappedProfiles = profiles.map(p => {
     const profileHobbies = Array.isArray(p.hobbies) ? p.hobbies : JSON.parse(p.hobbies || '[]');
-    const matchingHobbies = userHobbies.filter(h => profileHobbies.includes(h));
+    const profileHobbiesLower = profileHobbies.map(h => String(h).toLowerCase());
+    const matchingHobbiesLower = userHobbiesLower.filter(h => profileHobbiesLower.includes(h));
+    // Map back to original user display strings for matching_hobbies
+    const matchingHobbies = matchingHobbiesLower.map(lh => userHobbies[userHobbiesLower.indexOf(lh)] || lh);
     const matchCount = matchingHobbies.length;
     return {
       id: p.id,
@@ -811,8 +842,7 @@ app.get('/api/discover', requireAuth, async (req, res) => {
         idle: p.avatar ? `/avatars/${p.gender}/${p.avatar}/idle.jpeg` : null,
         wave: p.avatar ? `/avatars/${p.gender}/${p.avatar}/wave.jpeg` : null
       },
-      gender: p.gender,
-      total_count: p.total_count
+      gender: p.gender
     };
   });
 
@@ -823,7 +853,7 @@ app.get('/api/discover', requireAuth, async (req, res) => {
 });
 
 // Send connection request
-app.post('/api/connections/request', requireAuth, async (req, res) => {
+app.post('/api/connections/request', requireAuth, discoverLimiter, async (req, res) => {
   const { to_user_id } = req.body;
   if (!to_user_id) return res.status(400).json({ error: 'Missing target user' });
   if (Number(to_user_id) === req.session.userId) return res.status(400).json({ error: 'Cannot request yourself' });
@@ -852,7 +882,7 @@ app.post('/api/connections/request', requireAuth, async (req, res) => {
 });
 
 // Dismiss/skip profile
-app.post('/api/connections/dismiss', requireAuth, async (req, res) => {
+app.post('/api/connections/dismiss', requireAuth, discoverLimiter, async (req, res) => {
   const { to_user_id } = req.body;
   if (!to_user_id) return res.status(400).json({ error: 'Missing target user' });
   
@@ -1095,18 +1125,25 @@ app.post('/api/connections/:id/clear-game', requireAuth, async (req, res) => {
     const conn = await connectionOps.getConnection(req.params.id, req.session.userId);
     if (!conn || conn._dataIntegrityError) return res.status(404).json({ error: 'Connection not found' });
     
-    // Clear game in Firestore connection doc
-    await connectionOps.clearGame(req.params.id, game_created_at);
+    // Clear game in Firestore connection doc. Returns { cleared: true } if
+    // the game was actually removed, { cleared: false } if the transaction was
+    // skipped because the active_game's created_at didn't match (meaning a new
+    // game replaced the old one). We only broadcast game_update(null) when
+    // something actually changed, preventing a stale timeout from removing a
+    // newly created game.
+    const { cleared } = await connectionOps.clearGame(req.params.id, game_created_at);
     
-    // Broadcast the clear state to both clients
-    io.to(`chat:${req.params.id}`).emit('game_update', {
-      connection_id: req.params.id,
-      from_user_id: conn.from_user_id,
-      to_user_id: conn.to_user_id,
-      active_game: null
-    });
+    // Broadcast the clear state to both clients only if the game was actually removed
+    if (cleared) {
+      io.to(`chat:${req.params.id}`).emit('game_update', {
+        connection_id: req.params.id,
+        from_user_id: conn.from_user_id,
+        to_user_id: conn.to_user_id,
+        active_game: null
+      });
+    }
     
-    res.json({ success: true });
+    res.json({ success: true, cleared });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1217,11 +1254,22 @@ app.post('/api/messages/upload-voice', requireAuth, (req, res, next) => {
   }
 });
 
-// Endpoint to log client-side console errors to Firestore client_logs collection
+// Rate-limited client-side error logger (max 10 writes per minute to protect free tier)
+const _clientLogCache = new Map();
+setInterval(() => { _clientLogCache.clear(); }, 60 * 1000);
+
 app.post('/api/log-error', async (req, res) => {
+  // Throttle: at most 10 logs per IP per minute
+  const ipKey = req.ip || 'unknown';
+  const count = (_clientLogCache.get(ipKey) || 0) + 1;
+  _clientLogCache.set(ipKey, count);
+  if (count > 10) {
+    return res.sendStatus(200); // Silently drop excess logs
+  }
+
   const logData = {
     timestamp: new Date().toISOString(),
-    ip: req.ip,
+    ip: ipKey,
     userAgent: req.headers['user-agent'],
     ...req.body
   };
@@ -1303,8 +1351,11 @@ app.post('/api/users/report', requireAuth, async (req, res) => {
   if (!reported_user_id) return res.status(400).json({ error: 'Missing reported user' });
   if (Number(reported_user_id) === req.session.userId) return res.status(400).json({ error: 'Cannot report yourself' });
   
+  // Validate reason length — prevent Firestore document size bloat (1MB max per doc)
+  const safeReason = (reason || 'No reason').slice(0, 1000);
+  
   try {
-    const reportId = await reportOps.create(req.session.userId, reported_user_id, reason || 'No reason', connection_id || null);
+    const reportId = await reportOps.create(req.session.userId, reported_user_id, safeReason, connection_id || null);
     res.json({ success: true, reportId });
   } catch (err) {
     console.error('Report error:', err);
@@ -1400,7 +1451,7 @@ app.get('/api/push/vapid-key', (req, res) => {
 // Delete a message
 app.delete('/api/messages/:id', requireAuth, async (req, res) => {
   const { connection_id } = req.body;
-  const result = await messageOps.deleteMessage(req.params.id, req.session.userId);
+  const result = await messageOps.deleteMessage(req.params.id, req.session.userId, connection_id);
   if (result.error) return res.status(403).json(result);
 
   if (connection_id) io.to(`chat:${connection_id}`).emit('message-deleted', { messageId: req.params.id });
