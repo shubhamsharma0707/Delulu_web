@@ -119,8 +119,7 @@ async function seedDemoUsers() {
   console.log(`Seeded ${demos.length} demo users in Firestore`);
 }
 
-// Kept for compatibility
-function backfillDemoAvatars() {}
+// Removed: backfillDemoAvatars was an empty no-op kept for compatibility. No longer needed.
 
 // In-memory cache for user lookups to reduce Firestore reads
 const userByIdCache = new Map();
@@ -259,12 +258,30 @@ const userOps = {
       genderFilter = 'male';
     }
 
-    let query = firestore.collection('users').where('ecosystem', '==', userEcosystem);
-    if (genderFilter) {
-      query = query.where('gender', '==', genderFilter);
+    // Try composite query first (ecosystem + gender) which requires a Firestore composite index.
+    // If the index doesn't exist, fall back to querying by ecosystem only and filtering in memory.
+    let snapshot;
+    try {
+      let query = firestore.collection('users').where('ecosystem', '==', userEcosystem);
+      if (genderFilter) {
+        query = query.where('gender', '==', genderFilter);
+      }
+      snapshot = await query.get();
+    } catch (indexErr) {
+      // Composite index not found — fall back to ecosystem-only query with in-memory gender filter
+      console.warn('Firestore composite index missing for discover query — falling back to in-memory filter. Create the index in Firebase Console for better performance.');
+      const ecoQuery = firestore.collection('users').where('ecosystem', '==', userEcosystem);
+      const ecoSnapshot = await ecoQuery.get();
+      // Filter by gender in-memory
+      const filteredDocs = [];
+      ecoSnapshot.forEach(doc => {
+        const u = doc.data();
+        if (!genderFilter || u.gender === genderFilter) {
+          filteredDocs.push(doc);
+        }
+      });
+      snapshot = { forEach(fn) { filteredDocs.forEach(fn); }, empty: filteredDocs.length === 0 };
     }
-    
-    const snapshot = await query.get();
     const discoverable = [];
     snapshot.forEach(doc => {
       const u = doc.data();
@@ -306,15 +323,36 @@ const CONNECTION_CACHE_MAX    = 10_000;          // hard cap — evict oldest wh
 const _connCache = new Map();
 
 /**
- * Evict all cache entries for a given connectionId.
+ * Reverse index: connectionId → Set of cache keys ("connId:userId").
+ * Allows O(1) eviction by connectionId instead of scanning all keys.
+ * @type {Map<string|number, Set<string>>}
+ */
+const _connCacheIndex = new Map();
+
+function _indexCacheKey(connectionId, cacheKey) {
+  const s = _connCacheIndex.get(connectionId) || new Set();
+  s.add(cacheKey);
+  _connCacheIndex.set(connectionId, s);
+}
+
+function _unindexCacheKey(connectionId, cacheKey) {
+  const s = _connCacheIndex.get(connectionId);
+  if (!s) return;
+  s.delete(cacheKey);
+  if (s.size === 0) _connCacheIndex.delete(connectionId);
+}
+
+/**
+ * Evict all cache entries for a given connectionId in O(1).
  * Call this immediately after any write that changes connection status.
- * The cache is keyed by "connId:userId", so we do a prefix scan.
  */
 function evictConnection(connectionId) {
-  const prefix = `${connectionId}:`;
-  for (const key of _connCache.keys()) {
-    if (key.startsWith(prefix)) _connCache.delete(key);
+  const keys = _connCacheIndex.get(connectionId);
+  if (!keys) return;
+  for (const key of keys) {
+    _connCache.delete(key);
   }
+  _connCacheIndex.delete(connectionId);
 }
 
 // Connection operations
@@ -605,10 +643,16 @@ const connectionOps = {
       // wrong (no-longer-oldest) entry. Always delete-then-set.
       if (_connCache.size >= CONNECTION_CACHE_MAX && !_connCache.has(cacheKey)) {
         // Evict the oldest entry only when adding a brand-new key
-        _connCache.delete(_connCache.keys().next().value);
+        const oldestKey = _connCache.keys().next().value;
+        if (oldestKey) {
+          const oldestConnId = oldestKey.split(':')[0];
+          _connCache.delete(oldestKey);
+          _unindexCacheKey(oldestConnId, oldestKey);
+        }
       }
       _connCache.delete(cacheKey);           // remove old position (no-op on first insert)
       _connCache.set(cacheKey, { data: conn, ts: Date.now() }); // re-insert at tail
+      _indexCacheKey(connectionId, cacheKey); // maintain reverse index
     }
 
     // ── Always fetch user profiles fresh (userOps has its own TTL cache) ──────
@@ -740,6 +784,26 @@ const connectionOps = {
     return { success: true };
   },
 
+  /**
+   * Retrieves all connections between two users (in either direction).
+   * Used for cleanup on block/unblock.
+   */
+  async getAllBetween(userId1, userId2) {
+    const firestore = getDB();
+    const snap1 = await firestore.collection('connections')
+      .where('from_user_id', '==', Number(userId1))
+      .where('to_user_id', '==', Number(userId2))
+      .get();
+    const snap2 = await firestore.collection('connections')
+      .where('from_user_id', '==', Number(userId2))
+      .where('to_user_id', '==', Number(userId1))
+      .get();
+    const results = [];
+    snap1.forEach(doc => results.push(doc.data()));
+    snap2.forEach(doc => results.push(doc.data()));
+    return results;
+  },
+
   async startGame(connectionId, gameType, question) {
     const firestore = getDB();
     const connDocRef = firestore.collection('connections').doc(String(connectionId));
@@ -785,6 +849,7 @@ const connectionOps = {
   async clearGame(connectionId, gameCreatedAt = null) {
     const firestore = getDB();
     const connDocRef = firestore.collection('connections').doc(String(connectionId));
+    let actuallyCleared = false;
     if (gameCreatedAt) {
       await firestore.runTransaction(async (transaction) => {
         const doc = await transaction.get(connDocRef);
@@ -793,54 +858,81 @@ const connectionOps = {
         const activeGame = conn.active_game || null;
         if (activeGame && activeGame.created_at === gameCreatedAt) {
           transaction.update(connDocRef, { active_game: null });
+          actuallyCleared = true;
         }
       });
     } else {
       await connDocRef.update({ active_game: null });
+      actuallyCleared = true;
     }
-    evictConnection(connectionId); // cache invalidation — active_game cleared
-    return { success: true };
+    // Only evict cache if the game was actually cleared — avoids wasted cache eviction
+    if (actuallyCleared) {
+      evictConnection(connectionId);
+    }
+    return { success: true, cleared: actuallyCleared };
   },
 
   
   async sweepExpired() {
     const firestore = getDB();
     const now = new Date().toISOString();
-    const snapshot = await firestore.collection('connections')
-      .where('status', '==', 'accepted')
-      .limit(100)
-      .get();
-      
+    
     let identityRevealsExpired = 0;
     let faceRevealsExpired = 0;
-    const batch = firestore.batch();
+    const allExpiredIds = [];
+    let lastDoc = null;
+    const PAGE_SIZE = 500;
     
-    const expiredIds = [];
-    snapshot.forEach(doc => {
-      const conn = doc.data();
-      
-      // Sweep 1: Face reveal period expired without both users agreeing
-      if (conn.face_reveal_available_at && conn.face_reveal_available_at < now) {
-        if (conn.from_face_reveal === 0 || conn.to_face_reveal === 0) {
-          batch.update(doc.ref, { status: 'expired', ended_reason: 'face_reveal_timeout' });
-          expiredIds.push(conn.id);
-          faceRevealsExpired++;
-          return;
-        }
+    // Paginate through all accepted connections in batches of 500 to handle large datasets.
+    // Uses orderBy('__name__') which is auto-indexed in Firestore (no custom index needed).
+    while (true) {
+      let query = firestore.collection('connections')
+        .where('status', '==', 'accepted')
+        .orderBy('__name__')
+        .limit(PAGE_SIZE);
+      if (lastDoc) {
+        query = query.startAfter(lastDoc);
       }
+      const snapshot = await query.get();
+      if (snapshot.empty) break;
       
-      // Sweep 2: Identity reveal period expired without both users agreeing
-      if (conn.identity_reveal_available_at && conn.identity_reveal_available_at < now) {
-        if (conn.from_identity_reveal === 0 && conn.to_identity_reveal === 0) {
-          batch.update(doc.ref, { status: 'expired', ended_reason: 'identity_reveal_timeout' });
-          expiredIds.push(conn.id);
-          identityRevealsExpired++;
+      const batch = firestore.batch();
+      let pageChanged = false;
+      
+      snapshot.forEach(doc => {
+        lastDoc = doc; // Track for pagination
+        const conn = doc.data();
+        
+        // Sweep 1: Face reveal period expired without both users agreeing
+        if (conn.face_reveal_available_at && conn.face_reveal_available_at < now) {
+          if (conn.from_face_reveal === 0 || conn.to_face_reveal === 0) {
+            batch.update(doc.ref, { status: 'expired', ended_reason: 'face_reveal_timeout' });
+            allExpiredIds.push(conn.id);
+            faceRevealsExpired++;
+            pageChanged = true;
+            return; // skip to next doc — this connection is handled
+          }
         }
-      }
-    });
+        
+        // Sweep 2: Identity reveal period expired without both users agreeing
+        if (conn.identity_reveal_available_at && conn.identity_reveal_available_at < now) {
+          if (conn.from_identity_reveal === 0 && conn.to_identity_reveal === 0) {
+            batch.update(doc.ref, { status: 'expired', ended_reason: 'identity_reveal_timeout' });
+            allExpiredIds.push(conn.id);
+            identityRevealsExpired++;
+            pageChanged = true;
+          }
+        }
+      });
+      
+      // Only commit if there were actual changes — avoid wasted Firestore writes
+      if (pageChanged) await batch.commit();
+      
+      // If we got fewer results than the page size, we've processed everything
+      if (snapshot.size < PAGE_SIZE) break;
+    }
     
-    await batch.commit();
-    for (const id of expiredIds) evictConnection(id);
+    for (const id of allExpiredIds) evictConnection(id);
     return { identityRevealsExpired, faceRevealsExpired };
   },
 
@@ -932,20 +1024,21 @@ const messageOps = {
   // Moved from Firestore update({ deleted: 1 }) → Supabase update({ deleted_at, deleted_by }).
   // Hard-deletes are never performed; the row is tombstoned so delta-sync can still
   // return the deletion event to the other user.
-  async deleteMessage(messageId, userId) {
+  async deleteMessage(messageId, userId, connectionId) {
     try {
       const supabase = getSupabase();
 
       // Verify ownership before tombstoning
       const { data: msg, error: fetchErr } = await supabase
         .from('messages')
-        .select('id, sender_id, deleted_at')
+        .select('id, sender_id, connection_id, deleted_at')
         .eq('id', messageId)
         .single();
 
       if (fetchErr || !msg) return { error: 'Message not found' };
       if (msg.sender_id !== Number(userId)) return { error: 'Not authorized to delete this message' };
       if (msg.deleted_at) return { error: 'Message already deleted' };
+      if (connectionId && Number(msg.connection_id) !== Number(connectionId)) return { error: 'Message does not belong to this connection' };
 
       const { error: updateErr } = await supabase
         .from('messages')
@@ -1031,7 +1124,9 @@ const messageOps = {
         .is('deleted_at', null);
 
       if (prevLastReadAt) {
-        countQuery = countQuery.gt('created_at', prevLastReadAt);
+        // gte (greater-or-equal) catches messages created at the exact same timestamp
+        // as the previous read marker, which gt would miss.
+        countQuery = countQuery.gte('created_at', prevLastReadAt);
       }
 
       const { count, error: countErr } = await countQuery;
@@ -1054,11 +1149,12 @@ const messageOps = {
     try {
       const supabase = getSupabase();
 
+      // Include deleted messages so the client can show the "deleted" placeholder.
+      // Same row limit (50) applies — no extra reads incurred for typical usage.
       let query = supabase
         .from('messages')
         .select('*')
-        .eq('connection_id', Number(connectionId))
-        .is('deleted_at', null);
+        .eq('connection_id', Number(connectionId));
 
       // Delta sync: only fetch messages newer than the client's last-seen timestamp
       if (since) {
@@ -1107,10 +1203,15 @@ const otpOps = {
       .get();
       
     let valid = null;
+    let latestCreatedAt = null;
     snapshot.forEach(doc => {
       const data = doc.data();
       if (data.expires_at > now) {
-        valid = data;
+        // Pick the most recently created valid token — this avoids matching an old orphaned token
+        if (!latestCreatedAt || data.created_at > latestCreatedAt) {
+          valid = data;
+          latestCreatedAt = data.created_at;
+        }
       }
     });
     return valid;
@@ -1150,19 +1251,37 @@ const otpOps = {
   async cleanExpired() {
     const firestore = getDB();
     const now = new Date().toISOString();
-    const snapshot = await firestore.collection('otps').get();
+    // Limit to 200 at a time to avoid excessive reads — expired OTPs are harmless
+    // and get cleaned incrementally over multiple sweep cycles.
+    const snapshot = await firestore.collection('otps')
+      .where('expires_at', '<', now)
+      .limit(200)
+      .get();
     const batch = firestore.batch();
     let count = 0;
     
     snapshot.forEach(doc => {
-      const data = doc.data();
-      if (data.expires_at < now || data.used === 1) {
-        batch.delete(doc.ref);
-        count++;
-      }
+      batch.delete(doc.ref);
+      count++;
     });
-    await batch.commit();
-    return { deletedCount: count };
+    
+    // Only commit if there are deletions
+    if (count > 0) await batch.commit();
+    
+    // Also clean used tokens (separate query, smaller scope)
+    const usedSnapshot = await firestore.collection('otps')
+      .where('used', '==', 1)
+      .limit(100)
+      .get();
+    const usedBatch = firestore.batch();
+    let usedCount = 0;
+    usedSnapshot.forEach(doc => {
+      usedBatch.delete(doc.ref);
+      usedCount++;
+    });
+    if (usedCount > 0) await usedBatch.commit();
+    
+    return { deletedCount: count + usedCount };
   },
 
   async deleteByEmail(email) {
@@ -1301,7 +1420,7 @@ connectionOps.sweepExpiredRequests = async function() {
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const snapshot = await firestore.collection('connections')
     .where('status', '==', 'pending')
-    .limit(100)
+    .limit(500)
     .get();
   
   let expiredCount = 0;
@@ -1342,7 +1461,6 @@ connectionOps.getAllBetween = async function(userId1, userId2) {
 module.exports = {
   getDB,
   seedDemoUsers,
-  backfillDemoAvatars,
   userOps,
   connectionOps,
   messageOps,
