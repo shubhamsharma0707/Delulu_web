@@ -517,7 +517,7 @@ async function sendBrevoEmail(email, subject, htmlContent) {
     },
     body: JSON.stringify({
       sender: {
-        name: 'Delulu Dating',
+        name: 'Delulu',
         email: process.env.GMAIL_USER || 'delulu.college.dating@gmail.com'
       },
       to: [{ email }],
