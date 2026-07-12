@@ -2109,8 +2109,20 @@ async function startGame(gameType) {
     const msg = `🎲 Icebreaker Question: ${randomQ}`;
     
     // Save random question permanently in the database so it never disappears on refresh
-    apiCall('/api/messages/send', 'POST', { connection_id: currentConnId, content: msg })
-      .catch(err => console.error('Failed to send random question message:', err));
+    (async () => {
+      let payload = { connection_id: currentConnId, content: msg };
+      if (isE2EEActive && sharedSecretKey) {
+        try {
+          const encrypted = await E2EECrypto.encryptMessage(msg, sharedSecretKey);
+          payload.content = encrypted.ciphertext;
+          payload.is_encrypted = 1;
+          payload.iv = encrypted.iv;
+        } catch (encErr) {
+          console.error('Failed to encrypt random question:', encErr);
+        }
+      }
+      await apiCall('/api/messages/send', 'POST', payload);
+    })().catch(err => console.error('Failed to send random question message:', err));
   } else {
     // STEP 1: Save game to Firestore FIRST
     let activeGame;
