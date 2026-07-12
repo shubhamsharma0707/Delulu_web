@@ -36,8 +36,7 @@ console.warn = (...args) => {
 
 const session = require('express-session');
 const compression = require('compression');
-const SqliteStore = require('better-sqlite3-session-store')(session);
-const Database = require('better-sqlite3');
+const MemoryStore = require('memorystore')(session);
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
@@ -235,17 +234,10 @@ function invalidateCache(userId) {
   sessionCache.delete(userId);
 }
 
-// Ensure data folder exists
-fs.mkdirSync(path.join(__dirname, 'data'), { recursive: true });
-
-// Persistent SQLite session store — survives server restarts, no memory leaks
-const sessionsDb = new Database(path.join(__dirname, 'data', 'sessions.db'));
-
-// Session middleware
+// Session middleware — using memorystore (pure JS, no native compilation)
 const sessionMiddleware = session({
-  store: new SqliteStore({
-    client: sessionsDb,
-    expired: { clear: true, intervalMs: 15 * 60 * 1000 } // auto-clear expired sessions every 15 min
+  store: new MemoryStore({
+    checkPeriod: 15 * 60 * 1000 // auto-clear expired sessions every 15 min
   }),
   secret: process.env.SESSION_SECRET,
   resave: false,
