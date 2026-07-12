@@ -161,6 +161,11 @@
 
   function loop() {
     if (!active) { rafId = null; return; }
+    
+    // Cancel any previously scheduled frame before scheduling a new one.
+    // This prevents overlapping animation loops when visibility changes rapidly.
+    if (rafId) cancelAnimationFrame(rafId);
+    
     ctx.clearRect(0, 0, width, height);
 
     mouseX += (targetMouseX - mouseX) * 0.08;

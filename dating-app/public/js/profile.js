@@ -127,6 +127,31 @@ function init3DPreview() {
   // Resize Handler
   window.addEventListener('resize', onPreviewResize);
 
+  // Clean up animation when navigating away or tab is hidden
+  const cleanupPreview = () => {
+    if (previewAnimationId) {
+      cancelAnimationFrame(previewAnimationId);
+      previewAnimationId = null;
+    }
+    if (previewRenderer) {
+      previewRenderer.dispose();
+      previewRenderer = null;
+    }
+    previewScene = null;
+    previewCamera = null;
+    previewMesh = null;
+  };
+  window.addEventListener('beforeunload', cleanupPreview);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && previewAnimationId) {
+      cancelAnimationFrame(previewAnimationId);
+      previewAnimationId = null;
+    } else if (!document.hidden && !previewAnimationId && previewScene) {
+      // Resume animation when tab becomes visible again
+      animatePreview();
+    }
+  });
+
   // Run loop
   animatePreview();
 }

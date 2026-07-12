@@ -181,6 +181,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (token && emailParam) {
     showStage(stageOtp);
     otpEmailDisplay.textContent = emailParam;
+    // Show loading indicator while verifying
+    const verifyBtn = document.getElementById('btn-verify-token');
+    if (verifyBtn) {
+      verifyBtn.disabled = true;
+      verifyBtn.textContent = 'Verifying...';
+    }
     
     // Auto-verify token
     try {
@@ -199,6 +205,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       console.error(err);
       alert('Verification link is invalid or has expired.');
       showStage(stageLogin);
+    } finally {
+      if (verifyBtn) {
+        verifyBtn.disabled = false;
+        verifyBtn.textContent = 'Verifying...';
+      }
     }
   }
 

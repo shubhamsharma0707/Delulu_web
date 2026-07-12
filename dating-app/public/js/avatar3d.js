@@ -82,7 +82,10 @@ function loadAndProcessTexture(path, callback) {
     }
     
     const texture = new THREE.CanvasTexture(canvas);
-    if (THREE.sRGBEncoding) {
+    // sRGBEncoding was renamed to SRGBColorSpace in r144+
+    if (THREE.SRGBColorSpace !== undefined) {
+      texture.colorSpace = THREE.SRGBColorSpace;
+    } else if (THREE.sRGBEncoding !== undefined) {
       texture.encoding = THREE.sRGBEncoding;
     }
     texture.needsUpdate = true;
@@ -162,24 +165,25 @@ function initAvatarScene(containerId, profiles) {
 
   sceneContainer.style.touchAction = 'none'; // Prevent browser scroll during grab
   
-  sceneContainer.addEventListener('pointerdown', (e) => {
+  // Store handler references so destroyAvatarScene can remove them
+  const onPointerDown = (e) => {
     isDragging = true;
     startX = e.clientX;
     scrollStart = targetIndex;
     sceneContainer.style.cursor = 'grabbing';
     sceneContainer.setPointerCapture(e.pointerId);
-  });
+  };
 
-  sceneContainer.addEventListener('pointermove', (e) => {
+  const onPointerMove = (e) => {
     if (!isDragging) return;
     const deltaX = e.clientX - startX;
     const sensitivity = 0.005;
     let newIndex = scrollStart - deltaX * sensitivity;
     newIndex = Math.max(0, Math.min(newIndex, profilesData.length - 1));
     targetIndex = newIndex;
-  });
+  };
 
-  const endDrag = (e) => {
+  const onPointerEnd = (e) => {
     if (!isDragging) return;
     isDragging = false;
     sceneContainer.style.cursor = 'grab';
@@ -204,10 +208,25 @@ function initAvatarScene(containerId, profiles) {
     }
   };
 
-  sceneContainer.addEventListener('pointerup', endDrag);
-  sceneContainer.addEventListener('pointercancel', endDrag);
+  sceneContainer.addEventListener('pointerdown', onPointerDown);
+  sceneContainer.addEventListener('pointermove', onPointerMove);
+  sceneContainer.addEventListener('pointerup', onPointerEnd);
+  sceneContainer.addEventListener('pointercancel', onPointerEnd);
+  
+  // Store pointer handlers so destroyAvatarScene can remove them
+  if (window.__avatarListeners) {
+    window.__avatarListeners.pointerDown = onPointerDown;
+    window.__avatarListeners.pointerMove = onPointerMove;
+    window.__avatarListeners.pointerEnd = onPointerEnd;
+  }
 
-  // Events
+  // Events — save references so destroyAvatarScene can remove them
+  // Store on window to avoid closure issues
+  window.__avatarListeners = {
+    resize: onResize,
+    mousemove: onMouseMove,
+    touchmove: onTouchMove
+  };
   window.addEventListener('resize', onResize);
   document.addEventListener('mousemove', onMouseMove);
   document.addEventListener('touchmove', onTouchMove, { passive: true });
@@ -482,6 +501,26 @@ function animate() {
 
 function destroyAvatarScene() {
   isSceneReady = false;
+  
+  // Remove all registered event listeners to prevent memory leaks and duplicate handlers
+  if (window.__avatarListeners) {
+    const { resize, mousemove, touchmove, pointerDown, pointerMove, pointerEnd } = window.__avatarListeners;
+    window.removeEventListener('resize', resize);
+    document.removeEventListener('mousemove', mousemove);
+    document.removeEventListener('touchmove', touchmove);
+    if (sceneContainer && pointerDown) sceneContainer.removeEventListener('pointerdown', pointerDown);
+    if (sceneContainer && pointerMove) sceneContainer.removeEventListener('pointermove', pointerMove);
+    if (sceneContainer && pointerEnd) sceneContainer.removeEventListener('pointerup', pointerEnd);
+    if (sceneContainer && pointerEnd) sceneContainer.removeEventListener('pointercancel', pointerEnd);
+    window.__avatarListeners = null;
+  }
+  
+  // Reset scene container styles
+  if (sceneContainer) {
+    sceneContainer.style.touchAction = '';
+    sceneContainer.style.cursor = '';
+  }
+  
   if (renderer) {
     renderer.dispose();
     if (renderer.domElement && renderer.domElement.parentNode) {
@@ -493,6 +532,7 @@ function destroyAvatarScene() {
   camera = null;
   renderer = null;
   particles = null;
+  sceneContainer = null;
 }
 
 // Exposed navigation — called by discover.js
