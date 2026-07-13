@@ -649,6 +649,7 @@ body.discover-page #app-root, body.profile-page #app-root {
 /* Profile Page Vertical Scaling */
 #prof-bio {
   height: 4rem; /* 64px */
+  overflow-y: auto;
   transition: all 0.3s ease;
 }
 
