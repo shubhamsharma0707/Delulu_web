@@ -21,6 +21,8 @@ const maxInterval = 30000;
 // changes, eliminating the race condition between polling and DOM resets.
 let firestoreUnsubscribe = null;
 let firestoreReady = false;
+let firestoreRetryCount = 0;
+let statusPollingTimeout = null;
 
 // User Activity Monitoring to prevent wasteful reads when the user is idle
 let lastActivityTime = Date.now();
@@ -156,6 +158,12 @@ function stopStatusPolling() {
 async function initFirestoreListener() {
   if (!currentConnId || !currentUser || firestoreReady) return;
   
+  if (firestoreRetryCount >= 3) {
+    console.log('[Firestore] Max retry limit reached. Falling back to connection status HTTP polling.');
+    startStatusPollingFallback();
+    return;
+  }
+  
   // 1. Fetch Firebase client config
   let config;
   try {
@@ -163,16 +171,19 @@ async function initFirestoreListener() {
     config = await res.json();
     if (!config.enabled) {
       console.log('[Firestore] Client not configured — keeping polling fallback');
+      startStatusPollingFallback();
       return;
     }
   } catch (e) {
     console.warn('[Firestore] Config unavailable, using polling fallback:', e.message);
+    startStatusPollingFallback();
     return;
   }
   
   // 2. Initialize Firebase Web SDK (compat mode loaded via CDN)
   if (typeof firebase === 'undefined') {
     console.warn('[Firestore] Firebase SDK not loaded — using polling fallback');
+    startStatusPollingFallback();
     return;
   }
   try {
@@ -181,6 +192,7 @@ async function initFirestoreListener() {
     }
   } catch (e) {
     console.warn('[Firestore] Init failed:', e.message);
+    startStatusPollingFallback();
     return;
   }
   
@@ -192,6 +204,7 @@ async function initFirestoreListener() {
     if (!tokenData.token) throw new Error('No token returned');
   } catch (e) {
     console.warn('[Firestore] Token unavailable:', e.message);
+    startStatusPollingFallback();
     return;
   }
   
@@ -200,6 +213,7 @@ async function initFirestoreListener() {
     await firebase.auth().signInWithCustomToken(tokenData.token);
   } catch (e) {
     console.warn('[Firestore] Auth failed:', e.message);
+    startStatusPollingFallback();
     return;
   }
   
@@ -238,6 +252,10 @@ async function initFirestoreListener() {
         return;
       }
       
+      // Reset retry count on successful snapshot delivery
+      firestoreRetryCount = 0;
+      stopStatusPollingFallback();
+      
       // Update connection state (status bar, buttons, game card)
       updateChatStatus(sanitized);
       // Sync active game state from Firestore connection document updates
@@ -247,11 +265,16 @@ async function initFirestoreListener() {
     }, async (error) => {
       console.error('[Firestore] onSnapshot error:', error.message);
       
+      firestoreRetryCount++;
       // Auto-heal on permission/token expiration errors (e.g., if tab was left open or token expired)
-      if (error.code === 'permission-denied' || error.message.toLowerCase().includes('permission') || error.message.toLowerCase().includes('token')) {
-        console.log('[Firestore] Attempting auto-recovery by refreshing authentication token...');
+      if (firestoreRetryCount < 3 && (error.code === 'permission-denied' || error.message.toLowerCase().includes('permission') || error.message.toLowerCase().includes('token'))) {
+        console.log(`[Firestore] Attempting auto-recovery (attempt ${firestoreRetryCount}/3) by refreshing authentication token...`);
         cleanupFirestoreListener();
-        setTimeout(() => initFirestoreListener().catch(() => {}), 1500);
+        setTimeout(() => initFirestoreListener().catch(() => {}), 2000);
+      } else {
+        console.warn('[Firestore] Authentication failed repeatedly or rules misconfigured. Falling back to connection status HTTP polling.');
+        cleanupFirestoreListener();
+        startStatusPollingFallback();
       }
     });
 }
@@ -278,6 +301,32 @@ function cleanupFirestoreListener() {
   }
   firestoreReady = false;
   _fsSanitizedCache = null;
+}
+
+// Dedicated connection status polling fallback when Firestore is not available
+function startStatusPollingFallback() {
+  if (statusPollingTimeout) clearTimeout(statusPollingTimeout);
+  if (firestoreReady) return;
+  if (document.hidden || checkUserIdle()) {
+    statusPollingTimeout = setTimeout(startStatusPollingFallback, 6000);
+    return;
+  }
+  
+  statusPollingTimeout = setTimeout(async () => {
+    if (!firestoreReady) {
+      try {
+        await loadChatInfo();
+      } catch (e) {}
+    }
+    startStatusPollingFallback();
+  }, 6000); // Poll status every 6 seconds to ensure games and reveals sync dynamically
+}
+
+function stopStatusPollingFallback() {
+  if (statusPollingTimeout) {
+    clearTimeout(statusPollingTimeout);
+    statusPollingTimeout = null;
+  }
 }
 
 // Helper: format relative time for status
@@ -1040,6 +1089,7 @@ async function initializeChat() {
 // Using both ensures cleanup happens in all major browsers/OS combos.
 function cleanupChatResources() {
   cleanupFirestoreListener();
+  stopStatusPollingFallback();
   // Note: We do NOT stop the outbox flush here because this function is also
   // called on visibilitychange=hidden (iOS Safari), and the outbox flush
   // should continue running to retry pending messages. It's harmless to let
