@@ -419,15 +419,13 @@ io.on('connection', async (socket) => {
       const conn = await connectionOps.getConnection(connectionId, userId);
       if (!conn || conn._dataIntegrityError) return;
       
-      const otherId = conn.from_user_id === Number(userId) ? conn.to_user_id : conn.from_user_id;
-      const result = await messageOps.markAsRead(connectionId, Number(userId));
+      const result = await messageOps.markAsRead(connectionId, Number(userId), conn);
       if (result.count > 0) {
         // Notify the sender that their messages were read — send server timestamp
-        const now = new Date().toISOString();
         io.to(`chat:${connectionId}`).emit('messages-read', {
           connectionId,
           readBy: Number(userId),
-          readAt: now,
+          readAt: result.readAt || new Date().toISOString(),
           count: result.count
         });
       }
@@ -1056,7 +1054,7 @@ app.post('/api/connections/end', requireAuth, async (req, res) => {
     io.to(`chat:${connection_id}`).emit('status_change', { connection_id });
   }
 
-  connectionEmitter.emit(`update:${connection_id}`, { type: 'game' });
+  connectionEmitter.emit(`update:${connection_id}`, { type: 'ended' });
   res.json(result);
 });
 
@@ -1125,7 +1123,7 @@ app.post('/api/connections/end-after-decline', requireAuth, async (req, res) => 
     message: "The other person decided to disconnect after the face reveal decline."
   });
 
-  connectionEmitter.emit(`update:${connection_id}`, { type: 'game' });
+  connectionEmitter.emit(`update:${connection_id}`, { type: 'ended' });
   res.json(result);
 });
 
@@ -1238,6 +1236,18 @@ app.get('/api/messages/:connectionId', requireAuth, async (req, res) => {
   const { since } = req.query;
   const messages = await messageOps.getRecentForConnection(req.params.connectionId, 50, since || null);
   res.json({ messages, connection: sanitizeConnection(conn, req.session.userId) });
+});
+
+// REST fallback for read receipts when Socket.io is disabled or unavailable.
+app.post('/api/messages/:connectionId/read', requireAuth, async (req, res) => {
+  const conn = await connectionOps.getConnection(req.params.connectionId, req.session.userId);
+  if (conn && conn._dataIntegrityError) {
+    return res.status(410).json({ error: 'This chat is no longer available — one of the accounts involved no longer exists.' });
+  }
+  if (!conn) return res.status(404).json({ error: 'Connection not found' });
+
+  const result = await messageOps.markAsRead(req.params.connectionId, req.session.userId, conn);
+  res.json({ success: true, readAt: result.readAt || new Date().toISOString(), count: result.count || 0 });
 });
 
 // Send normal text message
@@ -1427,6 +1437,7 @@ app.post('/api/messages/:id/react', requireAuth, async (req, res) => {
   if (result.error) return res.status(400).json(result);
 
   io.to(`chat:${connection_id}`).emit('message-reacted', { messageId: req.params.id, reactions: result.reactions });
+  connectionEmitter.emit(`update:${connection_id}`, { type: 'messages' });
   res.json(result);
 });
 
@@ -1541,7 +1552,10 @@ app.delete('/api/messages/:id', requireAuth, async (req, res) => {
   const result = await messageOps.deleteMessage(req.params.id, req.session.userId, connection_id);
   if (result.error) return res.status(403).json(result);
 
-  if (connection_id) io.to(`chat:${connection_id}`).emit('message-deleted', { messageId: req.params.id });
+  if (connection_id) {
+    io.to(`chat:${connection_id}`).emit('message-deleted', { messageId: req.params.id });
+    connectionEmitter.emit(`update:${connection_id}`, { type: 'messages' });
+  }
   res.json(result);
 });
 
