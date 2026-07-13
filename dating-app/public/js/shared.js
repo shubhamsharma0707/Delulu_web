@@ -248,6 +248,24 @@ function hapticHeavy() {
   try { navigator.vibrate([30, 50, 20]); } catch(e) {}
 }
 
+// ===== Global Show Toast (non-blocking notification) =====
+// Replaces alert() for all non-critical messages. Supports error/success/warning types.
+// Auto-dismisses after 2.5s (error) or 2s (success/info).
+function showToast(msg, type) {
+  const toast = document.createElement('div');
+  const isError = type === 'error';
+  const bgClass = isError ? 'bg-error/90 text-white' : 'bg-surface-container-high text-on-surface';
+  toast.className = `fixed bottom-24 left-1/2 -translate-x-1/2 ${bgClass} px-6 py-3 rounded-2xl shadow-lg z-50 text-sm font-medium animate-slideUp max-w-[90vw] text-center`;
+  toast.textContent = msg;
+  document.body.appendChild(toast);
+  const duration = isError ? 2500 : 2000;
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateY(20px)';
+    setTimeout(() => toast.remove(), 300);
+  }, duration);
+}
+
 // ===== Undo Dismiss Toast =====
 let toastContainer = null;
 function showUndoToast(message, onUndo, duration = 4000) {
