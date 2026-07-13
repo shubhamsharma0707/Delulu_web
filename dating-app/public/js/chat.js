@@ -19,9 +19,9 @@ const maxInterval = 30000;
 // By subscribing to the connection document via onSnapshot, connection-state
 // updates (active_game, reveal status, etc.) arrive instantly when Firestore
 // changes, eliminating the race condition between polling and DOM resets.
-let firestoreUnsubscribe = null;
-let firestoreReady = false;
-let firestoreRetryCount = 0;
+let eventSource = null;
+let streamReady = false;
+let isReconnecting = false;
 let statusPollingTimeout = null;
 
 // User Activity Monitoring to prevent wasteful reads when the user is idle
@@ -151,169 +151,63 @@ function clientSanitizeConnection(c, userId) {
   };
 }
 
-function stopStatusPolling() {
-  firestoreReady = true;
-}
+function initRealtimeStream() {
+  if (!currentConnId || eventSource) return;
 
-async function initFirestoreListener() {
-  if (!currentConnId || !currentUser || firestoreReady) return;
-  
-  if (firestoreRetryCount >= 3) {
-    console.log('[Firestore] Max retry limit reached. Falling back to connection status HTTP polling.');
-    startStatusPollingFallback();
-    return;
-  }
-  
-  // 1. Fetch Firebase client config
-  let config;
-  try {
-    const res = await fetch('/api/firebase/config');
-    config = await res.json();
-    if (!config.enabled) {
-      console.log('[Firestore] Client not configured — keeping polling fallback');
-      startStatusPollingFallback();
-      return;
+  console.log('[SSE] Connecting to real-time event stream...');
+  eventSource = new EventSource(`/api/connections/${currentConnId}/stream`);
+
+  eventSource.onopen = () => {
+    console.log('[SSE] Connection established successfully.');
+    streamReady = true;
+    stopStatusPollingFallback();
+
+    // Resync connection state once when reconnecting to capture missed game actions
+    if (isReconnecting) {
+      console.log('[SSE] Reconnected. Fetching latest chat info to resync state.');
+      loadChatInfo().catch(() => {});
+      isReconnecting = false;
     }
-  } catch (e) {
-    console.warn('[Firestore] Config unavailable, using polling fallback:', e.message);
-    startStatusPollingFallback();
-    return;
-  }
-  
-  // 2. Initialize Firebase Web SDK (compat mode loaded via CDN)
-  if (typeof firebase === 'undefined') {
-    console.warn('[Firestore] Firebase SDK not loaded — using polling fallback');
-    startStatusPollingFallback();
-    return;
-  }
-  try {
-    if (!firebase.apps.length) {
-      firebase.initializeApp(config);
+  };
+
+  eventSource.onmessage = (event) => {
+    if (event.data === 'game') {
+      console.log('[SSE] Received game update event. Refreshing chat state...');
+      loadChatInfo().catch(() => {});
     }
-  } catch (e) {
-    console.warn('[Firestore] Init failed:', e.message);
+  };
+
+  eventSource.onerror = () => {
+    console.warn('[SSE] EventSource disconnected. Falling back to HTTP status polling.');
+    
+    // Clean up active handle, but do NOT manually retry (browser native EventSource will auto-reconnect)
+    stopRealtimeStream();
+    isReconnecting = true;
+    
+    // Start HTTP polling fallback so states update in the interim
     startStatusPollingFallback();
-    return;
-  }
-  
-  // 3. Get custom auth token from server
-  let tokenData;
-  try {
-    const res = await fetch('/api/firebase/token');
-    tokenData = await res.json();
-    if (!tokenData.token) throw new Error('No token returned');
-  } catch (e) {
-    console.warn('[Firestore] Token unavailable:', e.message);
-    startStatusPollingFallback();
-    return;
-  }
-  
-  // 4. Sign in with custom token (uid === our app's user ID — matched in Firestore Security Rules)
-  try {
-    await firebase.auth().signInWithCustomToken(tokenData.token);
-  } catch (e) {
-    console.warn('[Firestore] Auth failed:', e.message);
-    startStatusPollingFallback();
-    return;
-  }
-  
-  // 5. Disable status polling — Firestore listener replaces it
-  stopStatusPolling();
-  
-  // 6. Set up onSnapshot listener on the single connection document
-  const db = firebase.firestore();
-  firestoreReady = true;
-  
-  firestoreUnsubscribe = db.collection('connections').doc(String(currentConnId))
-    .onSnapshot((snapshot) => {
-      if (!snapshot.exists) return;
-      const raw = snapshot.data();
-      const sanitized = clientSanitizeConnection(raw, currentUser.id);
-      
-      // Avoid redundant updates if snapshot fires with identical data
-      const snapshotKey = JSON.stringify(sanitized, (key, val) =>
-        ['from_last_read_at','to_last_read_at','other_username','other_bio','other_avatar','other_hobbies'].includes(key) ? undefined : val
-      );
-      if (snapshotKey === _fsSanitizedCache) return;
-      _fsSanitizedCache = snapshotKey;
-      
-      // If connection ended externally, redirect
-      if (['rejected', 'expired'].includes(sanitized.status)) {
-        // Only redirect if we haven't already (defense against double-fires)
-        if (window.location.pathname === '/chat') {
-          const endedModal = document.getElementById('modal-face-declined');
-          const isOpen = endedModal && endedModal.classList.contains('scale-100');
-          if (!isOpen && !sessionStorage.getItem('fs_redirected_' + currentConnId)) {
-            sessionStorage.setItem('fs_redirected_' + currentConnId, '1');
-            alert('This chat has ended.');
-            window.location.href = '/discover';
-          }
-        }
-        return;
-      }
-      
-      // Reset retry count on successful snapshot delivery
-      firestoreRetryCount = 0;
-      stopStatusPollingFallback();
-      
-      // Update connection state (status bar, buttons, game card)
-      updateChatStatus(sanitized);
-      // Sync active game state from Firestore connection document updates
-      syncActiveGame(sanitized);
-      // Sync messages immediately in real-time when connection document updates
-      loadMessages().catch(() => {});
-    }, async (error) => {
-      console.error('[Firestore] onSnapshot error:', error.message);
-      
-      firestoreRetryCount++;
-      // Auto-heal on permission/token expiration errors (e.g., if tab was left open or token expired)
-      if (firestoreRetryCount < 3 && (error.code === 'permission-denied' || error.message.toLowerCase().includes('permission') || error.message.toLowerCase().includes('token'))) {
-        console.log(`[Firestore] Attempting auto-recovery (attempt ${firestoreRetryCount}/3) by refreshing authentication token...`);
-        cleanupFirestoreListener();
-        setTimeout(() => initFirestoreListener().catch(() => {}), 2000);
-      } else {
-        console.warn('[Firestore] Authentication failed repeatedly or rules misconfigured. Falling back to connection status HTTP polling.');
-        cleanupFirestoreListener();
-        startStatusPollingFallback();
-      }
-    });
+  };
 }
 
-function startPollingFallback() {
-  if (socket && !socket.connected) {
-    pollInterval = 4000;
-    scheduleNextPoll();
+function stopRealtimeStream() {
+  if (eventSource) {
+    eventSource.close();
+    eventSource = null;
   }
+  streamReady = false;
 }
 
-function stopPollingFallback() {
-  if (pollingTimeout) {
-    clearTimeout(pollingTimeout);
-    pollingTimeout = null;
-  }
-}
-
-// Cleanup Firestore listener when leaving the page
-function cleanupFirestoreListener() {
-  if (firestoreUnsubscribe) {
-    firestoreUnsubscribe();
-    firestoreUnsubscribe = null;
-  }
-  firestoreReady = false;
-  _fsSanitizedCache = null;
-}
-
-// Dedicated connection status polling fallback when Firestore is not available
+// Dedicated connection status polling fallback when SSE stream is not available
 function startStatusPollingFallback() {
   if (statusPollingTimeout) clearTimeout(statusPollingTimeout);
-  if (firestoreReady) return;
+  if (streamReady) return;
   if (document.hidden || checkUserIdle()) {
     statusPollingTimeout = setTimeout(startStatusPollingFallback, 6000);
     return;
   }
   
   statusPollingTimeout = setTimeout(async () => {
-    if (!firestoreReady) {
+    if (!streamReady) {
       try {
         await loadChatInfo();
       } catch (e) {}
@@ -540,7 +434,7 @@ async function initializeChat() {
     
     socket.on('status_change', (data) => {
       if (Number(data.connection_id) === Number(currentConnId)) {
-        if (!firestoreReady) {
+        if (!streamReady) {
           console.log('[Socket] status_change received — updating chat info');
           loadChatInfo();
         }
@@ -1076,10 +970,8 @@ async function initializeChat() {
     startOutboxFlush(15000);
   }
 
-  // Kick off Firestore connection listener. If FIREBASE_API_KEY is configured, this
-  // replaces the wasteful HTTP polling for connection state with a real-time onSnapshot
-  // on the single connection document — no race conditions, no waste.
-  setTimeout(() => initFirestoreListener().catch(() => {}), 500);
+  // Kick off real-time event stream (SSE) for icebreaker games and status changes
+  initRealtimeStream();
 }
 
 // Clean up Firestore listener and audio blob URLs when the user navigates away.
@@ -1088,7 +980,7 @@ async function initializeChat() {
 // - visibilitychange fires on iOS when navigating away (tab change, app switch)
 // Using both ensures cleanup happens in all major browsers/OS combos.
 function cleanupChatResources() {
-  cleanupFirestoreListener();
+  stopRealtimeStream();
   stopStatusPollingFallback();
   // Note: We do NOT stop the outbox flush here because this function is also
   // called on visibilitychange=hidden (iOS Safari), and the outbox flush
@@ -2194,10 +2086,10 @@ async function startGame(gameType) {
       return;
     }
     
-    // Proactively render for ourselves if Firestore is not active (polling fallback).
+    // Proactively render for ourselves if SSE is not active (polling fallback).
     // Skip if otherUserId hasn't loaded yet — the server always emits a game_update
     // socket event on startGame, so the card will render via that path within ms.
-    if (!firestoreReady && otherUserId) {
+    if (!streamReady && otherUserId) {
       const fakeConn = {
         from_user_id: currentUser.id,
         to_user_id: otherUserId,
