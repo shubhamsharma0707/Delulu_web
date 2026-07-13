@@ -82,6 +82,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       currentUser.bio = bio;
       currentUser.hobbies = hobbies;
       currentUser.avatar = avatar;
+      window.localStorage.setItem('cached_user', JSON.stringify(currentUser));
       document.getElementById('prof-avatar').innerHTML = getAvatarHtml(currentUser.username, currentUser.avatar, {
         className: 'absolute w-[180%] max-w-none left-[-40%] top-[-25%]'
       });
@@ -127,7 +128,8 @@ function init3DPreview() {
   // Resize Handler
   window.addEventListener('resize', onPreviewResize);
 
-  // Clean up animation when navigating away or tab is hidden
+  // Clean up Three.js resources when navigating away (beforeunload for desktop,
+  // pagehide for iOS Safari which doesn't reliably fire beforeunload)
   const cleanupPreview = () => {
     if (previewAnimationId) {
       cancelAnimationFrame(previewAnimationId);
@@ -137,11 +139,20 @@ function init3DPreview() {
       previewRenderer.dispose();
       previewRenderer = null;
     }
+    if (previewScene) {
+      while(previewScene.children.length > 0) {
+        const child = previewScene.children[0];
+        if (child.geometry) child.geometry.dispose();
+        if (child.material) child.material.dispose();
+        previewScene.remove(child);
+      }
+    }
     previewScene = null;
     previewCamera = null;
     previewMesh = null;
   };
   window.addEventListener('beforeunload', cleanupPreview);
+  window.addEventListener('pagehide', cleanupPreview);
   document.addEventListener('visibilitychange', () => {
     if (document.hidden && previewAnimationId) {
       cancelAnimationFrame(previewAnimationId);
