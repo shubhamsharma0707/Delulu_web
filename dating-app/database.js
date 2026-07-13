@@ -552,6 +552,7 @@ const connectionOps = {
 
   async getActiveConnections(userId) {
     const firestore = getDB();
+    const supabase = getSupabase();
     const snap1 = await firestore.collection('connections')
       .where('from_user_id', '==', Number(userId))
       .get();
@@ -565,19 +566,20 @@ const connectionOps = {
         const otherId = conn.from_user_id === Number(userId) ? conn.to_user_id : conn.from_user_id;
         const otherUser = await userOps.getById(otherId);
         if (otherUser) {
-          // Fetch the last message for this connection
+          // Fetch the last message from Supabase (NOT Firestore — messages live in Postgres)
           let lastMsg = null;
           try {
-            const msgSnapshot = await firestore.collection('messages')
-              .where('connection_id', '==', Number(conn.id))
-              .orderBy('created_at', 'desc')
-              .limit(1)
-              .get();
-            if (!msgSnapshot.empty) {
-              lastMsg = msgSnapshot.docs[0].data();
+            const { data: lastMsgs } = await supabase
+              .from('messages')
+              .select('*')
+              .eq('connection_id', Number(conn.id))
+              .order('created_at', { ascending: false })
+              .limit(1);
+            if (lastMsgs && lastMsgs.length > 0) {
+              lastMsg = lastMsgs[0];
             }
           } catch (e) {
-            // Index may not exist yet, skip silently
+            // Silently skip
           }
           
           const isFrom = conn.from_user_id === Number(userId);
@@ -686,72 +688,123 @@ const connectionOps = {
   },
 
   // End connection immediately ("Not Vibing" button)
+  // Wrapped in a Firestore transaction to prevent both users from triggering
+  // the action simultaneously — only the first to commit sees 'accepted' status.
+  // The try-catch converts transaction-abort errors into clean return values
+  // so the route handler returns 400 instead of 500.
   async endConnection(connectionId, userId) {
     const firestore = getDB();
     const connDocRef = firestore.collection('connections').doc(String(connectionId));
-    const doc = await connDocRef.get();
-    if (!doc.exists) return { error: 'Connection not found' };
-    const conn = doc.data();
-    if (conn.status !== 'accepted') return { error: 'Connection not active' };
-
-    const isFrom = conn.from_user_id === Number(userId);
-    await connDocRef.update({ status: 'rejected', ended_reason: 'not_vibing' });
-    evictConnection(connectionId);
-    const otherId = isFrom ? conn.to_user_id : conn.from_user_id;
-    return { success: true, ended: true, otherId };
+    
+    let otherId = null;
+    try {
+      await firestore.runTransaction(async (transaction) => {
+        const doc = await transaction.get(connDocRef);
+        if (!doc.exists) return; // will result in ended=false, handled below
+        const conn = doc.data();
+        if (conn.status !== 'accepted') return; // already ended
+        
+        const isFrom = conn.from_user_id === Number(userId);
+        otherId = isFrom ? conn.to_user_id : conn.from_user_id;
+        
+        transaction.update(connDocRef, { status: 'rejected', ended_reason: 'not_vibing' });
+      });
+    } catch (txErr) {
+      // Transaction failed for reasons other than our internal guards
+      return { error: 'Connection not available. Please try again.' };
+    }
+    
+    if (otherId) {
+      evictConnection(connectionId);
+      return { success: true, ended: true, otherId };
+    }
+    return { error: 'Connection not active' };
   },
 
   // Identity Reveal (Day 7): User agrees to reveal identity via Google Meet
+  // Wrapped in a Firestore transaction to handle simultaneous submissions atomically.
+  // If both users submit at the same time, the transaction ensures only the second
+  // user sees bothRevealed=true and generates exactly one meeting code.
   async submitIdentityReveal(connectionId, userId) {
     const firestore = getDB();
     const connDocRef = firestore.collection('connections').doc(String(connectionId));
-    const doc = await connDocRef.get();
-    if (!doc.exists) return { error: 'Connection not found' };
-    const conn = doc.data();
-    if (conn.status !== 'accepted') return { error: 'Connection not active' };
+    
+    let bothRevealed = false;
+    let meetingCode = null;
+    
+    try {
+      await firestore.runTransaction(async (transaction) => {
+        const doc = await transaction.get(connDocRef);
+        if (!doc.exists) return; // connection was deleted
+        const conn = doc.data();
+        if (conn.status !== 'accepted') return; // already ended
 
-    const isFrom = conn.from_user_id === Number(userId);
-    const field = isFrom ? 'from_identity_reveal' : 'to_identity_reveal';
-    await connDocRef.update({ [field]: 1 });
+        const isFrom = conn.from_user_id === Number(userId);
+        const field = isFrom ? 'from_identity_reveal' : 'to_identity_reveal';
+        
+        transaction.update(connDocRef, { [field]: 1 });
+        
+        // Read updated values INSIDE the transaction to get atomic read-after-write
+        const otherVal = isFrom ? conn.to_identity_reveal : conn.from_identity_reveal;
+        
+        bothRevealed = otherVal === 1;
+        
+        if (bothRevealed) {
+          meetingCode = generateMeetingCode();
+          transaction.update(connDocRef, { meeting_code: meetingCode });
+        }
+      });
+    } catch (txErr) {
+      // Transaction aborted — return a clean error instead of 500
+      return { error: 'Failed to process identity reveal. Please try again.' };
+    }
+    
     evictConnection(connectionId);
-
-    const updatedDoc = await connDocRef.get();
-    const updated = updatedDoc.data();
-    const bothRevealed = updated.from_identity_reveal === 1 && updated.to_identity_reveal === 1;
-
+    
     if (bothRevealed) {
-      // Generate meeting code when both agree
-      const meetingCode = generateMeetingCode();
-      await connDocRef.update({ meeting_code: meetingCode });
-      evictConnection(connectionId);
       return { success: true, bothRevealed: true, meeting_code: meetingCode };
     }
     return { success: true, bothRevealed: false };
   },
 
   // Face Reveal (Day 14): User agrees to face reveal via Google Meet
+  // Wrapped in a Firestore transaction — same atomicity rationale as submitIdentityReveal.
   async submitFaceReveal(connectionId, userId) {
     const firestore = getDB();
     const connDocRef = firestore.collection('connections').doc(String(connectionId));
-    const doc = await connDocRef.get();
-    if (!doc.exists) return { error: 'Connection not found' };
-    const conn = doc.data();
-    if (conn.status !== 'accepted') return { error: 'Connection not active' };
+    
+    let bothRevealed = false;
+    let meetingCode = null;
+    
+    try {
+      await firestore.runTransaction(async (transaction) => {
+        const doc = await transaction.get(connDocRef);
+        if (!doc.exists) return;
+        const conn = doc.data();
+        if (conn.status !== 'accepted') return;
 
-    const isFrom = conn.from_user_id === Number(userId);
-    const field = isFrom ? 'from_face_reveal' : 'to_face_reveal';
-    await connDocRef.update({ [field]: 1 });
+        const isFrom = conn.from_user_id === Number(userId);
+        const field = isFrom ? 'from_face_reveal' : 'to_face_reveal';
+        
+        transaction.update(connDocRef, { [field]: 1 });
+        
+        // Read updated values INSIDE the transaction
+        const otherVal = isFrom ? conn.to_face_reveal : conn.from_face_reveal;
+        
+        bothRevealed = otherVal === 1;
+        
+        if (bothRevealed) {
+          meetingCode = generateMeetingCode();
+          transaction.update(connDocRef, { meeting_code: meetingCode });
+        }
+      });
+    } catch (txErr) {
+      return { error: 'Failed to process face reveal. Please try again.' };
+    }
+    
     evictConnection(connectionId);
-
-    const updatedDoc = await connDocRef.get();
-    const updated = updatedDoc.data();
-    const bothRevealed = updated.from_face_reveal === 1 && updated.to_face_reveal === 1;
-
+    
     if (bothRevealed) {
-      // Generate meeting code when both agree
-      const meetingCode = generateMeetingCode();
-      await connDocRef.update({ meeting_code: meetingCode });
-      evictConnection(connectionId);
       return { success: true, bothRevealed: true, meeting_code: meetingCode };
     }
     return { success: true, bothRevealed: false };
@@ -899,7 +952,7 @@ const connectionOps = {
       const batch = firestore.batch();
       let pageChanged = false;
       
-      snapshot.forEach(doc => {
+      for (const doc of snapshot.docs) {
         lastDoc = doc; // Track for pagination
         const conn = doc.data();
         
@@ -910,7 +963,7 @@ const connectionOps = {
             allExpiredIds.push(conn.id);
             faceRevealsExpired++;
             pageChanged = true;
-            return; // skip to next doc — this connection is handled
+            continue; // skip to next doc — this connection is handled
           }
         }
         
@@ -923,7 +976,7 @@ const connectionOps = {
             pageChanged = true;
           }
         }
-      });
+      }
       
       // Only commit if there were actual changes — avoid wasted Firestore writes
       if (pageChanged) await batch.commit();
