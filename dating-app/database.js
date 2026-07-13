@@ -1143,17 +1143,22 @@ const messageOps = {
   // observable as minor cosmetic delays on cold page reload, which is acceptable.
   //
   // The unread message COUNT is now queried from Supabase instead of Firestore.
-  async markAsRead(connectionId, userId) {
+  async markAsRead(connectionId, userId, verifiedConn = null) {
     try {
       const firestore = getDB();
       const supabase = getSupabase();
       const now = new Date().toISOString();
 
       const connRef = firestore.collection('connections').doc(String(connectionId));
-      const doc = await connRef.get();
-      if (!doc.exists) return { count: 0 };
-
-      const conn = doc.data();
+      let conn = verifiedConn;
+      if (!conn) {
+        const doc = await connRef.get();
+        if (!doc.exists) return { count: 0 };
+        conn = doc.data();
+      }
+      if (conn.from_user_id !== Number(userId) && conn.to_user_id !== Number(userId)) {
+        return { count: 0 };
+      }
       const prevLastReadAt = conn.from_user_id === Number(userId)
         ? conn.from_last_read_at
         : conn.to_last_read_at;
@@ -1185,7 +1190,7 @@ const messageOps = {
       const { count, error: countErr } = await countQuery;
       if (countErr) throw countErr;
 
-      return { count: count || 0 };
+      return { count: count || 0, readAt: now };
     } catch (err) {
       console.error('messageOps.markAsRead error:', err.message);
       return { count: 0 };
