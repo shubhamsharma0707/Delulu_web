@@ -17,20 +17,20 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.2",
-    "bcrypt": "^6.0.0",
+    "bcrypt": "6.0.0",
     "compression": "^1.8.1",
     "dexie": "^4.4.4",
     "dotenv": "^17.4.2",
-    "express": "^5.2.1",
+    "express": "5.2.1",
     "express-rate-limit": "^8.5.2",
     "express-session": "^1.19.0",
     "firebase-admin": "^14.1.0",
     "helmet": "^8.2.0",
     "memorystore": "^1.6.8",
-    "multer": "^2.2.0",
+    "multer": "2.2.0",
     "pino": "^10.3.1",
     "pino-http": "^11.0.0",
-    "socket.io": "^4.8.3",
+    "socket.io": "4.8.3",
     "web-push": "^3.6.7"
   }
 }
