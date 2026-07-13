@@ -1,0 +1,118 @@
+rules_version = '2';
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  Firestore Security Rules — Delulu Dating App
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+//  Security model
+//  ──────────────
+//  All data access is mediated by the Express API (server.js) using the
+//  Firebase Admin SDK, which authenticates with a service account credential
+//  and BYPASSES these rules entirely. That is the PRIMARY access path.
+//
+//  These rules apply ONLY to the Firestore Web SDK, which is NOT currently
+//  initialized in any client-side JavaScript file. The real-time event stream
+//  is delivered via SSE (EventSource) through the Express server.
+//
+//  Purpose of this file
+//  ─────────────────────
+//  Defensive safety net. If a future developer adds a client-side Firestore
+//  SDK call (e.g. onSnapshot, getDocs, setDoc), these rules prevent:
+//    • Unauthorized reads of user profiles, OTPs, reports, counters
+//    • Cross-connection reads (user A reading user B's connection)
+//    • Any direct client write to any collection
+//
+//  Type note
+//  ─────────
+//  request.auth.uid is a STRING  (Firebase custom token sets uid as string).
+//  Firestore stores IDs as INTs  (auto-increment counters produce integers).
+//  We use int(request.auth.uid) for type-safe comparison.
+//
+// ── Required setup ────────────────────────────────────────────────────────────
+//  1. Install Firebase CLI:  npm install -g firebase-tools
+//  2. Init project:          firebase init (select Firestore, use existing project)
+//  3. Add FIREBASE_API_KEY to your .env (Web API Key from Firebase Console →
+//     Project Settings → General → Web API Key)
+//  4. Deploy:                firebase deploy --only firestore:rules
+//     OR paste this file into Firebase Console → Firestore → Rules tab
+// ═══════════════════════════════════════════════════════════════════════════════
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // CONNECTIONS — only collection a client MAY ever read
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // A client may read a connection document ONLY if:
+    //   1. The request is authenticated (request.auth != null)
+    //   2. The document has required participant fields
+    //   3. The authenticated user is a participant (from_user_id or to_user_id)
+    //
+    // Writes are denied — connection mutations happen server-side via Admin SDK.
+    match /connections/{connectionId} {
+      allow read: if request.auth != null
+        && resource.data.keys().hasAll(['from_user_id', 'to_user_id'])
+        && (
+          int(request.auth.uid) == resource.data.from_user_id
+          || int(request.auth.uid) == resource.data.to_user_id
+        );
+      allow create, update, delete: if false;
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // SENSITIVE COLLECTIONS — client access unconditionally denied
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // These collections contain sensitive personal data, authentication secrets,
+    // or internal counters. All access is through the Express API, which uses
+    // the Admin SDK (bypasses rules). The deny is a defence-in-depth measure.
+
+    // User profiles — contain email, password hash, E2EE public keys, etc.
+    match /users/{userId} {
+      allow read, write: if false;
+    }
+
+    // OTP/token records — contain time-sensitive auth codes
+    match /otps/{otpId} {
+      allow read, write: if false;
+    }
+
+    // User-submitted reports — contain sensitive report reasons
+    match /reports/{reportId} {
+      allow read, write: if false;
+    }
+
+    // Blocked user pairs — used for access control decisions
+    match /blocked_users/{blockId} {
+      allow read, write: if false;
+    }
+
+    // Auto-increment ID counters — internal sequencing mechanism
+    match /counters/{counterName} {
+      allow read, write: if false;
+    }
+
+    // Push notification subscriptions — notification endpoint URLs
+    match /push_subs/{subId} {
+      allow read, write: if false;
+    }
+
+    // Client-side error logs — may contain user-agent, URLs, stack traces
+    match /client_logs/{logId} {
+      allow read, write: if false;
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // CATCH-ALL DENY — any document path not explicitly matched above
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // Prevents accidental data exposure if new collections are created and
+    // accidentally accessed from client-side code. Since Firestore rules are
+    // OR-composed with more specific matches, this only applies to paths that
+    // have no other "match" block.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
