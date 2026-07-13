@@ -12,7 +12,7 @@ let otherLastReadAt = null;
 let hasReadMessagesInView = false;
 let lastMessageTimestamp = null;
 let pollingTimeout = null;
-let pollInterval = 4000;
+let pollInterval = 8000;
 const maxInterval = 30000;
 
 // Firestore realtime listener — replaces HTTP polling for connection state.
@@ -24,6 +24,11 @@ let streamReady = false;
 let isReconnecting = false;
 let statusPollingTimeout = null;
 
+// Guard to prevent redundant loadChatInfo() calls from SSE reconnection,
+// socket connect, and visibilitychange from all firing at once.
+let _chatInfoLoading = false;
+let _chatInfoQueued = false;
+
 // User Activity Monitoring to prevent wasteful reads when the user is idle
 let lastActivityTime = Date.now();
 let isIdle = false;
@@ -33,7 +38,7 @@ function resetIdleTimer() {
   if (isIdle) {
     isIdle = false;
     console.log('User active — resuming polling fallback');
-    pollInterval = 4000;
+    pollInterval = 8000;
     scheduleNextPoll();
   }
 }
@@ -109,9 +114,9 @@ function scheduleNextPoll() {
     _pollInFlight = true;
     try {
       const hasNewMessages = await pollDelta();
-      // Double interval up to 30000ms if no new messages, reset to 4000ms immediately on new messages
+      // Polling backoff: reset to 8s on activity, double up to 30s on idle
       pollInterval = hasNewMessages 
-        ? 4000 
+        ? 8000 
         : Math.min(pollInterval * 2, maxInterval);
     } finally {
       _pollInFlight = false;
@@ -122,7 +127,7 @@ function scheduleNextPoll() {
 
 function startPollingFallback() {
   if (socket && !socket.connected) {
-    pollInterval = 4000;
+    pollInterval = 8000;
     scheduleNextPoll();
   }
 }
@@ -179,7 +184,8 @@ function initRealtimeStream() {
     // Resync connection state once when reconnecting to capture missed game actions
     if (isReconnecting) {
       console.log('[SSE] Reconnected. Fetching latest chat info to resync state.');
-      loadChatInfo().catch(() => {});
+      // Queue via helper to coalesce with any visibilitychange or socket connect call that's also triggering
+      scheduleChatInfoRefresh();
       isReconnecting = false;
     }
   };
@@ -441,7 +447,8 @@ async function initializeChat() {
       if (connectionId == currentConnId) {
         // Set sessionStorage guard to prevent Firestore listener from double-alerting
         sessionStorage.setItem('fs_redirected_' + connectionId, '1');
-        alert(message);
+        // Store message for display on the discover page after redirect
+        sessionStorage.setItem('connection_ended_message', message);
         window.location.href = '/discover';
       }
     });
@@ -567,7 +574,7 @@ async function initializeChat() {
       joinChatRoom();
       stopPollingFallback();
       loadMessages().catch(() => {});
-      loadChatInfo().catch(() => {});
+      scheduleChatInfoRefresh();
     };
     const onReconnectError = () => {
       const text = document.getElementById('connection-bar-text');
@@ -589,31 +596,45 @@ async function initializeChat() {
       startPollingFallback();
     }
 
-    // Listen for tab/visibility state changes to pause/resume polling
-    document.addEventListener('visibilitychange', () => {
+    // Listen for tab/visibility state changes to pause/resume polling and SSE
+    const visibilityHandler = function() {
       if (document.hidden) {
         stopPollingFallback();
       } else {
-        // Reset the idle activity timer when refocused so polling resumes instantly
         resetIdleTimer();
         if (!socket || !socket.connected) {
           startPollingFallback();
         }
-        loadMessages().catch(() => {});
-        loadChatInfo().catch(() => {});
+        // Restart SSE if it was disconnected while hidden
+        initRealtimeStream();
+        scheduleChatInfoRefresh();
       }
-    });
+    };
+    document.addEventListener('visibilitychange', visibilityHandler);
+    
+    // Store references so duplicate calls to initializeChat can clean up
+    if (!window.__chatDomListeners) window.__chatDomListeners = {};
+    window.__chatDomListeners.scroll = scrollHandler || null;
+    window.__chatDomListeners.visibility = visibilityHandler;
   } else {
     // No socket at all — run polling fallback
     startPollingFallback();
   }
 
-  // Scroll to bottom button
+  // Scroll to bottom button — with duplicate listener cleanup
   const messagesContainer = document.getElementById('chat-messages');
   const scrollBottomBtn = document.getElementById('btn-scroll-bottom');
   
   if (messagesContainer && scrollBottomBtn) {
-    messagesContainer.addEventListener('scroll', () => {
+    // Remove previously registered scroll handler to prevent duplicates
+    if (window.__chatDomListeners) {
+      const oldScroll = window.__chatDomListeners.scroll;
+      if (oldScroll) messagesContainer.removeEventListener('scroll', oldScroll);
+      const oldVis = window.__chatDomListeners.visibility;
+      if (oldVis) document.removeEventListener('visibilitychange', oldVis);
+    }
+    
+    const scrollHandler = function() {
       const isNearBottom = messagesContainer.scrollTop > -200;
       if (isNearBottom) {
         scrollBottomBtn.classList.add('opacity-0', 'pointer-events-none');
@@ -622,9 +643,10 @@ async function initializeChat() {
         scrollBottomBtn.classList.remove('opacity-0', 'pointer-events-none');
         scrollBottomBtn.classList.add('opacity-100', 'pointer-events-auto');
       }
-    });
+    };
+    messagesContainer.addEventListener('scroll', scrollHandler);
     
-    scrollBottomBtn.onclick = () => {
+    scrollBottomBtn.onclick = function() {
       scrollToBottom();
     };
   }
@@ -698,31 +720,8 @@ async function initializeChat() {
           payload.iv = encrypted.iv;
         }
 
-        // Check if socket is connected (or navigator is offline if using mock socket) — if so, queue for later
-        const isOffline = (socket && socket.isMock) ? !navigator.onLine : (socket && !socket.connected);
-        if (isOffline && typeof outboxQueue !== 'undefined') {
-          await outboxQueue.enqueue({
-            connection_id: currentConnId,
-            content: payload.content,
-            is_encrypted: payload.is_encrypted || 0,
-            iv: payload.iv || null
-          });
-          const msgEl = document.getElementById(tempId);
-          if (msgEl) {
-            msgEl.classList.remove('opacity-60');
-            const statusIcon = msgEl.querySelector('.msg-status-icon');
-            if (statusIcon) {
-              statusIcon.innerHTML = '<span class="text-[11px] opacity-50 material-symbols-outlined text-[14px] align-middle">schedule</span>';
-            }
-            const timeEl = msgEl.querySelector('.text-\\[10px\\]');
-            if (timeEl) {
-              timeEl.textContent = 'Queued';
-            }
-            msgEl.removeAttribute('id');
-          }
-          return;
-        }
-
+        // Attempt to send. If API fails, queue for later (no unreliable navigator.onLine check).
+        // The try-catch below handles both network errors and API errors gracefully.
         const result = await apiCall('/api/messages/send', 'POST', payload);
         
         // Remove sending state on success and set actual message ID on the element
@@ -788,28 +787,35 @@ async function initializeChat() {
   let audioChunks = [];
   let recordStartTime = 0;
   let recordTimerInterval = null;
+  let voiceStream = null; // Hoisted so both mic and cancel handlers can access it
+  let _startingRecording = false; // Guard against spam-tapping the mic button
 
   chatMicBtn.onclick = async () => {
     if (mediaRecorder && mediaRecorder.state === 'recording') {
       mediaRecorder.stop();
       return;
     }
+    // Don't start a new recording while the previous one is still cleaning up
+    if (_startingRecording) return;
+    _startingRecording = true;
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      voiceStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       audioChunks = [];
-      mediaRecorder = new MediaRecorder(stream);
+      mediaRecorder = new MediaRecorder(voiceStream);
       
       mediaRecorder.ondataavailable = (event) => {
         audioChunks.push(event.data);
       };
 
       mediaRecorder.onstop = async () => {
+        _startingRecording = false;
         const duration = Math.round((Date.now() - recordStartTime) / 1000);
         clearInterval(recordTimerInterval);
         document.getElementById('recording-overlay').classList.add('hidden');
 
-        stream.getTracks().forEach(track => track.stop());
+        voiceStream.getTracks().forEach(track => track.stop());
+        voiceStream = null;
 
         if (audioChunks.length === 0 || duration < 1) {
           return;
@@ -852,7 +858,7 @@ async function initializeChat() {
           
           appendMessage(data.message, true);
         } catch (err) {
-          alert(err.message);
+          showToast(err.message, 'error');
         }
       };
 
@@ -870,7 +876,9 @@ async function initializeChat() {
       }, 1000);
 
     } catch (err) {
-      alert('Could not access microphone: ' + err.message);
+      voiceStream = null;
+      _startingRecording = false;
+      showToast('Could not access microphone: ' + err.message, 'error');
     }
   };
 
@@ -888,13 +896,13 @@ async function initializeChat() {
     recordCancelBtn.onclick = () => {
       if (mediaRecorder && mediaRecorder.state === 'recording') {
         mediaRecorder.onstop = () => {
+          _startingRecording = false;
           clearInterval(recordTimerInterval);
           document.getElementById('recording-overlay').classList.add('hidden');
           // Release the microphone tracks immediately on cancel
-          // Note: `stream` is accessible via the enclosing chatMicBtn.onclick closure
-          // Guard against stream being null (e.g. getUserMedia failed but state is 'recording')
-          if (typeof stream !== 'undefined' && stream) {
-            try { stream.getTracks().forEach(track => track.stop()); } catch(e) {}
+          if (voiceStream) {
+            voiceStream.getTracks().forEach(track => track.stop());
+            voiceStream = null;
           }
         };
         mediaRecorder.stop();
@@ -968,7 +976,7 @@ async function initializeChat() {
         if (peekBio) peekBio.textContent = c.other_bio || "No bio set.";
         if (peekAvatar) peekAvatar.innerHTML = getAvatarHtml(c.other_username, c.other_avatar);
         openModal('modal-profile-peek');
-      } catch(err) { alert(err.message); }
+      } catch(err) { showToast(err.message, 'error'); }
     };
   }
   // Remove the vibing/not-vibing buttons from profile peek (replaced by header Not Vibing button)
@@ -988,21 +996,14 @@ async function initializeChat() {
   initRealtimeStream();
 }
 
-// Clean up Firestore listener and audio blob URLs when the user navigates away.
-// We use both beforeunload AND visibilitychange=hidden as a backup because:
-// - beforeunload fires on desktop page navigation but NOT on iOS Safari
-// - visibilitychange fires on iOS when navigating away (tab change, app switch)
-// Using both ensures cleanup happens in all major browsers/OS combos.
+// Clean up SSE stream and audio blob URLs when navigating away.
+// We only use beforeunload (not visibilitychange) to avoid conflicting with
+// the polling/SSE visibility handler in initializeChat(). The SSE stream is
+// lightweight and can stay open when the tab is hidden — it doesn't cost
+// Firestore reads. Polling is paused via the other handler.
 function cleanupChatResources() {
   stopRealtimeStream();
   stopStatusPollingFallback();
-  // Note: We do NOT stop the outbox flush here because this function is also
-  // called on visibilitychange=hidden (iOS Safari), and the outbox flush
-  // should continue running to retry pending messages. It's harmless to let
-  // it run in the background — it only does IndexedDB reads + fetches when
-  // there are pending messages. The interval is naturally cleaned up on page
-  // unload (beforeunload), and startOutboxFlush handles replacing old
-  // intervals if re-initialized.
   // Revoke any pending audio blob URL to prevent memory leaks
   if (currentPlayingAudio) {
     currentPlayingAudio.pause();
@@ -1015,9 +1016,6 @@ function cleanupChatResources() {
 }
 
 window.addEventListener('beforeunload', cleanupChatResources);
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden) cleanupChatResources();
-});
 
 // ===== Mark Messages as Read =====
 function markMessagesAsRead() {
@@ -1091,13 +1089,39 @@ function setupModalEventDelegation() {
   });
 }
 
-// Try to setup event delegation immediately (DOM should be ready since chat.js loads at end of body)
-setupModalEventDelegation();
+// Setup modal event delegation with DOM-ready safety
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', setupModalEventDelegation);
+} else {
+  setupModalEventDelegation();
+}
 
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initializeChat);
 } else {
   initializeChat();
+}
+
+// Coalesce multiple calls to loadChatInfo() — only one in-flight at a time.
+// Handles the edge case where SSE reconnection, socket connect, and visibilitychange
+// all try to refresh chat info simultaneously (saves Supabase reads on the free tier).
+function scheduleChatInfoRefresh() {
+  if (_chatInfoLoading) {
+    // Already loading — queue one retry for after it completes
+    _chatInfoQueued = true;
+    return;
+  }
+  _chatInfoQueued = false;
+  _chatInfoLoading = true;
+  loadChatInfo().finally(() => {
+    _chatInfoLoading = false;
+    if (_chatInfoQueued) {
+      // Another call came in while we were loading — fire one more refresh
+      _chatInfoQueued = false;
+      _chatInfoLoading = true;
+      loadChatInfo().finally(() => { _chatInfoLoading = false; });
+    }
+  });
 }
 
 async function loadChatInfo() {
@@ -1333,8 +1357,9 @@ async function loadMessages(isInitial = false) {
         if (cacheLastTimestamp && (!lastMessageTimestamp || cacheLastTimestamp > lastMessageTimestamp)) {
           lastMessageTimestamp = cacheLastTimestamp;
         }
-        // Preserve game elements (icebreaker cards, game messages) when clearing
-        const existingGames = cont.querySelectorAll('[id^="game-"], .w-full.flex.justify-center.my-2.fade-in');
+        // Preserve game elements (icebreaker cards) when clearing
+        // Use a specific data attribute selector to avoid matching non-game elements by accident
+        const existingGames = cont.querySelectorAll('[id^="game-"]');
         cont.innerHTML = '';
         lastMessageDate = null;
         for (const m of cached) {
@@ -1423,7 +1448,7 @@ function renderReactions(m, parentContainer) {
       e.stopPropagation();
       try {
         await apiCall(`/api/messages/${m.id}/react`, 'POST', { connection_id: currentConnId, emoji });
-      } catch (err) { alert(err.message); }
+      } catch (err) { showToast(err.message, 'error'); }
     };
     container.appendChild(pill);
   });
@@ -1454,18 +1479,17 @@ function showMessageMenu(e, msg, bubbleEl) {
     const btn = document.createElement('button');
     btn.className = 'text-lg hover:scale-125 transition-transform p-1 cursor-pointer';
     btn.textContent = emoji;
-    btn.onclick = async () => {
-      try {
-        await apiCall(`/api/messages/${msg.id}/react`, 'POST', { connection_id: currentConnId, emoji });
-        menu.remove();
-      } catch (err) { alert(err.message); }
-    };
-    emojiRow.appendChild(btn);
-  });
-  menu.appendChild(emojiRow);
+    btn.onclick = async () => {        try {
+          await apiCall(`/api/messages/${msg.id}/react`, 'POST', { connection_id: currentConnId, emoji });
+          menu.remove();
+        } catch (err) { showToast(err.message, 'error'); }
+      };
+      emojiRow.appendChild(btn);
+    });
+    menu.appendChild(emojiRow);
 
-  if (Number(msg.sender_id) === Number(currentUser.id)) {
-    const delBtn = document.createElement('button');
+    if (Number(msg.sender_id) === Number(currentUser.id)) {
+      const delBtn = document.createElement('button');
     delBtn.className = 'w-full text-left px-3 py-1.5 text-error text-xs font-bold hover:bg-error/10 rounded-lg transition-colors flex items-center gap-2 cursor-pointer';
     delBtn.innerHTML = '<span class="material-symbols-outlined text-sm">delete</span> Delete Message';
     delBtn.onclick = async () => {
@@ -1473,7 +1497,7 @@ function showMessageMenu(e, msg, bubbleEl) {
         try {
           await apiCall(`/api/messages/${msg.id}`, 'DELETE', { connection_id: currentConnId });
           menu.remove();
-        } catch (err) { alert(err.message); }
+        } catch (err) { showToast(err.message, 'error'); }
       }
     };
     menu.appendChild(delBtn);
@@ -1636,7 +1660,7 @@ async function appendMessage(m, scrollToBottom = true) {
     e.stopPropagation();
     const currentId = div.getAttribute('data-msg-id');
     if (!currentId) {
-      alert('Please wait for the message to finish sending.');
+      showToast('Please wait for the message to finish sending.');
       return;
     }
     const currentMsg = { ...m, id: Number(currentId) };
@@ -1729,7 +1753,7 @@ window.playVoiceNote = async (btn, url, isEncrypted = 0, iv = null) => {
   } catch (err) {
     console.error('Audio play failed:', err);
     icon.textContent = 'play_arrow';
-    alert('Failed to play voice note: ' + err.message);
+    showToast('Failed to play voice note: ' + err.message, 'error');
   }
 };
 
@@ -1797,7 +1821,7 @@ async function submitNotVibing() {
   try {
     await apiCall('/api/connections/end', 'POST', { connection_id: currentConnId });
     window.location.href = '/discover';
-  } catch(err) { alert(err.message); }
+  } catch(err) { showToast(err.message, 'error'); }
 }
 
 async function submitIdentityRevealAction() {
@@ -1808,7 +1832,7 @@ async function submitIdentityRevealAction() {
       showMeetingModal(data.meeting_code);
     }
     loadChatInfo();
-  } catch(err) { alert(err.message); }
+  } catch(err) { showToast(err.message, 'error'); }
 }
 
 async function submitFaceRevealAction() {
@@ -1819,7 +1843,7 @@ async function submitFaceRevealAction() {
       showMeetingModal(data.meeting_code);
     }
     loadChatInfo();
-  } catch(err) { alert(err.message); }
+  } catch(err) { showToast(err.message, 'error'); }
 }
 
 async function submitDeclineFaceReveal() {
@@ -1827,7 +1851,7 @@ async function submitDeclineFaceReveal() {
     closeModal();
     await apiCall('/api/connections/decline-face-reveal', 'POST', { connection_id: currentConnId });
     loadChatInfo();
-  } catch(err) { alert(err.message); }
+  } catch(err) { showToast(err.message, 'error'); }
 }
 
 async function disconnectAfterDecline() {
@@ -1835,7 +1859,7 @@ async function disconnectAfterDecline() {
     closeModal();
     await apiCall('/api/connections/end-after-decline', 'POST', { connection_id: currentConnId });
     window.location.href = '/discover';
-  } catch(err) { alert(err.message); }
+  } catch(err) { showToast(err.message, 'error'); }
 }
 
 function showMeetingModal(meetingCode) {
@@ -2075,7 +2099,18 @@ async function startGame(gameType) {
     const msg = `🎲 Icebreaker Question: ${randomQ}`;
     
     // Save random question permanently in the database so it never disappears on refresh
+    // Also append optimistically so the user sees instant feedback (no dead tap)
+    const tempId = 'temp-' + Date.now();
+    appendMessage({
+      tempId,
+      is_sending: true,
+      sender_id: currentUser.id,
+      content: msg,
+      is_encrypted: 0,
+      created_at: new Date().toISOString()
+    }, true);
     (async () => {
+      if (!currentConnId) return; // Guard: connection must be active
       let payload = { connection_id: currentConnId, content: msg };
       if (isE2EEActive && sharedSecretKey) {
         try {
@@ -2087,8 +2122,34 @@ async function startGame(gameType) {
           console.error('Failed to encrypt random question:', encErr);
         }
       }
-      await apiCall('/api/messages/send', 'POST', payload);
-    })().catch(err => console.error('Failed to send random question message:', err));
+      const result = await apiCall('/api/messages/send', 'POST', payload);
+      // Mark as sent when confirmed by server
+      const msgEl = document.getElementById(tempId);
+      if (msgEl) {
+        msgEl.classList.remove('opacity-60');
+        if (result && result.message && result.message.id) {
+          msgEl.setAttribute('data-msg-id', result.message.id);
+        }
+        msgEl.removeAttribute('id');
+      }
+    })().catch(err => {
+      console.error('Failed to send random question message:', err);
+      // Mark as failed on error
+      const msgEl = document.getElementById(tempId);
+      if (msgEl) {
+        msgEl.classList.remove('opacity-60');
+        const innerEl = msgEl.querySelector('div');
+        if (innerEl) {
+          innerEl.classList.remove('bg-primary');
+          innerEl.classList.add('bg-error/10', 'border', 'border-error/30', 'text-error');
+        }
+        const timeEl = msgEl.querySelector('.text-\\[10px\\]');
+        if (timeEl) {
+          timeEl.className = 'text-[10px] mt-1 text-right text-error font-bold';
+          timeEl.textContent = 'Failed to send';
+        }
+      }
+    });
   } else {
     // STEP 1: Save game to Firestore FIRST
     let activeGame;
@@ -2222,7 +2283,7 @@ function syncActiveGame(c) {
             handleBothAnswered(msgDiv, answer, res.gameData.answers[String(otherId)]);
           }
         } catch (err) {
-          alert(err.message);
+          showToast(err.message, 'error');
           // Re-enable buttons on API failure so the user can retry their answer.
           // Without this, the buttons stay disabled and the game is stuck.
           btn.parentElement.querySelectorAll('[data-game-answer]').forEach(b => {
@@ -2322,11 +2383,11 @@ async function submitReport() {
     reason += ': ' + details;
   }
   if (!reason) {
-    alert('Please select or enter a reason');
+    showToast('Please select or enter a reason');
     return;
   }
   if (reason.length > 1000) {
-    alert('Report reason is too long. Please keep it under 1000 characters.');
+    showToast('Report reason is too long. Please keep it under 1000 characters.');
     return;
   }
   
@@ -2342,9 +2403,9 @@ async function submitReport() {
       connection_id: currentConnId
     });
     closeModal();
-    alert('Report submitted. Our team will review it.');
+    showToast('Report submitted. Our team will review it.');
   } catch (err) {
-    alert(err.message);
+    showToast(err.message, 'error');
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = 'Submit Report'; }
   }
@@ -2357,10 +2418,10 @@ async function blockUser() {
     const data = await apiCall('/api/connections/' + currentConnId);
     const otherId = data.connection.other_user_id;
     await apiCall('/api/users/block', 'POST', { blocked_user_id: otherId });
-    alert('User blocked.');
+    showToast('User blocked.');
     window.location.href = '/messages';
   } catch (err) {
-    alert(err.message);
+    showToast(err.message, 'error');
   }
 }
 
