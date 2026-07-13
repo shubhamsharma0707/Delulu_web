@@ -1019,7 +1019,10 @@ app.get('/api/connections/:id/stream', requireAuth, async (req, res) => {
 
   // Define listener callback
   const onUpdate = (event) => {
-    res.write(`data: ${event.type}\n\n`);
+    const payload = event && Object.keys(event).length > 1
+      ? JSON.stringify(event)
+      : event.type;
+    res.write(`data: ${payload}\n\n`);
   };
 
   // Subscribe to updates for this connection
@@ -1149,7 +1152,12 @@ app.post('/api/connections/:id/start-game', requireAuth, async (req, res) => {
       active_game: payload
     });
     
-    connectionEmitter.emit(`update:${req.params.id}`, { type: 'game' });
+    connectionEmitter.emit(`update:${req.params.id}`, {
+      type: 'game',
+      from_user_id: conn.from_user_id,
+      to_user_id: conn.to_user_id,
+      active_game: payload
+    });
     res.json({ success: true, active_game: payload });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1179,7 +1187,12 @@ app.post('/api/connections/:id/answer-game', requireAuth, async (req, res) => {
       active_game: result.gameData
     });
     
-    connectionEmitter.emit(`update:${req.params.id}`, { type: 'game' });
+    connectionEmitter.emit(`update:${req.params.id}`, {
+      type: 'game',
+      from_user_id: conn.from_user_id,
+      to_user_id: conn.to_user_id,
+      active_game: result.gameData
+    });
     res.json({ success: true, bothAnswered: result.bothAnswered, gameData: result.gameData });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1214,7 +1227,12 @@ app.post('/api/connections/:id/clear-game', requireAuth, async (req, res) => {
         active_game: null
       });
       
-      connectionEmitter.emit(`update:${req.params.id}`, { type: 'game' });
+      connectionEmitter.emit(`update:${req.params.id}`, {
+        type: 'game',
+        from_user_id: conn.from_user_id,
+        to_user_id: conn.to_user_id,
+        active_game: null
+      });
     }
     
     res.json({ success: true, cleared });
@@ -1284,6 +1302,11 @@ app.post('/api/messages/send', requireAuth, async (req, res) => {
     lastMessageTime: msg.created_at,
     senderId: Number(req.session.userId)
   });
+  connectionEmitter.emit(`update:${connection_id}`, {
+    type: 'message',
+    senderId: Number(req.session.userId),
+    messageId: msg.id
+  });
 
   // Update last_message_at on the connection doc (fire-and-forget is fine — non-critical metadata)
   const firestore = getDB();
@@ -1337,6 +1360,11 @@ app.post('/api/messages/upload-voice', requireAuth, (req, res, next) => {
       lastMessage: '🎤 Voice note',
       lastMessageTime: msg.created_at,
       senderId: Number(req.session.userId)
+    });
+    connectionEmitter.emit(`update:${connection_id}`, {
+      type: 'message',
+      senderId: Number(req.session.userId),
+      messageId: msg.id
     });
 
     const firestore = getDB();
