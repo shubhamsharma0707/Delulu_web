@@ -62,6 +62,13 @@ if (Number(process.versions.node.split('.')[0]) < 18) {
   process.exit(1);
 }
 
+// Validate critical environment variables at startup — fail early, not at runtime
+if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  console.error('FATAL: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in .env or environment.');
+  console.error('Without them, message sending/reading will silently fail. Set both and restart.');
+  process.exit(1);
+}
+
 const app = express();
 app.use(pinoHttp);
 
@@ -238,6 +245,9 @@ function invalidateCache(userId) {
 }
 
 // Session middleware — using memorystore (pure JS, no native compilation)
+// NOTE: In-memory sessions are lost on server restart (all users logged out).
+// For production across multiple instances, use a database-backed store
+// (connect-redis, connect-session-knex, @supabase/supabase-js, etc.)
 const sessionMiddleware = session({
   store: new MemoryStore({
     checkPeriod: 15 * 60 * 1000 // auto-clear expired sessions every 15 min
@@ -283,6 +293,9 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+// Protect user-uploaded files (voice notes, etc.) with authentication
+app.use('/uploads', requireAuth);
 
 // Static files with aggressive Cache-Control headers
 app.use(express.static(path.join(__dirname, 'public'), {
@@ -432,7 +445,17 @@ io.on('connection', async (socket) => {
     }
   });
 
-
+  // Clear typing indicator on disconnect — fires while socket.rooms is still populated,
+  // so we can broadcast typing=false to each chat room the user was in.
+  // This prevents the other user from seeing "typing..." stuck indefinitely after a crash
+  // or abrupt tab close (socket timeout could be up to 10 seconds).
+  socket.on('disconnecting', () => {
+    for (const room of socket.rooms) {
+      if (room.startsWith('chat:')) {
+        socket.to(room).emit('typing', { userId, isTyping: false });
+      }
+    }
+  });
 
   socket.on('disconnect', () => {
     console.log(`User ${userId} disconnected`);
@@ -801,7 +824,7 @@ app.put('/api/users/me', requireAuth, async (req, res) => {
   const user = await userOps.getById(req.session.userId);
   const safeUser = sanitizeUser(user);
   req.session.user = safeUser;
-  // Update in-memory session cache immediately so stale data is never served
+  // Update in-memory session cache and req.session.user immediately
   setCachedUser(req.session.userId, safeUser);
   res.json({ success: true, user: safeUser });
 });
@@ -1252,6 +1275,7 @@ app.post('/api/messages/send', requireAuth, async (req, res) => {
     senderId: Number(req.session.userId)
   });
 
+  // Update last_message_at on the connection doc (fire-and-forget is fine — non-critical metadata)
   const firestore = getDB();
   firestore.collection('connections').doc(String(connection_id)).update({
     last_message_at: new Date().toISOString()
@@ -1583,8 +1607,9 @@ setInterval(async () => {
 
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Delulu Dating App running at http://localhost:${PORT}`);
-  console.log(`Open your browser to http://localhost:${PORT}`);
+  const scheme = process.env.NODE_ENV === 'production' ? 'https' : 'http';
+  console.log(`Delulu Dating App running at ${scheme}://localhost:${PORT}`);
+  console.log(`Open your browser to ${scheme}://localhost:${PORT}`);
   console.log('');
   if (!vapidPublicKey) {
     console.log('📢 To enable push notifications, run: npx web-push generate-vapid-keys');
