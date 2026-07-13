@@ -105,10 +105,29 @@ async function pollDelta() {
 }
 
 let _pollInFlight = false;
+let _deltaQueued = false;
+
+async function runDeltaSyncNow() {
+  if (_pollInFlight) {
+    _deltaQueued = true;
+    return false;
+  }
+  _pollInFlight = true;
+  try {
+    return await pollDelta();
+  } finally {
+    _pollInFlight = false;
+    if (_deltaQueued) {
+      _deltaQueued = false;
+      setTimeout(() => runDeltaSyncNow().catch(() => {}), 100);
+    }
+  }
+}
 
 function scheduleNextPoll() {
   if (pollingTimeout) clearTimeout(pollingTimeout);
   if (socket && socket.connected) return; // Don't poll if socket is alive
+  if (streamReady) return; // SSE delivers message events while healthy
   if (document.hidden || checkUserIdle()) return; // Pause entirely if backgrounded or idle
   if (_pollInFlight) {
     // Reschedule for after current poll completes to prevent stacking
@@ -118,16 +137,11 @@ function scheduleNextPoll() {
   
   pollingTimeout = setTimeout(async () => {
     if (_pollInFlight) return;
-    _pollInFlight = true;
-    try {
-      const hasNewMessages = await pollDelta();
-      // Polling backoff: reset to 8s on activity, double up to 30s on idle
-      pollInterval = hasNewMessages 
-        ? 8000 
-        : Math.min(pollInterval * 2, maxInterval);
-    } finally {
-      _pollInFlight = false;
-    }
+    const hasNewMessages = await runDeltaSyncNow();
+    // Polling backoff: reset to 8s on activity, double up to 30s on idle
+    pollInterval = hasNewMessages
+      ? 8000
+      : Math.min(pollInterval * 2, maxInterval);
     scheduleNextPoll();
   }, pollInterval);
 }
@@ -186,6 +200,7 @@ function initRealtimeStream() {
   eventSource.onopen = () => {
     console.log('[SSE] Connection established successfully.');
     streamReady = true;
+    stopPollingFallback();
     stopStatusPollingFallback();
 
     // Resync connection state once when reconnecting to capture missed game actions
@@ -198,13 +213,36 @@ function initRealtimeStream() {
   };
 
   eventSource.onmessage = (event) => {
-    if (event.data === 'game') {
+    let streamEvent = { type: event.data };
+    try {
+      if (event.data && event.data.startsWith('{')) {
+        streamEvent = JSON.parse(event.data);
+      }
+    } catch (e) {
+      streamEvent = { type: event.data };
+    }
+
+    if (streamEvent.type === 'game') {
       console.log('[SSE] Received game update event. Refreshing chat state...');
-      loadChatInfo().catch(() => {});
-    } else if (event.data === 'messages') {
+      if (Object.prototype.hasOwnProperty.call(streamEvent, 'active_game')) {
+        syncActiveGame({
+          from_user_id: streamEvent.from_user_id,
+          to_user_id: streamEvent.to_user_id,
+          active_game: streamEvent.active_game
+        });
+      } else {
+        scheduleChatInfoRefresh();
+      }
+    } else if (streamEvent.type === 'message') {
+      if (Number(streamEvent.senderId) !== Number(currentUser.id)) {
+        runDeltaSyncNow().then((hasNew) => {
+          if (hasNew) pollInterval = 8000;
+        }).catch(() => {});
+      }
+    } else if (streamEvent.type === 'messages') {
       console.log('[SSE] Received message update event. Refreshing messages...');
       loadMessages(false, true).catch(() => {});
-    } else if (event.data === 'ended') {
+    } else if (streamEvent.type === 'ended') {
       sessionStorage.setItem('connection_ended_message', 'This chat has ended.');
       window.location.href = '/discover';
     }
@@ -217,6 +255,7 @@ function initRealtimeStream() {
     isReconnecting = true;
     
     // Start HTTP polling fallback so states update in the interim
+    startPollingFallback();
     startStatusPollingFallback();
   };
 }
@@ -751,6 +790,12 @@ async function initializeChat() {
           msgEl.classList.remove('opacity-60');
           if (result && result.message && result.message.id) {
             msgEl.setAttribute('data-msg-id', result.message.id);
+            if (result.message.created_at) {
+              lastMessageTimestamp = result.message.created_at;
+            }
+            if (typeof messageCache !== 'undefined') {
+              messageCache.cacheSingleMessage(currentConnId, result.message).catch(() => {});
+            }
             
             // Update status icon to single checkmark
             const statusIcon = msgEl.querySelector('.msg-status-icon');
@@ -880,6 +925,12 @@ async function initializeChat() {
           if (!res.ok) throw new Error(data.error || 'Failed to send voice note');
           
           appendMessage(data.message, true);
+          if (data.message && data.message.created_at) {
+            lastMessageTimestamp = data.message.created_at;
+          }
+          if (data.message && typeof messageCache !== 'undefined') {
+            messageCache.cacheSingleMessage(currentConnId, data.message).catch(() => {});
+          }
         } catch (err) {
           showToast(err.message, 'error');
         }
@@ -1390,6 +1441,7 @@ async function loadMessages(isInitial = false, forceFull = false) {
   let hasCachedMessages = false;
   let preservedGames = [];
   let preservedTransientMessages = [];
+  const previousScrollTop = cont ? cont.scrollTop : 0;
   try {
     // 1. Render from IndexedDB cache instantly on initial load (no network wait)
     if (isInitial && typeof messageCache !== 'undefined') {
@@ -1471,6 +1523,9 @@ async function loadMessages(isInitial = false, forceFull = false) {
     if (forceFull && preservedTransientMessages.length > 0) {
       preservedTransientMessages.forEach(el => cont.prepend(el));
       scrollToBottom();
+    }
+    if (forceFull && cont) {
+      cont.scrollTop = previousScrollTop;
     }
     
     // Mark as read after loading
@@ -2212,6 +2267,12 @@ async function startGame(gameType) {
         msgEl.classList.remove('opacity-60');
         if (result && result.message && result.message.id) {
           msgEl.setAttribute('data-msg-id', result.message.id);
+          if (result.message.created_at) {
+            lastMessageTimestamp = result.message.created_at;
+          }
+          if (typeof messageCache !== 'undefined') {
+            messageCache.cacheSingleMessage(currentConnId, result.message).catch(() => {});
+          }
         }
         msgEl.removeAttribute('id');
       }
