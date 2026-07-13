@@ -120,6 +120,20 @@ function scheduleNextPoll() {
   }, pollInterval);
 }
 
+function startPollingFallback() {
+  if (socket && !socket.connected) {
+    pollInterval = 4000;
+    scheduleNextPoll();
+  }
+}
+
+function stopPollingFallback() {
+  if (pollingTimeout) {
+    clearTimeout(pollingTimeout);
+    pollingTimeout = null;
+  }
+}
+
 // ── Firestore Connection Listener ───────────────────────────────────────────
 // Replaces HTTP polling for connection state (status, game, reveal fields).
 // Subscribes to a single document via onSnapshot — cheap, instant, no race conditions.
