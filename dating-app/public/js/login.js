@@ -1,17 +1,3 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getAuth, sendSignInLinkToEmail, isSignInWithEmailLink, signInWithEmailLink } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-
-const firebaseConfig = {
-  apiKey: "AIzaSyA3ZqXEQrLirVjRv338T4q_EXjPlGN_06s",
-  authDomain: "delulu-final.firebaseapp.com",
-  projectId: "delulu-final",
-  storageBucket: "delulu-final.firebasestorage.app",
-  messagingSenderId: "547753348022",
-  appId: "1:547753348022:web:c5d0e6abd07bffecd08f17"
-};
-
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
 
 document.addEventListener('DOMContentLoaded', async () => {
   // Check session; if logged in, redirect to /discover
@@ -112,7 +98,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             window.localStorage.setItem('e2ee_private_key', JSON.stringify(jwk));
           } catch (cryptoErr) {
             console.error('Failed to decrypt private key:', cryptoErr);
-            alert('Security warning: Could not decrypt your E2EE chat keys. Your chat history may be unreadable on this device.');
+            showToast('Security warning: Could not decrypt your E2EE chat keys. Your chat history may be unreadable on this device.', 'error');
           }
         } else {
           // Clear any old key if logging in as a legacy user
@@ -203,7 +189,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     } catch (err) {
       console.error(err);
-      alert('Verification link is invalid or has expired.');
+      showToast('Verification link is invalid or has expired.', 'error');
       showStage(stageLogin);
     } finally {
       if (verifyBtn) {
