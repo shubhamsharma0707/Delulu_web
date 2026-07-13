@@ -2,15 +2,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   await requireAuth();
   loadMessagesList();
 
-  if (socket) {
-    socket.on('connection-ended', ({ connectionId }) => {
+  // Auto-refresh when tab becomes visible (compensates for mock socket)
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
       loadMessagesList();
-    });
-    socket.on('match-celebration', ({ connectionId, username }) => {
-      if (typeof showMatchCelebration === 'function') {
-        showMatchCelebration(username, connectionId);
-      }
-    });
+    }
+  });
+
+  if (socket) {
     
     // Real-time chat list updates
     socket.on('chat-update', (data) => {

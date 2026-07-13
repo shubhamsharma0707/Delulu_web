@@ -3,14 +3,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   
   loadRequests('incoming');
 
-  // Listen for match celebrations on requests page too
-  if (socket) {
-    socket.on('match-celebration', ({ connectionId, username }) => {
-      if (typeof showMatchCelebration === 'function') {
-        showMatchCelebration(username, connectionId);
-      }
-    });
-  }
+  // Auto-refresh when tab becomes visible (compensates for mock socket)
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+      loadRequests(document.getElementById('tab-req-incoming').classList.contains('text-primary') ? 'incoming' : 'sent');
+    }
+  });
   
   document.getElementById('tab-req-incoming').onclick = () => {
     document.getElementById('tab-req-incoming').classList.replace('text-on-surface-variant', 'text-primary');
@@ -28,7 +26,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   };
 });
 
+let _requestsLoading = false;
+
 async function loadRequests(type = 'incoming') {
+  if (_requestsLoading) return;
+  _requestsLoading = true;
   const list = document.getElementById('requests-list');
   list.innerHTML = '<div class="p-4 text-center">Loading...</div>';
   try {
@@ -79,6 +81,8 @@ async function loadRequests(type = 'incoming') {
     });
   } catch (err) {
     list.innerHTML = `<div class="p-4 text-error">${escapeHtml(err.message)}</div>`;
+  } finally {
+    _requestsLoading = false;
   }
 }
 
@@ -86,7 +90,7 @@ window.respondReq = async (id, action) => {
   try {
     await apiCall('/api/connections/respond', 'POST', { connection_id: id, action });
     loadRequests('incoming');
-  } catch(err) { alert(err.message); }
+  } catch(err) { showToast(err.message, 'error'); }
 };
 
 window.revokeReq = async (id) => {
@@ -94,6 +98,6 @@ window.revokeReq = async (id) => {
     await apiCall(`/api/connections/${id}`, 'DELETE');
     loadRequests('sent');
   } catch (err) {
-    alert(err.message);
+    showToast(err.message, 'error');
   }
 };
