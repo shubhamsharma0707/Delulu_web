@@ -34,6 +34,9 @@ console.warn = (...args) => {
   }
 };
 
+const { EventEmitter } = require('events');
+const connectionEmitter = new EventEmitter();
+
 const session = require('express-session');
 const compression = require('compression');
 const MemoryStore = require('memorystore')(session);
@@ -971,6 +974,50 @@ app.get('/api/connections/:id', requireAuth, async (req, res) => {
   });
 });
 
+// SSE Endpoint for real-time game/status updates
+app.get('/api/connections/:id/stream', requireAuth, async (req, res) => {
+  const connectionId = req.params.id;
+  const userId = req.session.userId;
+  
+  // Verify that the connection exists and the user belongs to it
+  const conn = await connectionOps.getConnection(connectionId, userId);
+  if (!conn || conn._dataIntegrityError) {
+    return res.status(404).end();
+  }
+
+  // Set SSE Headers
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no'
+  });
+  
+  // Send initial connection verification comment
+  res.write(': ok\n\n');
+
+  // Define listener callback
+  const onUpdate = (event) => {
+    res.write(`data: ${event.type}\n\n`);
+  };
+
+  // Subscribe to updates for this connection
+  const eventName = `update:${connectionId}`;
+  connectionEmitter.on(eventName, onUpdate);
+
+  // Set heartbeat ping every 25 seconds to keep connection alive on Render/proxies
+  const heartbeatInterval = setInterval(() => {
+    res.write(': heartbeat\n\n');
+  }, 25000);
+
+  // Clean up subscription and interval when connection closes
+  req.on('close', () => {
+    connectionEmitter.off(eventName, onUpdate);
+    clearInterval(heartbeatInterval);
+    res.end();
+  });
+});
+
 // End connection ("Not Vibing")
 app.post('/api/connections/end', requireAuth, async (req, res) => {
   const { connection_id } = req.body;
@@ -985,6 +1032,8 @@ app.post('/api/connections/end', requireAuth, async (req, res) => {
     });
     io.to(`chat:${connection_id}`).emit('status_change', { connection_id });
   }
+
+  connectionEmitter.emit(`update:${connection_id}`, { type: 'game' });
   res.json(result);
 });
 
@@ -1001,6 +1050,8 @@ app.post('/api/connections/identity-reveal', requireAuth, async (req, res) => {
       meeting_code: result.meeting_code 
     });
   }
+  
+  connectionEmitter.emit(`update:${connection_id}`, { type: 'game' });
   res.json(result);
 });
 
@@ -1017,6 +1068,8 @@ app.post('/api/connections/face-reveal', requireAuth, async (req, res) => {
       meeting_code: result.meeting_code 
     });
   }
+
+  connectionEmitter.emit(`update:${connection_id}`, { type: 'game' });
   res.json(result);
 });
 
@@ -1032,6 +1085,8 @@ app.post('/api/connections/decline-face-reveal', requireAuth, async (req, res) =
       connectionId: connection_id
     });
   }
+
+  connectionEmitter.emit(`update:${connection_id}`, { type: 'game' });
   res.json(result);
 });
 
@@ -1046,6 +1101,8 @@ app.post('/api/connections/end-after-decline', requireAuth, async (req, res) => 
     connectionId: connection_id,
     message: "The other person decided to disconnect after the face reveal decline."
   });
+
+  connectionEmitter.emit(`update:${connection_id}`, { type: 'game' });
   res.json(result);
 });
 
@@ -1071,6 +1128,7 @@ app.post('/api/connections/:id/start-game', requireAuth, async (req, res) => {
       active_game: payload
     });
     
+    connectionEmitter.emit(`update:${req.params.id}`, { type: 'game' });
     res.json({ success: true, active_game: payload });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1100,6 +1158,7 @@ app.post('/api/connections/:id/answer-game', requireAuth, async (req, res) => {
       active_game: result.gameData
     });
     
+    connectionEmitter.emit(`update:${req.params.id}`, { type: 'game' });
     res.json({ success: true, bothAnswered: result.bothAnswered, gameData: result.gameData });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1133,6 +1192,8 @@ app.post('/api/connections/:id/clear-game', requireAuth, async (req, res) => {
         to_user_id: conn.to_user_id,
         active_game: null
       });
+      
+      connectionEmitter.emit(`update:${req.params.id}`, { type: 'game' });
     }
     
     res.json({ success: true, cleared });
