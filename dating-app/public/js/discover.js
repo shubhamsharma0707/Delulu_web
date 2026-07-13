@@ -30,6 +30,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (e.key === 'ArrowRight') navigateCards(1);
   });
 
+  // Auto-refresh when tab becomes visible (compensates for mock socket)
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+      loadDiscovery();
+    }
+  });
+
   // Smooth scroll wheel/trackpad navigation (debounced vertical scrolling mapped to swiping)
   let lastScrollTime = 0;
   const scrollCooldown = 280; // ms between card swiping transitions
@@ -67,7 +74,7 @@ async function handleDismissCenter() {
       init3DScene();
     }, 3000);
   } catch (err) {
-    alert(err.message);
+    showToast(err.message, 'error');
   }
 }
 
@@ -86,7 +93,7 @@ async function handleConnectCenter() {
     removeProfileAt(idx);
     showToast('Connection sent!');
   } catch (err) {
-    alert(err.message);
+    showToast(err.message, 'error');
   } finally {
     btn.disabled = false;
     btn.querySelector('span:not(.material-symbols-outlined)').textContent = 'Connect';
@@ -182,6 +189,15 @@ async function loadDiscovery() {
       sessionStorage.setItem('discover_profiles', JSON.stringify(data.profiles));
     } catch (e) {}
     
+    // Show profile overlay immediately — don't wait for Three.js
+    if (discoverProfiles.length > 0) {
+      const overlay = document.getElementById('profile-overlay');
+      if (overlay) overlay.classList.remove('hidden');
+      currentIndex = 0;
+      updateProfileOverlay(0);
+      updateNavButtons();
+    }
+    
     init3DScene();
   } catch (err) {
     // Try loading from cache if offline
@@ -202,37 +218,15 @@ function init3DScene() {
   if (!discoverProfiles || discoverProfiles.length === 0) return;
   
   const container = document.getElementById('avatar-3d-container');
-  const overlay = document.getElementById('profile-overlay');
   if (!container) return;
   
-  // Load Three.js dynamically first, then initialize scene
-  loadThreeJS(() => {
+  // Load Three.js dynamically first, then initialize scene    loadThreeJS(() => {
     if (typeof initAvatarScene === 'function') {
       initAvatarScene('avatar-3d-container', discoverProfiles);
-      
-      // After scene is set up, show first profile
-      setTimeout(() => {
-        currentIndex = 0;
-        updateProfileOverlay(0);
-        updateNavButtons();
-        if (overlay) overlay.classList.remove('hidden');
-      }, 500);
     } else {
       renderFallbackCards();
     }
   });
-}
-
-function showToast(msg) {
-  const toast = document.createElement('div');
-  toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-surface-container-high text-on-surface px-6 py-3 rounded-2xl shadow-lg z-50 text-sm font-medium animate-slideUp';
-  toast.textContent = msg;
-  document.body.appendChild(toast);
-  setTimeout(() => {
-    toast.style.opacity = '0';
-    toast.style.transform = 'translateY(20px)';
-    setTimeout(() => toast.remove(), 300);
-  }, 2000);
 }
 
 // ===== Match Celebration =====
@@ -394,7 +388,7 @@ window.connectFallback = async (index, btn) => {
     renderFallbackCards();
     checkEmptyState();
   } catch (err) {
-    alert(err.message);
+    showToast(err.message, 'error');
     btn.textContent = 'Connect';
     btn.disabled = false;
   }
