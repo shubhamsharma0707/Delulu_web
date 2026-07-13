@@ -244,8 +244,15 @@ async function initFirestoreListener() {
       syncActiveGame(sanitized);
       // Sync messages immediately in real-time when connection document updates
       loadMessages().catch(() => {});
-    }, (error) => {
+    }, async (error) => {
       console.error('[Firestore] onSnapshot error:', error.message);
+      
+      // Auto-heal on permission/token expiration errors (e.g., if tab was left open or token expired)
+      if (error.code === 'permission-denied' || error.message.toLowerCase().includes('permission') || error.message.toLowerCase().includes('token')) {
+        console.log('[Firestore] Attempting auto-recovery by refreshing authentication token...');
+        cleanupFirestoreListener();
+        setTimeout(() => initFirestoreListener().catch(() => {}), 1500);
+      }
     });
 }
 
