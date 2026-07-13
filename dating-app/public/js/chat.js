@@ -9,8 +9,11 @@ let isE2EEActive = false;
 let closeModalTimeout = null;
 let otherUserId = null;
 let otherLastReadAt = null;
+let myLastReadAt = null;
 let hasReadMessagesInView = false;
+let hasUnreadMessagesInView = false;
 let lastMessageTimestamp = null;
+let hasLoadedInitialMessages = false;
 let pollingTimeout = null;
 let pollInterval = 8000;
 const maxInterval = 30000;
@@ -79,6 +82,9 @@ async function pollDelta() {
         const otherNewMsgs = newMsgs.filter(m => Number(m.sender_id) !== Number(currentUser.id));
         if (otherNewMsgs.length > 0) {
           hasReadMessagesInView = false;
+          if (otherNewMsgs.some(isUnreadFromOther)) {
+            hasUnreadMessagesInView = true;
+          }
         }
         for (const m of newMsgs) {
           await appendMessage(m, false);
@@ -88,6 +94,7 @@ async function pollDelta() {
         if (typeof messageCache !== 'undefined') {
           await messageCache.cacheMessages(currentConnId, data.messages);
         }
+        setTimeout(() => markMessagesAsRead(), 300);
         return true;
       }
     }
@@ -194,14 +201,19 @@ function initRealtimeStream() {
     if (event.data === 'game') {
       console.log('[SSE] Received game update event. Refreshing chat state...');
       loadChatInfo().catch(() => {});
+    } else if (event.data === 'messages') {
+      console.log('[SSE] Received message update event. Refreshing messages...');
+      loadMessages(false, true).catch(() => {});
+    } else if (event.data === 'ended') {
+      sessionStorage.setItem('connection_ended_message', 'This chat has ended.');
+      window.location.href = '/discover';
     }
   };
 
   eventSource.onerror = () => {
     console.warn('[SSE] EventSource disconnected. Falling back to HTTP status polling.');
     
-    // Clean up active handle, but do NOT manually retry (browser native EventSource will auto-reconnect)
-    stopRealtimeStream();
+    streamReady = false;
     isReconnecting = true;
     
     // Start HTTP polling fallback so states update in the interim
@@ -296,6 +308,13 @@ function isMessageRead(msg) {
   return false;
 }
 
+function isUnreadFromOther(msg) {
+  if (!msg || Number(msg.sender_id) === Number(currentUser.id) || msg.deleted_at) return false;
+  if (!myLastReadAt) return true;
+  if (!msg.created_at) return false;
+  return new Date(msg.created_at) > new Date(myLastReadAt);
+}
+
 async function initializeChat() {
   try {
     await requireAuth();
@@ -313,6 +332,7 @@ async function initializeChat() {
   
   currentConnId = connId;
   lastMessageTimestamp = null;
+  hasLoadedInitialMessages = false;
   loadChatInfo();
   
   // ── Socket setup ──────────────────────────────────────────────────────────
@@ -612,9 +632,8 @@ async function initializeChat() {
     };
     document.addEventListener('visibilitychange', visibilityHandler);
     
-    // Store references so duplicate calls to initializeChat can clean up
+    // Store visibility listener now; scroll listener is stored after it is created.
     if (!window.__chatDomListeners) window.__chatDomListeners = {};
-    window.__chatDomListeners.scroll = scrollHandler || null;
     window.__chatDomListeners.visibility = visibilityHandler;
   } else {
     // No socket at all — run polling fallback
@@ -645,6 +664,8 @@ async function initializeChat() {
       }
     };
     messagesContainer.addEventListener('scroll', scrollHandler);
+    if (!window.__chatDomListeners) window.__chatDomListeners = {};
+    window.__chatDomListeners.scroll = scrollHandler;
     
     scrollBottomBtn.onclick = function() {
       scrollToBottom();
@@ -814,8 +835,10 @@ async function initializeChat() {
         clearInterval(recordTimerInterval);
         document.getElementById('recording-overlay').classList.add('hidden');
 
+      if (voiceStream) {
         voiceStream.getTracks().forEach(track => track.stop());
         voiceStream = null;
+      }
 
         if (audioChunks.length === 0 || duration < 1) {
           return;
@@ -876,6 +899,9 @@ async function initializeChat() {
       }, 1000);
 
     } catch (err) {
+      if (voiceStream) {
+        voiceStream.getTracks().forEach(track => track.stop());
+      }
       voiceStream = null;
       _startingRecording = false;
       showToast('Could not access microphone: ' + err.message, 'error');
@@ -1019,9 +1045,22 @@ window.addEventListener('beforeunload', cleanupChatResources);
 
 // ===== Mark Messages as Read =====
 function markMessagesAsRead() {
-  if (!socket || hasReadMessagesInView || !currentConnId) return;
+  if (hasReadMessagesInView || !currentConnId || !hasUnreadMessagesInView) return;
   hasReadMessagesInView = true;
-  socket.emit('mark-read', { connectionId: currentConnId });
+  hasUnreadMessagesInView = false;
+  if (socket && !socket.isMock && socket.connected) {
+    socket.emit('mark-read', { connectionId: currentConnId });
+    return;
+  }
+
+  apiCall(`/api/messages/${currentConnId}/read`, 'POST')
+    .then((data) => {
+      myLastReadAt = data.readAt || new Date().toISOString();
+    })
+    .catch(() => {
+      hasReadMessagesInView = false;
+      hasUnreadMessagesInView = true;
+    });
 }
 
 // ===== Scroll to bottom =====
@@ -1131,6 +1170,7 @@ async function loadChatInfo() {
     currentChatOther = c.other_username;
     otherUserId = c.other_user_id;
     otherLastReadAt = c.other_last_read_at || null;
+    myLastReadAt = c.my_last_read_at || null;
     
     // E2EE Key Agreement setup
     const privateKeyJwkStr = window.localStorage.getItem('e2ee_private_key');
@@ -1160,7 +1200,9 @@ async function loadChatInfo() {
     }
     
     updateChatStatus(c);
-    await loadMessages(true);
+    const isFirstMessageLoad = !hasLoadedInitialMessages;
+    await loadMessages(isFirstMessageLoad);
+    hasLoadedInitialMessages = true;
     syncActiveGame(c);
     
     // Scroll to ensure game cards and latest messages are visible
@@ -1343,9 +1385,11 @@ function showChatSkeleton() {
   });
 }
 
-async function loadMessages(isInitial = false) {
+async function loadMessages(isInitial = false, forceFull = false) {
   const cont = document.getElementById('chat-messages');
   let hasCachedMessages = false;
+  let preservedGames = [];
+  let preservedTransientMessages = [];
   try {
     // 1. Render from IndexedDB cache instantly on initial load (no network wait)
     if (isInitial && typeof messageCache !== 'undefined') {
@@ -1363,6 +1407,10 @@ async function loadMessages(isInitial = false) {
         cont.innerHTML = '';
         lastMessageDate = null;
         for (const m of cached) {
+          if (isUnreadFromOther(m)) {
+            hasUnreadMessagesInView = true;
+            hasReadMessagesInView = false;
+          }
           await appendMessage(m, false);
         }
         // Re-prepend game elements so they appear at the bottom (flex-col-reverse)
@@ -1376,13 +1424,19 @@ async function loadMessages(isInitial = false) {
       showChatSkeleton();
     }
     
-    // 2. Fetch delta sync from server (passing since timestamp parameter if available)
-    const since = lastMessageTimestamp;
+    // 2. Fetch from server. Initial opens refresh the latest window fully so
+    // cached reactions/deletes cannot stay stale; active polling remains delta-based.
+    const since = (isInitial || forceFull) ? null : lastMessageTimestamp;
     const data = await apiCall(`/api/messages/${currentConnId}${since ? '?since=' + encodeURIComponent(since) : ''}`);
     
     // Clear skeletons if we loaded the initial set from network
     if (isInitial && !hasCachedMessages) {
       cont.innerHTML = '';
+    } else if (forceFull || (isInitial && hasCachedMessages)) {
+      preservedGames = Array.from(cont.querySelectorAll('[id^="game-"]'));
+      preservedTransientMessages = Array.from(cont.querySelectorAll('.group:not([data-msg-id])'));
+      cont.innerHTML = '';
+      lastMessageDate = null;
     }
     
     if (data.messages && data.messages.length > 0) {
@@ -1394,6 +1448,10 @@ async function loadMessages(isInitial = false) {
       const newMsgs = data.messages.filter(m => !existingIds.has(String(m.id)));
       if (newMsgs.length > 0) {
         for (const m of newMsgs) {
+          if (isUnreadFromOther(m)) {
+            hasUnreadMessagesInView = true;
+            hasReadMessagesInView = false;
+          }
           await appendMessage(m, false);
         }
         scrollToBottom();
@@ -1403,6 +1461,16 @@ async function loadMessages(isInitial = false) {
       if (typeof messageCache !== 'undefined') {
         messageCache.cacheMessages(currentConnId, data.messages).catch(() => {});
       }
+    }
+
+    if ((forceFull || (isInitial && hasCachedMessages)) && preservedGames.length > 0) {
+      preservedGames.forEach(el => cont.prepend(el));
+      scrollToBottom();
+    }
+
+    if (forceFull && preservedTransientMessages.length > 0) {
+      preservedTransientMessages.forEach(el => cont.prepend(el));
+      scrollToBottom();
     }
     
     // Mark as read after loading
@@ -1480,7 +1548,10 @@ function showMessageMenu(e, msg, bubbleEl) {
     btn.className = 'text-lg hover:scale-125 transition-transform p-1 cursor-pointer';
     btn.textContent = emoji;
     btn.onclick = async () => {        try {
-          await apiCall(`/api/messages/${msg.id}/react`, 'POST', { connection_id: currentConnId, emoji });
+          const result = await apiCall(`/api/messages/${msg.id}/react`, 'POST', { connection_id: currentConnId, emoji });
+          if (result && result.reactions) {
+            renderReactions({ id: msg.id, reactions: result.reactions }, bubbleEl);
+          }
           menu.remove();
         } catch (err) { showToast(err.message, 'error'); }
       };
@@ -1496,6 +1567,18 @@ function showMessageMenu(e, msg, bubbleEl) {
       if (confirm('Are you sure you want to delete this message? This cannot be undone.')) {
         try {
           await apiCall(`/api/messages/${msg.id}`, 'DELETE', { connection_id: currentConnId });
+          bubbleEl.innerHTML = '';
+          const p = document.createElement('p');
+          p.className = 'text-[15px] italic opacity-70 break-words';
+          p.textContent = 'This message was deleted';
+          bubbleEl.appendChild(p);
+          const timeEl = document.createElement('div');
+          timeEl.className = 'text-[10px] mt-1 text-right text-white/70';
+          timeEl.textContent = 'deleted';
+          bubbleEl.appendChild(timeEl);
+          const wrapper = bubbleEl.closest('[data-msg-id]');
+          const moreBtn = wrapper ? wrapper.querySelector('.more-actions-btn') : null;
+          if (moreBtn) moreBtn.remove();
           menu.remove();
         } catch (err) { showToast(err.message, 'error'); }
       }
@@ -2158,6 +2241,7 @@ async function startGame(gameType) {
       activeGame = result.active_game; // includes created_at from Firestore
     } catch (err) {
       console.error('Failed to start persistent game:', err);
+      showToast(err.message || 'Could not start the icebreaker. Please try again.', 'error');
       return;
     }
     
@@ -2208,7 +2292,8 @@ function syncActiveGame(c) {
   function _gameTime(ts) {
     if (!ts) return 0;
     if (typeof ts === 'object' && ts.toDate) return ts.toDate().getTime();
-    return new Date(ts).getTime();
+    const parsed = new Date(ts).getTime();
+    return Number.isFinite(parsed) ? parsed : 0;
   }
   
   // Generate a stable game ID. If we already have a tracked game with the same
@@ -2225,9 +2310,11 @@ function syncActiveGame(c) {
     gameId = 'game-' + _gameTime(game.created_at) + '-' + Math.random().toString(36).slice(2, 6);
   }
   
-  const myAnswer = game.answers[String(currentUser.id)] || null;
+  const answers = game.answers || {};
+  const question = game.question || {};
+  const myAnswer = answers[String(currentUser.id)] || null;
   const otherId = otherUserId || (Number(c.from_user_id) === Number(currentUser.id) ? Number(c.to_user_id) : Number(c.from_user_id));
-  const otherAnswer = game.answers[String(otherId)] || null;
+  const otherAnswer = answers[String(otherId)] || null;
   
   if (!existingGame || existingGame.id !== gameId) {
     if (existingGame) existingGame.remove();
@@ -2244,14 +2331,15 @@ function syncActiveGame(c) {
     const msgDiv = document.createElement('div');
     msgDiv.className = 'w-full flex justify-center my-3 fade-in';
     msgDiv.id = gameId;
+    msgDiv.dataset.gameCreatedAt = currentGame.created_at;
     
     msgDiv.innerHTML = `
       <div class="bg-surface-container-low rounded-2xl p-4 max-w-sm w-full border border-outline-variant/20 shadow-sm text-center">
         <div class="text-xs font-bold text-primary mb-2 uppercase tracking-wider">${game.game_type === 'would-you-rather' ? 'Would You Rather' : 'This or That'}</div>
-        <p class="font-bold text-on-surface mb-3">${escapeHtml(game.question.q)}</p>
+        <p class="font-bold text-on-surface mb-3">${escapeHtml(question.q || 'Pick one')}</p>
         <div class="flex gap-3">
-          <button data-game-answer="A" class="flex-1 py-2 px-3 rounded-xl bg-surface-container-high text-on-surface hover:bg-primary hover:text-white font-semibold text-sm transition-all">${escapeHtml(game.question.a)}</button>
-          <button data-game-answer="B" class="flex-1 py-2 px-3 rounded-xl bg-surface-container-high text-on-surface hover:bg-primary hover:text-white font-semibold text-sm transition-all">${escapeHtml(game.question.b)}</button>
+          <button data-game-answer="A" class="flex-1 py-2 px-3 rounded-xl bg-surface-container-high text-on-surface hover:bg-primary hover:text-white font-semibold text-sm transition-all">${escapeHtml(question.a || 'A')}</button>
+          <button data-game-answer="B" class="flex-1 py-2 px-3 rounded-xl bg-surface-container-high text-on-surface hover:bg-primary hover:text-white font-semibold text-sm transition-all">${escapeHtml(question.b || 'B')}</button>
         </div>
         <p class="text-[10px] text-on-surface-variant mt-2" id="game-status-text">Make your pick to see if you match!</p>
       </div>
@@ -2354,6 +2442,10 @@ function handleBothAnswered(gameEl, myAns, otherAns) {
     b.style.opacity = '0.5';
     b.disabled = true;
   });
+
+  if (gameEl.dataset.clearScheduled === '1') return;
+  gameEl.dataset.clearScheduled = '1';
+  const createdAtForClear = gameEl.dataset.gameCreatedAt || null;
   
   setTimeout(async () => {
     // Guard: if the card was already removed by syncActiveGame (via a
@@ -2367,8 +2459,7 @@ function handleBothAnswered(gameEl, myAns, otherAns) {
     }, 500);
     
     try {
-      const createdAt = currentGame ? currentGame.created_at : null;
-      await apiCall(`/api/connections/${currentConnId}/clear-game`, 'POST', { game_created_at: createdAt });
+      await apiCall(`/api/connections/${currentConnId}/clear-game`, 'POST', { game_created_at: createdAtForClear });
     } catch (e) {}
   }, 2000);
 }
