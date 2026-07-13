@@ -44,35 +44,7 @@
       }
     };
   </script>
-  <script type="speculationrules">
-    {
-      "prefetch": [
-        {
-          "where": {
-            "and": [
-              { "href_matches": "/*" },
-              { "not": { "href_matches": "/logout" } },
-              { "not": { "href_matches": "/api/*" } }
-            ]
-          },
-          "eagerness": "eager"
-        }
-      ],
-      "prerender": [
-        {
-          "where": {
-            "and": [
-              { "href_matches": "/*" },
-              { "not": { "href_matches": "/logout" } },
-              { "not": { "href_matches": "/api/*" } }
-            ]
-          },
-          "eagerness": "moderate"
-        }
-      ]
-    }
-  </script>
-  <link rel="stylesheet" href="/styles.css?v=240">
+  <link rel="stylesheet" href="/styles.css?v=241">
   <style>
     /* Hide navbars on mobile when in a chat for better UX, or keep them. We'll keep global header hidden on chat on mobile. */
   </style>
@@ -166,7 +138,7 @@
           </div>
         </div>
         
-        <form id="chat-form" class="flex items-center gap-2 bg-surface-container-low rounded-full p-1 pr-1 shadow-sm">
+        <form id="chat-form" class="flex items-center gap-2 bg-surface-container-low rounded-full p-1 pr-1 shadow-sm" action="javascript:void(0)" onsubmit="return false">
           <input id="chat-input" class="flex-1 bg-transparent border-none text-sm px-4 focus:ring-0 placeholder-outline outline-none" placeholder="Type a message..." type="text" autocomplete="off"/>
           
           <!-- Mic Button for Voice Note -->
@@ -295,10 +267,10 @@
 
   </div>
 
-  <link rel="preload" href="/js/shared.js?v=240" as="script">
-  <script src="/js/shared.js?v=240"></script>
-  <script src="/js/chat-cache.js?v=240"></script>
+  <link rel="preload" href="/js/shared.js?v=241" as="script">
+  <script src="/js/shared.js?v=241"></script>
+  <script src="/js/chat-cache.js?v=241"></script>
   <script src="/js/crypto.js"></script>
-  <script src="/js/chat.js?v=240"></script>
+  <script src="/js/chat.js?v=241"></script>
 </body>
 </html>
