@@ -50,15 +50,14 @@ const messageCache = {
 
   async getCachedMessages(connectionId) {
     try {
-      // sortBy returns ascending = oldest first (chronological).
-      // We then reverse to get newest-first, which is what we need when
-      // prepending into the flex-col-reverse chat container (prepend newest
-      // first so oldest ends up at visual top and newest at visual bottom).
+      // Match the server contract: oldest first. appendMessage() handles the
+      // flex-col-reverse/prepend layout, so cached and network renders must use
+      // the same order to avoid flipped conversations on cold open.
       const msgs = await CHAT_CACHE_DB.messages
         .where('connection_id')
         .equals(String(connectionId))
         .sortBy('created_at');
-      return msgs.reverse();
+      return msgs;
     } catch (e) {
       return [];
     }
