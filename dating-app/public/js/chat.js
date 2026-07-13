@@ -18,10 +18,8 @@ let pollingTimeout = null;
 let pollInterval = 8000;
 const maxInterval = 30000;
 
-// Firestore realtime listener — replaces HTTP polling for connection state.
-// By subscribing to the connection document via onSnapshot, connection-state
-// updates (active_game, reveal status, etc.) arrive instantly when Firestore
-// changes, eliminating the race condition between polling and DOM resets.
+// SSE realtime stream for connection state and message nudges.
+// It keeps chat updates instant while avoiding repeated full HTTP polling.
 let eventSource = null;
 let streamReady = false;
 let isReconnecting = false;
@@ -63,7 +61,7 @@ function checkUserIdle() {
 async function pollDelta() {
   if (!currentConnId) return false;
   try {
-    const since = lastMessageTimestamp;
+    const since = getDeltaSinceParam(lastMessageTimestamp);
     const data = await apiCall(`/api/messages/${currentConnId}${since ? '?since=' + encodeURIComponent(since) : ''}`);
     
     if (data.messages && data.messages.length > 0) {
@@ -106,6 +104,14 @@ async function pollDelta() {
 
 let _pollInFlight = false;
 let _deltaQueued = false;
+let _deltaSyncSoonTimeout = null;
+
+function getDeltaSinceParam(timestamp) {
+  if (!timestamp) return null;
+  const parsed = new Date(timestamp).getTime();
+  if (!Number.isFinite(parsed)) return timestamp;
+  return new Date(parsed - 15000).toISOString();
+}
 
 async function runDeltaSyncNow() {
   if (_pollInFlight) {
@@ -122,6 +128,16 @@ async function runDeltaSyncNow() {
       setTimeout(() => runDeltaSyncNow().catch(() => {}), 100);
     }
   }
+}
+
+function scheduleDeltaSyncSoon() {
+  if (_deltaSyncSoonTimeout) return;
+  _deltaSyncSoonTimeout = setTimeout(() => {
+    _deltaSyncSoonTimeout = null;
+    runDeltaSyncNow().then((hasNew) => {
+      if (hasNew) pollInterval = 8000;
+    }).catch(() => {});
+  }, 75);
 }
 
 function scheduleNextPoll() {
@@ -147,10 +163,9 @@ function scheduleNextPoll() {
 }
 
 function startPollingFallback() {
-  if (socket && !socket.connected) {
-    pollInterval = 8000;
-    scheduleNextPoll();
-  }
+  if (socket && socket.connected) return;
+  pollInterval = 8000;
+  scheduleNextPoll();
 }
 
 function stopPollingFallback() {
@@ -235,9 +250,7 @@ function initRealtimeStream() {
       }
     } else if (streamEvent.type === 'message') {
       if (Number(streamEvent.senderId) !== Number(currentUser.id)) {
-        runDeltaSyncNow().then((hasNew) => {
-          if (hasNew) pollInterval = 8000;
-        }).catch(() => {});
+        scheduleDeltaSyncSoon();
       }
     } else if (streamEvent.type === 'messages') {
       console.log('[SSE] Received message update event. Refreshing messages...');
@@ -655,7 +668,11 @@ async function initializeChat() {
       startPollingFallback();
     }
 
-    // Listen for tab/visibility state changes to pause/resume polling and SSE
+    // Listen for tab/visibility state changes to pause/resume fallback polling.
+    if (!window.__chatDomListeners) window.__chatDomListeners = {};
+    if (window.__chatDomListeners.visibility) {
+      document.removeEventListener('visibilitychange', window.__chatDomListeners.visibility);
+    }
     const visibilityHandler = function() {
       if (document.hidden) {
         stopPollingFallback();
@@ -670,9 +687,6 @@ async function initializeChat() {
       }
     };
     document.addEventListener('visibilitychange', visibilityHandler);
-    
-    // Store visibility listener now; scroll listener is stored after it is created.
-    if (!window.__chatDomListeners) window.__chatDomListeners = {};
     window.__chatDomListeners.visibility = visibilityHandler;
   } else {
     // No socket at all — run polling fallback
@@ -688,8 +702,6 @@ async function initializeChat() {
     if (window.__chatDomListeners) {
       const oldScroll = window.__chatDomListeners.scroll;
       if (oldScroll) messagesContainer.removeEventListener('scroll', oldScroll);
-      const oldVis = window.__chatDomListeners.visibility;
-      if (oldVis) document.removeEventListener('visibilitychange', oldVis);
     }
     
     const scrollHandler = function() {
@@ -716,6 +728,11 @@ async function initializeChat() {
   const chatSendBtn = document.getElementById('btn-chat-send');
   const chatMicBtn = document.getElementById('btn-record-voice');
   let typingTimeout = null;
+
+  if (!chatForm || !chatInput || !chatSendBtn || !chatMicBtn) {
+    console.error('Chat composer elements are missing; message composer cannot initialize.');
+    return;
+  }
 
   // Text input changed (show/hide mic or send buttons)
   chatInput.oninput = () => {
@@ -880,10 +897,10 @@ async function initializeChat() {
         clearInterval(recordTimerInterval);
         document.getElementById('recording-overlay').classList.add('hidden');
 
-      if (voiceStream) {
-        voiceStream.getTracks().forEach(track => track.stop());
-        voiceStream = null;
-      }
+        if (voiceStream) {
+          voiceStream.getTracks().forEach(track => track.stop());
+          voiceStream = null;
+        }
 
         if (audioChunks.length === 0 || duration < 1) {
           return;
@@ -1438,10 +1455,8 @@ function showChatSkeleton() {
 
 async function loadMessages(isInitial = false, forceFull = false) {
   const cont = document.getElementById('chat-messages');
+  if (!cont) return;
   let hasCachedMessages = false;
-  let preservedGames = [];
-  let preservedTransientMessages = [];
-  const previousScrollTop = cont ? cont.scrollTop : 0;
   try {
     // 1. Render from IndexedDB cache instantly on initial load (no network wait)
     if (isInitial && typeof messageCache !== 'undefined') {
@@ -1478,23 +1493,24 @@ async function loadMessages(isInitial = false, forceFull = false) {
     
     // 2. Fetch from server. Initial opens refresh the latest window fully so
     // cached reactions/deletes cannot stay stale; active polling remains delta-based.
-    const since = (isInitial || forceFull) ? null : lastMessageTimestamp;
+    const since = (isInitial || forceFull) ? null : getDeltaSinceParam(lastMessageTimestamp);
     const data = await apiCall(`/api/messages/${currentConnId}${since ? '?since=' + encodeURIComponent(since) : ''}`);
     
     // Clear skeletons if we loaded the initial set from network
     if (isInitial && !hasCachedMessages) {
       cont.innerHTML = '';
-    } else if (forceFull || (isInitial && hasCachedMessages)) {
-      preservedGames = Array.from(cont.querySelectorAll('[id^="game-"]'));
-      preservedTransientMessages = Array.from(cont.querySelectorAll('.group:not([data-msg-id])'));
-      cont.innerHTML = '';
-      lastMessageDate = null;
     }
     
     if (data.messages && data.messages.length > 0) {
       const existingIds = new Set();
       cont.querySelectorAll('[data-msg-id]').forEach(el => {
         existingIds.add(el.getAttribute('data-msg-id'));
+      });
+
+      data.messages.forEach(m => {
+        if (existingIds.has(String(m.id))) {
+          refreshExistingMessage(m);
+        }
       });
       
       const newMsgs = data.messages.filter(m => !existingIds.has(String(m.id)));
@@ -1514,19 +1530,6 @@ async function loadMessages(isInitial = false, forceFull = false) {
         messageCache.cacheMessages(currentConnId, data.messages).catch(() => {});
       }
     }
-
-    if ((forceFull || (isInitial && hasCachedMessages)) && preservedGames.length > 0) {
-      preservedGames.forEach(el => cont.prepend(el));
-      scrollToBottom();
-    }
-
-    if (forceFull && preservedTransientMessages.length > 0) {
-      preservedTransientMessages.forEach(el => cont.prepend(el));
-      scrollToBottom();
-    }
-    if (forceFull && cont) {
-      cont.scrollTop = previousScrollTop;
-    }
     
     // Mark as read after loading
     setTimeout(() => markMessagesAsRead(), 300);
@@ -1544,6 +1547,7 @@ async function loadMessages(isInitial = false, forceFull = false) {
 }
 
 function renderReactions(m, parentContainer) {
+  if (!parentContainer) return;
   // Remove existing reactions container if any
   const existing = parentContainer.querySelector('.reactions-container');
   if (existing) existing.remove();
@@ -1557,7 +1561,7 @@ function renderReactions(m, parentContainer) {
   emojis.forEach(emoji => {
     const userIds = reactions[emoji] || [];
     if (userIds.length === 0) return;
-    const hasReacted = userIds.includes(currentUser.id);
+    const hasReacted = userIds.some(id => Number(id) === Number(currentUser.id));
     
     const pill = document.createElement('div');
     pill.className = `inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold border transition-all cursor-pointer ${
@@ -1576,6 +1580,35 @@ function renderReactions(m, parentContainer) {
     container.appendChild(pill);
   });
   parentContainer.appendChild(container);
+}
+
+function refreshExistingMessage(m) {
+  if (!m || !m.id) return false;
+  const el = document.querySelector(`[data-msg-id="${m.id}"]`);
+  if (!el) return false;
+  const inner = el.querySelector('.rounded-2xl');
+  if (!inner) return true;
+
+  if (m.deleted_at) {
+    inner.innerHTML = '';
+    const p = document.createElement('p');
+    p.className = 'text-[15px] italic opacity-70 break-words';
+    p.textContent = 'This message was deleted';
+    inner.appendChild(p);
+
+    const timeEl = document.createElement('div');
+    const isMe = Number(m.sender_id) === Number(currentUser.id);
+    timeEl.className = `text-[10px] mt-1 text-right ${isMe ? 'text-white/70' : 'text-on-surface-variant/70'}`;
+    timeEl.textContent = formatTime(m.created_at);
+    inner.appendChild(timeEl);
+
+    const btn = el.querySelector('.more-actions-btn');
+    if (btn) btn.remove();
+    return true;
+  }
+
+  renderReactions(m, inner);
+  return true;
 }
 
 function showMessageMenu(e, msg, bubbleEl) {
@@ -1663,12 +1696,20 @@ let lastMessageDate = null;
 
 async function appendMessage(m, scrollToBottom = true) {
   const cont = document.getElementById('chat-messages');
+  if (!cont || !m) return;
+  if (m.id) {
+    const existing = document.querySelector(`[data-msg-id="${m.id}"]`);
+    if (existing) {
+      refreshExistingMessage(m);
+      return;
+    }
+  }
   const isMe = Number(m.sender_id) === Number(currentUser.id);
   const time = formatTime(m.created_at);
   
   // Add date divider if date changed
   if (m.created_at) {
-    if (!lastMessageTimestamp || new Date(m.created_at) > new Date(lastMessageTimestamp)) {
+    if (m.id && !m.is_sending && (!lastMessageTimestamp || new Date(m.created_at) > new Date(lastMessageTimestamp))) {
       lastMessageTimestamp = m.created_at;
     }
     const msgDate = new Date(m.created_at).toDateString();
@@ -2306,10 +2347,8 @@ async function startGame(gameType) {
       return;
     }
     
-    // Proactively render for ourselves if SSE is not active (polling fallback).
-    // Skip if otherUserId hasn't loaded yet — the server always emits a game_update
-    // socket event on startGame, so the card will render via that path within ms.
-    if (!streamReady && otherUserId) {
+    // Render locally from the API response so the starter sees the card instantly.
+    if (otherUserId) {
       const fakeConn = {
         from_user_id: currentUser.id,
         to_user_id: otherUserId,
@@ -2376,6 +2415,10 @@ function syncActiveGame(c) {
   const myAnswer = answers[String(currentUser.id)] || null;
   const otherId = otherUserId || (Number(c.from_user_id) === Number(currentUser.id) ? Number(c.to_user_id) : Number(c.from_user_id));
   const otherAnswer = answers[String(otherId)] || null;
+  if (currentGame && _gameTime(currentGame.created_at) === _gameTime(game.created_at)) {
+    currentGame.myAnswer = myAnswer;
+    currentGame.otherAnswer = otherAnswer;
+  }
   
   if (!existingGame || existingGame.id !== gameId) {
     if (existingGame) existingGame.remove();
@@ -2427,9 +2470,18 @@ function syncActiveGame(c) {
         
         try {
           const res = await apiCall(`/api/connections/${currentConnId}/answer-game`, 'POST', { answer });
+          if (res.gameData) {
+            syncActiveGame({
+              from_user_id: currentUser.id,
+              to_user_id: otherId,
+              active_game: res.gameData
+            });
+          }
           
-          if (res.bothAnswered) {
-            handleBothAnswered(msgDiv, answer, res.gameData.answers[String(otherId)]);
+          const latestAnswers = (res.gameData && res.gameData.answers) || {};
+          const latestOtherAnswer = latestAnswers[String(otherId)] || null;
+          if (res.bothAnswered && latestOtherAnswer) {
+            handleBothAnswered(document.getElementById(gameId) || msgDiv, answer, latestOtherAnswer);
           }
         } catch (err) {
           showToast(err.message, 'error');
