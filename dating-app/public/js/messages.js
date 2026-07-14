@@ -5,7 +5,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Auto-refresh when tab becomes visible (compensates for mock socket)
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) {
-      loadMessagesList();
+      loadMessagesList({ skipRecent: true });
     }
   });
 
@@ -48,18 +48,23 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 // Cache of connection data for live updates
 let chatListCache = [];
+let lastMessagesListLoadAt = 0;
 
 // In-flight guard to prevent concurrent API calls if multiple socket events fire
 // before the first fetch completes. The second call simply returns early.
 let _messagesListLoading = false;
 
-async function loadMessagesList() {
+async function loadMessagesList(options = {}) {
   if (_messagesListLoading) return;
+  if (options.skipRecent && Date.now() - lastMessagesListLoadAt < 5000) return;
   _messagesListLoading = true;
   const list = document.getElementById('messages-list');
-  showSkeleton('messages-list', 4, 'card');
+  if (!chatListCache.length) {
+    showSkeleton('messages-list', 4, 'card');
+  }
   try {
     const data = await apiCall('/api/connections/active');
+    lastMessagesListLoadAt = Date.now();
     const conns = data.connections;
     chatListCache = conns;
     
@@ -206,5 +211,4 @@ function updatePresenceDot(userId, isOnline) {
     }
   }
 }
-
 
