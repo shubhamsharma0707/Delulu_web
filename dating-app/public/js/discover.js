@@ -1,6 +1,9 @@
 let discoverProfiles = [];
 let currentIndex = 0;
 let navTimeout = null;
+let discoveryLoading = false;
+let lastDiscoveryLoadAt = 0;
+let threeJSLoadPromise = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
   await requireAuth();
@@ -33,7 +36,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Auto-refresh when tab becomes visible (compensates for mock socket)
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) {
-      loadDiscovery();
+      loadDiscovery({ skipRecent: true });
     }
   });
 
@@ -169,19 +172,31 @@ function loadThreeJS(callback) {
     callback();
     return;
   }
+  if (threeJSLoadPromise) {
+    threeJSLoadPromise.then(callback).catch(() => renderFallbackCards());
+    return;
+  }
   const script = document.createElement('script');
   script.src = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
-  script.onload = callback;
-  script.onerror = () => {
+  threeJSLoadPromise = new Promise((resolve, reject) => {
+    script.onload = resolve;
+    script.onerror = reject;
+  });
+  threeJSLoadPromise.then(callback).catch(() => {
     console.warn('Three.js failed to load, using fallback cards');
     renderFallbackCards();
-  };
+  });
   document.head.appendChild(script);
 }
 
-async function loadDiscovery() {
+async function loadDiscovery(options = {}) {
+  if (discoveryLoading) return;
+  if (options.skipRecent && Date.now() - lastDiscoveryLoadAt < 5000) return;
+
+  discoveryLoading = true;
   try {
     const data = await apiCall('/api/discover');
+    lastDiscoveryLoadAt = Date.now();
     discoverProfiles = data.profiles;
     
     // Cache profiles in sessionStorage for instant back-navigation
@@ -210,6 +225,8 @@ async function loadDiscovery() {
       }
     } catch (e) {}
     console.error(err);
+  } finally {
+    discoveryLoading = false;
   }
 }
 
@@ -220,7 +237,8 @@ function init3DScene() {
   const container = document.getElementById('avatar-3d-container');
   if (!container) return;
   
-  // Load Three.js dynamically first, then initialize scene    loadThreeJS(() => {
+  // Load Three.js dynamically first, then initialize scene
+  loadThreeJS(() => {
     if (typeof initAvatarScene === 'function') {
       initAvatarScene('avatar-3d-container', discoverProfiles);
     } else {
