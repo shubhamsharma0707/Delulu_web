@@ -355,6 +355,64 @@ function evictConnection(connectionId) {
   _connCacheIndex.delete(connectionId);
 }
 
+const LAST_MESSAGE_CACHE_TTL_MS = 15 * 1000;
+const LAST_MESSAGE_CACHE_MAX = 10_000;
+const _lastMessageCache = new Map();
+
+function getCachedLastMessage(connectionId) {
+  const key = String(connectionId);
+  const cached = _lastMessageCache.get(key);
+  if (!cached || Date.now() - cached.ts >= LAST_MESSAGE_CACHE_TTL_MS) {
+    _lastMessageCache.delete(key);
+    return undefined;
+  }
+  return cached.data;
+}
+
+function setCachedLastMessage(connectionId, message) {
+  const key = String(connectionId);
+  if (_lastMessageCache.size >= LAST_MESSAGE_CACHE_MAX && !_lastMessageCache.has(key)) {
+    const oldest = _lastMessageCache.keys().next().value;
+    if (oldest) _lastMessageCache.delete(oldest);
+  }
+  _lastMessageCache.delete(key);
+  _lastMessageCache.set(key, { data: message || null, ts: Date.now() });
+}
+
+function evictLastMessage(connectionId) {
+  _lastMessageCache.delete(String(connectionId));
+}
+
+async function getLastMessageForConnection(connectionId) {
+  const cached = getCachedLastMessage(connectionId);
+  if (cached !== undefined) return cached;
+
+  const { data: lastMsgs, error } = await getSupabase()
+    .from('messages')
+    .select('*')
+    .eq('connection_id', Number(connectionId))
+    .order('created_at', { ascending: false })
+    .limit(1);
+
+  if (error) throw error;
+  const lastMsg = lastMsgs && lastMsgs.length > 0 ? lastMsgs[0] : null;
+  setCachedLastMessage(connectionId, lastMsg);
+  return lastMsg;
+}
+
+async function mapWithConcurrency(items, limit, mapper) {
+  const results = new Array(items.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor++;
+      results[index] = await mapper(items[index], index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 // Connection operations
 const connectionOps = {
   async sendRequest(fromId, toId) {
@@ -552,57 +610,43 @@ const connectionOps = {
 
   async getActiveConnections(userId) {
     const firestore = getDB();
-    const supabase = getSupabase();
-    const snap1 = await firestore.collection('connections')
-      .where('from_user_id', '==', Number(userId))
-      .get();
-    const snap2 = await firestore.collection('connections')
-      .where('to_user_id', '==', Number(userId))
-      .get();
-      
-    const active = [];
-    const pushActive = async (conn) => {
-      if (['accepted', 'revealed'].includes(conn.status)) {
-        const otherId = conn.from_user_id === Number(userId) ? conn.to_user_id : conn.from_user_id;
-        const otherUser = await userOps.getById(otherId);
-        if (otherUser) {
-          // Fetch the last message from Supabase (NOT Firestore — messages live in Postgres)
-          let lastMsg = null;
-          try {
-            const { data: lastMsgs } = await supabase
-              .from('messages')
-              .select('*')
-              .eq('connection_id', Number(conn.id))
-              .order('created_at', { ascending: false })
-              .limit(1);
-            if (lastMsgs && lastMsgs.length > 0) {
-              lastMsg = lastMsgs[0];
-            }
-          } catch (e) {
-            // Silently skip
-          }
-          
-          const isFrom = conn.from_user_id === Number(userId);
-          const myLastReadAt = isFrom ? conn.from_last_read_at : conn.to_last_read_at;
-          
-          active.push({
-            ...conn,
-            other_username: otherUser.username,
-            other_bio: otherUser.bio,
-            other_hobbies: otherUser.hobbies,
-            other_avatar: otherUser.avatar,
-            other_user_id: otherUser.id,
-            last_message: lastMsg ? (Number(lastMsg.is_encrypted) === 1 ? '🔒 Encrypted message' : (lastMsg.is_voice === 1 ? '🎤 Voice note' : lastMsg.is_voice === 2 ? '📷 Photo' : lastMsg.content)) : null,
-            last_message_time: lastMsg ? lastMsg.created_at : null,
-            last_sender_id: lastMsg ? lastMsg.sender_id : null,
-            last_read: lastMsg ? (lastMsg.sender_id === Number(userId) ? true : (myLastReadAt && lastMsg.created_at <= myLastReadAt)) : true
-          });
-        }
-      }
-    };
+    const activeStatuses = ['accepted', 'revealed'];
+    const [snap1, snap2] = await Promise.all([
+      firestore.collection('connections')
+        .where('from_user_id', '==', Number(userId))
+        .where('status', 'in', activeStatuses)
+        .get(),
+      firestore.collection('connections')
+        .where('to_user_id', '==', Number(userId))
+        .where('status', 'in', activeStatuses)
+        .get()
+    ]);
 
-    for (const doc of snap1.docs) await pushActive(doc.data());
-    for (const doc of snap2.docs) await pushActive(doc.data());
+    const connections = [...snap1.docs, ...snap2.docs].map(doc => doc.data());
+    const active = (await mapWithConcurrency(connections, 6, async (conn) => {
+      const otherId = conn.from_user_id === Number(userId) ? conn.to_user_id : conn.from_user_id;
+      const [otherUser, lastMsg] = await Promise.all([
+        userOps.getById(otherId),
+        getLastMessageForConnection(conn.id).catch(() => null)
+      ]);
+      if (!otherUser) return null;
+
+      const isFrom = conn.from_user_id === Number(userId);
+      const myLastReadAt = isFrom ? conn.from_last_read_at : conn.to_last_read_at;
+
+      return {
+        ...conn,
+        other_username: otherUser.username,
+        other_bio: otherUser.bio,
+        other_hobbies: otherUser.hobbies,
+        other_avatar: otherUser.avatar,
+        other_user_id: otherUser.id,
+        last_message: lastMsg ? (Number(lastMsg.is_encrypted) === 1 ? '🔒 Encrypted message' : (lastMsg.is_voice === 1 ? '🎤 Voice note' : lastMsg.is_voice === 2 ? '📷 Photo' : lastMsg.content)) : null,
+        last_message_time: lastMsg ? lastMsg.created_at : null,
+        last_sender_id: lastMsg ? lastMsg.sender_id : null,
+        last_read: lastMsg ? (lastMsg.sender_id === Number(userId) ? true : (myLastReadAt && lastMsg.created_at <= myLastReadAt)) : true
+      };
+    })).filter(Boolean);
     
     return active.sort((a, b) => {
       const aTime = a.last_message_time || a.chat_started_at;
@@ -1026,6 +1070,8 @@ const messageOps = {
 
       if (error) throw error;
 
+      setCachedLastMessage(connectionId, data);
+
       // Return the actual inserted row — all fields come directly from Supabase.
       return data;
     } catch (err) {
@@ -1104,6 +1150,7 @@ const messageOps = {
         .eq('id', messageId);
 
       if (updateErr) throw updateErr;
+      evictLastMessage(msg.connection_id);
       return { success: true };
     } catch (err) {
       console.error('messageOps.deleteMessage error:', err.message);
