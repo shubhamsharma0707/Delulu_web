@@ -855,8 +855,8 @@ app.get('/api/discover', requireAuth, async (req, res) => {
       matching_hobbies: matchingHobbies,
       match_count: matchCount,
       avatar: {
-        idle: p.avatar ? `/avatars/${p.gender}/${p.avatar}/idle.jpeg` : null,
-        wave: p.avatar ? `/avatars/${p.gender}/${p.avatar}/wave.jpeg` : null
+        idle: p.avatar ? `/avatars/${p.gender}/${p.avatar}/idle.png` : null,
+        wave: p.avatar ? `/avatars/${p.gender}/${p.avatar}/wave.png` : null
       },
       gender: p.gender
     };

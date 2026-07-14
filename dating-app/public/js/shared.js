@@ -155,7 +155,7 @@ function getAvatarHtml(username, avatar, options = {}) {
     if (typeof avatar === 'object' && avatar.idle) {
       src = avatar.idle;
     } else {
-      src = `/avatars/${avatar}.jpeg`;
+      src = `/avatars/${avatar}.png`;
     }
     return `<img src="${src}" alt="${safeUsername}" class="${className}" ${loadingAttr}>`;
   }
