@@ -640,7 +640,7 @@ function sanitizeConnection(c, userId) {
 
 // Check if user is logged in (with cache)
 app.get('/api/session', async (req, res) => {
-  if (isDemoMode && req.session.userId === 999) {
+  if (isDemoMode) {
     const mockUser = {
       id: 999,
       username: 'cosmo',
@@ -651,6 +651,7 @@ app.get('/api/session', async (req, res) => {
       ecosystem: 'rishihood',
       email: 'cosmo@nst.rishihood.edu.in'
     };
+    req.session.userId = mockUser.id;
     req.session.user = mockUser;
     return res.json({ authenticated: true, user: mockUser });
   }
@@ -2196,6 +2197,21 @@ const sendHtmlOptions = {
 };
 
 app.get('/', (req, res) => {
+  if (isDemoMode) {
+    const mockUser = {
+      id: 999,
+      username: 'cosmo',
+      gender: 'male',
+      bio: 'Product Designer at Delulu. Music enthusiast, coffee lover, and amateur guitarist.',
+      hobbies: ['music', 'coffee', 'guitar', 'photography'],
+      avatar: 'male_01',
+      ecosystem: 'rishihood',
+      email: 'cosmo@nst.rishihood.edu.in'
+    };
+    req.session.userId = mockUser.id;
+    req.session.user = mockUser;
+    return res.redirect('/discover');
+  }
   res.sendFile(path.join(__dirname, 'public', 'login.html'), sendHtmlOptions);
 });
 
