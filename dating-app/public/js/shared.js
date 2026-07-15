@@ -146,7 +146,7 @@ async function apiCall(url, method = 'GET', body = null) {
 }
 
 function getAvatarHtml(username, avatar, options = {}) {
-  const { className = 'w-full h-full object-cover', lazy = false } = options;
+  const { className = 'prof-avatar-img', lazy = false } = options;
   const loadingAttr = lazy ? 'loading="lazy"' : '';
   const safeUsername = escapeHtml(username || '');
   if (avatar) {
@@ -157,7 +157,7 @@ function getAvatarHtml(username, avatar, options = {}) {
     } else {
       src = `/avatars/${avatar}.png`;
     }
-    return `<img src="${src}" alt="${safeUsername}" class="${className}" ${loadingAttr}>`;
+    return `<span class="avatar-circle-wrapper"><img src="${src}" alt="${safeUsername}" class="${className}" ${loadingAttr}></span>`;
   }
   const initial = safeUsername ? safeUsername.charAt(0).toUpperCase() : '?';
   return `<div class="w-full h-full bg-gradient-to-br from-primary-container to-secondary-container text-white flex items-center justify-center font-bold text-3xl">${initial}</div>`;

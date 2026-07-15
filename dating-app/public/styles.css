@@ -431,6 +431,26 @@ body {
     min-height: 100dvh;
     overflow-x: hidden;
 }
+
+/* Circular avatar cropping to face */
+.avatar-circle-wrapper {
+  position: relative !important;
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  border-radius: 50% !important;
+  overflow: hidden !important;
+}
+
+.prof-avatar-img {
+  position: absolute !important;
+  width: 180% !important;
+  max-width: none !important;
+  left: -40% !important;
+  top: -25% !important;
+  height: auto !important;
+}
+
 .material-symbols-outlined {
     font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
 }
