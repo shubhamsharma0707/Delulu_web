@@ -160,9 +160,13 @@ function updateProfileOverlay(index) {
   
   const hobbiesEl = document.getElementById('center-hobbies');
   if (p.hobbies && p.hobbies.length > 0) {
-    hobbiesEl.innerHTML = p.hobbies.map(h => 
+    // Limit to max 4 hobbies on mobile to prevent layout overflow
+    const displayHobbies = window.innerWidth < 768 ? p.hobbies.slice(0, 4) : p.hobbies;
+    hobbiesEl.innerHTML = displayHobbies.map(h => 
       `<span class="px-3 py-1 bg-white/40 backdrop-blur-md rounded-full text-xs font-semibold text-on-surface-variant border border-white/50 shadow-sm">${escapeHtml(h)}</span>`
     ).join('');
+  } else {
+    hobbiesEl.innerHTML = '';
   }
 }
 

@@ -447,6 +447,14 @@ function onResize() {
   const height = rect.height || 500;
   
   camera.aspect = width / height;
+  
+  // Adjust camera Z position based on aspect ratio/width to prevent clipping on mobile
+  if (width < 768) {
+    camera.position.z = Math.max(8, 8 + (768 - width) * 0.005);
+  } else {
+    camera.position.z = 8;
+  }
+  
   camera.updateProjectionMatrix();
   renderer.setSize(width, height);
 }
