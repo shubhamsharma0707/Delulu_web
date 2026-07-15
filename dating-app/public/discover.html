@@ -84,7 +84,7 @@
 <body class="discover-page bg-background text-on-background min-h-screen flex flex-col pt-20 md:pt-24 pb-20 md:pb-0 antialiased">
   
   <!-- TopAppBar -->
-  <header id="global-header" class="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-6 md:px-16 py-4 bg-surface/80 backdrop-blur-xl shadow-sm">
+  <header id="global-header" class="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-4 md:px-16 py-3 md:py-4 bg-surface/80 backdrop-blur-xl shadow-sm">
     <div class="text-2xl font-bold text-primary tracking-tight">Delulu</div>
     <nav class="hidden md:flex gap-8 items-center font-semibold text-sm">
       <a href="/discover" class="nav-link transition-colors" id="nav-discover">Meet People</a>
@@ -119,7 +119,7 @@
 
   <main class="flex-grow flex flex-col w-full h-full relative" id="app-root">
     <!-- Section Header -->
-    <div class="w-full px-6 md:px-16 pt-2 pb-2 flex items-center justify-between">
+    <div class="w-full px-6 md:px-16 pt-1 pb-1 md:pt-2 md:pb-2 flex items-center justify-between">
       <div>
         <h1 class="text-2xl md:text-3xl font-bold text-on-surface">Meet People</h1>
         <p class="text-sm text-on-surface-variant">Find classmates to talk to, vibe with, or maybe grow closer to</p>
@@ -146,7 +146,7 @@
       <div id="profile-overlay" class="flex w-full justify-center mt-1 px-6">
         <div id="center-profile-info" class="text-center max-w-md mx-auto fade-in flex flex-col items-center">
           <h2 id="center-username" class="font-extrabold text-3xl md:text-4xl capitalize text-on-surface"></h2>
-          <p id="center-bio" class="text-base md:text-lg text-on-surface-variant mt-2 leading-relaxed"></p>
+          <p id="center-bio" class="text-base md:text-lg text-on-surface-variant mt-2 leading-relaxed line-clamp-2 md:line-clamp-3"></p>
           <div id="center-hobbies" class="flex flex-wrap gap-2 justify-center mt-3"></div>
           
           <!-- Connect Button Only -->
