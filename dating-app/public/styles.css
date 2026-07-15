@@ -676,3 +676,37 @@ body.discover-page #app-root, body.profile-page #app-root {
     height: 4rem !important;
   }
 }
+
+/* Mobile Responsive Profile Page Adjustments */
+@media (max-width: 768px) {
+  body.profile-page {
+    overflow: auto !important;
+    height: auto !important;
+    touch-action: auto !important;
+  }
+  
+  body.profile-page #app-root {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  #profile-3d-preview-container {
+    position: relative !important;
+    top: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    order: -1;
+    margin-top: 1rem;
+    margin-bottom: 1.5rem;
+    display: flex;
+    justify-content: center;
+    width: 100%;
+  }
+
+  #profile-3d-preview {
+    height: 220px !important;
+    width: 165px !important;
+  }
+}
