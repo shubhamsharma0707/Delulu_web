@@ -55,6 +55,7 @@ const fs = require('fs');
 
 // Load environment variables
 require('dotenv').config();
+const isDemoMode = process.env.DEMO_MODE === 'true' || process.env.DEMO_MODE === '"true"';
 
 // Check Node.js version — Node 18+ required for global fetch used in sendBrevoEmail
 if (Number(process.versions.node.split('.')[0]) < 18) {
@@ -154,7 +155,7 @@ app.set('trust proxy', 1);
 app.use(compression());
 
 // HTTP → HTTPS redirect in production (must run before helmet or any route)
-if (process.env.NODE_ENV === 'production' && process.env.DEMO_MODE !== 'true') {
+if (process.env.NODE_ENV === 'production' && !isDemoMode) {
   app.use((req, res, next) => {
     if (req.headers['x-forwarded-proto'] !== 'https') {
       return res.redirect('https://' + req.headers.host + req.url);
