@@ -551,7 +551,7 @@ let mockMessages = [
   }
 ];
 
-if (process.env.DEMO_MODE === 'true') {
+if (isDemoMode) {
   try {
     const fs = require('fs');
     const path = require('path');
@@ -639,7 +639,7 @@ function sanitizeConnection(c, userId) {
 
 // Check if user is logged in (with cache)
 app.get('/api/session', async (req, res) => {
-  if (process.env.DEMO_MODE === 'true' && req.session.userId === 999) {
+  if (isDemoMode && req.session.userId === 999) {
     const mockUser = {
       id: 999,
       username: 'cosmo',
@@ -714,7 +714,7 @@ app.post('/api/auth/send-verification-email', otpLimiter, async (req, res) => {
     return res.status(400).json({ error: 'Email is required' });
   }
 
-  if (process.env.DEMO_MODE === 'true') {
+  if (isDemoMode) {
     return res.json({ success: true });
   }
 
@@ -769,7 +769,7 @@ app.post('/api/auth/verify-token', authLimiter, async (req, res) => {
 
   const cleanEmail = email.toLowerCase().trim();
 
-  if (process.env.DEMO_MODE === 'true') {
+  if (isDemoMode) {
     req.session.pendingEmail = cleanEmail;
     if (cleanEmail === 'cosmo@nst.rishihood.edu.in') {
       const mockUser = {
@@ -831,7 +831,7 @@ app.post('/api/auth/verify-token', authLimiter, async (req, res) => {
 app.post('/api/users/login', authLimiter, async (req, res) => {
   const { usernameOrEmail, password } = req.body;
 
-  if (process.env.DEMO_MODE === 'true') {
+  if (isDemoMode) {
     const identifier = String(usernameOrEmail || '').trim().toLowerCase();
     if (identifier === 'cosmo' && password === '123456') {
       const mockUser = {
@@ -897,7 +897,7 @@ app.post('/api/auth/complete-profile', async (req, res) => {
   try {
     const { email, username, password, gender, bio, hobbies, avatar, public_key, encrypted_private_key } = req.body;
 
-    if (process.env.DEMO_MODE === 'true') {
+    if (isDemoMode) {
       const mockNewUser = {
         id: 999,
         username: String(username).trim(),
