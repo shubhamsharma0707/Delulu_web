@@ -154,7 +154,7 @@ app.set('trust proxy', 1);
 app.use(compression());
 
 // HTTP → HTTPS redirect in production (must run before helmet or any route)
-if (process.env.NODE_ENV === 'production') {
+if (process.env.NODE_ENV === 'production' && process.env.DEMO_MODE !== 'true') {
   app.use((req, res, next) => {
     if (req.headers['x-forwarded-proto'] !== 'https') {
       return res.redirect('https://' + req.headers.host + req.url);
