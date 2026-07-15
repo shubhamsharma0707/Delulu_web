@@ -467,6 +467,121 @@ io.on('connection', async (socket) => {
   });
 });
 
+// ===== DEMO MODE IN-MEMORY DATA STORAGE =====
+let mockActiveGame = {
+  game_type: 'truths_lie',
+  question: "Guess my truths and lie:\n1. I have scaled 12 mountain peaks.\n2. I speak 4 languages fluently.\n3. I once met the President.",
+  answers: { "101": "1" },
+  created_at: new Date(Date.now() - 5 * 60 * 1000).toISOString()
+};
+
+let mockMessages = [
+  {
+    id: 80001,
+    connection_id: 888,
+    sender_id: 101, // Alex
+    content: "Hey! Nice to connect here.",
+    reactions: {},
+    is_voice: 0,
+    voice_duration: 0,
+    is_encrypted: 0,
+    iv: null,
+    created_at: new Date(Date.now() - 20 * 60 * 1000).toISOString()
+  },
+  {
+    id: 80002,
+    connection_id: 888,
+    sender_id: 999, // Cosmo
+    content: "Hey Alex! Same here. What are your hobbies?",
+    reactions: {},
+    is_voice: 0,
+    voice_duration: 0,
+    is_encrypted: 0,
+    iv: null,
+    created_at: new Date(Date.now() - 18 * 60 * 1000).toISOString()
+  },
+  {
+    id: 80003,
+    connection_id: 888,
+    sender_id: 101, // Alex
+    content: "I love photography and hiking. I recorded a voice note about my weekend trail!",
+    reactions: {},
+    is_voice: 0,
+    voice_duration: 0,
+    is_encrypted: 0,
+    iv: null,
+    created_at: new Date(Date.now() - 15 * 60 * 1000).toISOString()
+  },
+  {
+    id: 80004,
+    connection_id: 888,
+    sender_id: 101, // Alex
+    content: "",
+    reactions: {},
+    is_voice: 1,
+    voice_duration: 6,
+    voice_url: "/uploads/voice/demo-voice.wav",
+    is_encrypted: 0,
+    iv: null,
+    created_at: new Date(Date.now() - 14 * 60 * 1000).toISOString()
+  },
+  {
+    id: 80005,
+    connection_id: 888,
+    sender_id: 999, // Cosmo
+    content: "That sounds amazing! Let's check out the icebreaker games.",
+    reactions: {},
+    is_voice: 0,
+    voice_duration: 0,
+    is_encrypted: 0,
+    iv: null,
+    created_at: new Date(Date.now() - 12 * 60 * 1000).toISOString()
+  },
+  {
+    id: 80006,
+    connection_id: 888,
+    sender_id: 101, // Alex
+    content: "Awesome! I started a game, answer it!",
+    reactions: {},
+    is_voice: 0,
+    voice_duration: 0,
+    is_encrypted: 0,
+    iv: null,
+    created_at: new Date(Date.now() - 10 * 60 * 1000).toISOString()
+  }
+];
+
+if (process.env.DEMO_MODE === 'true') {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const dir = path.join(__dirname, 'public', 'uploads', 'voice');
+    fs.mkdirSync(dir, { recursive: true });
+    const demoPath = path.join(dir, 'demo-voice.wav');
+    if (!fs.existsSync(demoPath)) {
+      const header = Buffer.alloc(44);
+      header.write('RIFF', 0);
+      header.writeUInt32LE(36 + 8000, 4);
+      header.write('WAVE', 8);
+      header.write('fmt ', 12);
+      header.writeUInt32LE(16, 16);
+      header.writeUInt16LE(1, 20);
+      header.writeUInt16LE(1, 22);
+      header.writeUInt32LE(8000, 24);
+      header.writeUInt32LE(8000, 28);
+      header.writeUInt16LE(1, 32);
+      header.writeUInt16LE(8, 34);
+      header.write('data', 36);
+      header.writeUInt32LE(8000, 40);
+      const pcm = Buffer.alloc(8000, 128); // 8-bit PCM silence
+      fs.writeFileSync(demoPath, Buffer.concat([header, pcm]));
+      console.log('Created local silent demo voice file at:', demoPath);
+    }
+  } catch (err) {
+    console.error('Failed to create demo voice file:', err.message);
+  }
+}
+
 // ===== API ROUTES =====
 
 // Auth middleware
@@ -524,6 +639,21 @@ function sanitizeConnection(c, userId) {
 
 // Check if user is logged in (with cache)
 app.get('/api/session', async (req, res) => {
+  if (process.env.DEMO_MODE === 'true' && req.session.userId === 999) {
+    const mockUser = {
+      id: 999,
+      username: 'cosmo',
+      gender: 'male',
+      bio: 'Product Designer at Delulu. Music enthusiast, coffee lover, and amateur guitarist.',
+      hobbies: ['music', 'coffee', 'guitar', 'photography'],
+      avatar: 'male_01',
+      ecosystem: 'rishihood',
+      email: 'cosmo@nst.rishihood.edu.in'
+    };
+    req.session.user = mockUser;
+    return res.json({ authenticated: true, user: mockUser });
+  }
+
   if (req.session.user) {
     return res.json({ authenticated: true, user: req.session.user });
   }
@@ -584,6 +714,10 @@ app.post('/api/auth/send-verification-email', otpLimiter, async (req, res) => {
     return res.status(400).json({ error: 'Email is required' });
   }
 
+  if (process.env.DEMO_MODE === 'true') {
+    return res.json({ success: true });
+  }
+
   const cleanEmail = email.toLowerCase().trim();
   const domain = cleanEmail.split('@')[1];
   const allowedDomains = [
@@ -634,6 +768,35 @@ app.post('/api/auth/verify-token', authLimiter, async (req, res) => {
   }
 
   const cleanEmail = email.toLowerCase().trim();
+
+  if (process.env.DEMO_MODE === 'true') {
+    req.session.pendingEmail = cleanEmail;
+    if (cleanEmail === 'cosmo@nst.rishihood.edu.in') {
+      const mockUser = {
+        id: 999,
+        username: 'cosmo',
+        gender: 'male',
+        bio: 'Product Designer at Delulu. Music enthusiast, coffee lover, and amateur guitarist.',
+        hobbies: ['music', 'coffee', 'guitar', 'photography'],
+        avatar: 'male_01',
+        ecosystem: 'rishihood',
+        email: 'cosmo@nst.rishihood.edu.in'
+      };
+      req.session.userId = mockUser.id;
+      req.session.user = mockUser;
+      return res.json({
+        success: true,
+        isNewUser: false,
+        email: cleanEmail
+      });
+    }
+    return res.json({
+      success: true,
+      isNewUser: true,
+      email: cleanEmail
+    });
+  }
+
   try {
     const validOtp = await otpOps.getValidOTP(cleanEmail, token);
     if (!validOtp) {
@@ -667,6 +830,26 @@ app.post('/api/auth/verify-token', authLimiter, async (req, res) => {
 // Username/Email + Password Login
 app.post('/api/users/login', authLimiter, async (req, res) => {
   const { usernameOrEmail, password } = req.body;
+
+  if (process.env.DEMO_MODE === 'true') {
+    const identifier = String(usernameOrEmail || '').trim().toLowerCase();
+    if (identifier === 'cosmo' && password === '123456') {
+      const mockUser = {
+        id: 999,
+        username: 'cosmo',
+        gender: 'male',
+        bio: 'Product Designer at Delulu. Music enthusiast, coffee lover, and amateur guitarist.',
+        hobbies: ['music', 'coffee', 'guitar', 'photography'],
+        avatar: 'male_01',
+        ecosystem: 'rishihood',
+        email: 'cosmo@nst.rishihood.edu.in'
+      };
+      req.session.userId = mockUser.id;
+      req.session.user = mockUser;
+      return res.json({ success: true, user: mockUser });
+    }
+  }
+
   if (!usernameOrEmail || !password) {
     return res.status(400).json({ error: 'Username/Email and password are required' });
   }
@@ -713,6 +896,22 @@ app.post('/api/users/login', authLimiter, async (req, res) => {
 app.post('/api/auth/complete-profile', async (req, res) => {
   try {
     const { email, username, password, gender, bio, hobbies, avatar, public_key, encrypted_private_key } = req.body;
+
+    if (process.env.DEMO_MODE === 'true') {
+      const mockNewUser = {
+        id: 999,
+        username: String(username).trim(),
+        gender,
+        bio: bio || '',
+        hobbies: hobbies || [],
+        avatar: avatar || 'male_01',
+        ecosystem: 'rishihood',
+        email: email || 'cosmo@nst.rishihood.edu.in'
+      };
+      req.session.userId = mockNewUser.id;
+      req.session.user = mockNewUser;
+      return res.json({ success: true, user: mockNewUser });
+    }
 
     if (!email || !username || !password || !gender) {
       return res.status(400).json({ error: 'Email, username, password, and gender are required' });
