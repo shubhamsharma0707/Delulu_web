@@ -129,6 +129,9 @@ function init3DPreview() {
 
   // Resize Handler
   window.addEventListener('resize', onPreviewResize);
+  window.addEventListener('load', onPreviewResize);
+  setTimeout(onPreviewResize, 100);
+  setTimeout(onPreviewResize, 500);
 
   // Clean up Three.js resources when navigating away (beforeunload for desktop,
   // pagehide for iOS Safari which doesn't reliably fire beforeunload)
@@ -172,8 +175,9 @@ function init3DPreview() {
 function onPreviewResize() {
   const container = document.getElementById('profile-3d-preview');
   if (!container || !previewRenderer || !previewCamera) return;
-  const width = container.clientWidth;
-  const height = container.clientHeight;
+  const width = container.clientWidth || container.getBoundingClientRect().width || 165;
+  const height = container.clientHeight || container.getBoundingClientRect().height || 220;
+  if (width === 0 || height === 0) return;
   previewCamera.aspect = width / height;
   previewCamera.updateProjectionMatrix();
   previewRenderer.setSize(width, height);

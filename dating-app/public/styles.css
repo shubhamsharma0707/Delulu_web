@@ -709,4 +709,10 @@ body.discover-page #app-root, body.profile-page #app-root {
     height: 220px !important;
     width: 165px !important;
   }
+  
+  #profile-3d-preview canvas {
+    display: block;
+    width: 100% !important;
+    height: 100% !important;
+  }
 }
