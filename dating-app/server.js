@@ -90,8 +90,8 @@ const voiceStorage = multer.diskStorage({
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const originalExt = path.extname(file.originalname) || '.webm';
-    cb(null, 'voice-' + uniqueSuffix + originalExt);
+    // Force .webm extension for all voice uploads to prevent Stored XSS via HTML/JS files
+    cb(null, 'voice-' + uniqueSuffix + '.webm');
   }
 });
 const voiceUpload = multer({
@@ -272,11 +272,16 @@ app.use(express.urlencoded({ extended: true }));
 // Apply general API rate limiter to all /api/ routes
 app.use('/api/', apiLimiter);
 
-// CSRF Origin/Referer check — defense-in-depth on top of sameSite: 'lax'
+// CSRF Sec-Fetch-Site / Origin check — defense-in-depth on top of sameSite: 'lax'
 app.use((req, res, next) => {
   if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) {
+    const secFetchSite = req.get('sec-fetch-site');
+    // Block cross-site state-changing requests outright if sent by browser
+    if (secFetchSite === 'cross-site') {
+      return res.status(403).json({ error: 'Cross-origin request blocked' });
+    }
+
     const origin = req.get('origin') || req.get('referer') || '';
-    // Allow requests with no origin (same-origin form submissions, server-to-server)
     if (origin) {
       try {
         const originHostname = new URL(origin).hostname;
@@ -679,12 +684,18 @@ app.post('/api/users/login', authLimiter, async (req, res) => {
       user = await userOps.getByUsername(identifier);
     }
 
-    if (!user) {
-      return res.status(401).json({ error: 'Incorrect username/email or password' });
+    // Dummy hash comparison to prevent timing side-channel attacks for username enumeration
+    const DUMMY_HASH = '$2b$10$tM2a690L85N6x/2j68g2ae1f68ae1f68ae1f68ae1f68ae1f68ae';
+    let match = false;
+    
+    if (user) {
+      match = await bcrypt.compare(password, user.passcode_hash);
+    } else {
+      // Execute dummy compare to match processor runtime cycles
+      await bcrypt.compare(password, DUMMY_HASH);
     }
 
-    const match = await bcrypt.compare(password, user.passcode_hash);
-    if (!match) {
+    if (!user || !match) {
       return res.status(401).json({ error: 'Incorrect username/email or password' });
     }
 
