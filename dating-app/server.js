@@ -1040,6 +1040,107 @@ app.put('/api/users/me', requireAuth, async (req, res) => {
 // Discover profiles
 // Discover profiles
 app.get('/api/discover', requireAuth, async (req, res) => {
+  if (isDemoMode) {
+    const femaleNames = [
+      'Amy Wanderlust', 'Zara Artist', 'Emily Trail', 'Maya Bookworm', 'Clara Melody', 
+      'Sophia Spice', 'Ananya Sen', 'Diya Sharma', 'Isha Verma', 'Kavya Iyer', 
+      'Riya Kapoor', 'Sanya Malhotra', 'Tanya Sen', 'Priya Das', 'Shruti Joshi', 
+      'Meera Nair', 'Nisha Roy', 'Aditi Rao', 'Suhani Goel', 'Pooja Bhatt', 
+      'Neha Kakkar', 'Kriti Sanon', 'Aishwarya Sen', 'Deepika Padukone', 'Kiara Advani', 
+      'Tara Sutaria', 'Janhvi Kapoor', 'Sara Ali Khan', 'Khushi Kapoor', 'Muskan'
+    ];
+    const bios = [
+      "Dog mom, amateur pasta maker, and weekend hiker. Love coffee.",
+      "Art enthusiast and gallery hopper. Love stargazing.",
+      "Trail runner and outdoor enthusiast. Let's explore!",
+      "Bookworm with an indie soul. Poetry and cozy corners.",
+      "Indie musician and vinyl collector. Music is my life.",
+      "Home chef and spice collector. Baking lover.",
+      "Computer science student. Love coding and late night walks.",
+      "Literature major. Always reading or writing poetry.",
+      "Always looking for the next adventure. Hiker and foodie.",
+      "Design student. Sketching my way through college.",
+      "Dancer and music enthusiast. Let's share a playlist.",
+      "Psychology undergrad. Let's talk about coffee and dreams.",
+      "Journalism student. Curious about stories, cafes and books.",
+      "Violin player and classical music lover. Let's vibe.",
+      "Fashion design student. Love styles, modeling, and travel.",
+      "Economics student. Passionate about debates, photography, and yoga.",
+      "Tennis enthusiast and fitness coach. Let's hit the court!",
+      "Coffee barista by day, stargazing lover by night.",
+      "Plant mom, organic gardening, and green tea lover.",
+      "Avid reader, cat lover, and tea connoisseur.",
+      "Film student. Analyzing cinema, directing, and screenwriting.",
+      "Food blogger. Exploring street food and fine dining.",
+      "Digital artist. Creating sci-fi environments and concept arts.",
+      "Yoga teacher and mindfulness practitioner.",
+      "Mathematics nerd. Love puzzles, chess, and hot chocolate.",
+      "Guitarist. Let's write songs and record cover tracks.",
+      "Travel guide. Exploring historical monuments and local food.",
+      "Amateur astronomer. Exploring constellations and space science.",
+      "Wildlife photographer. Love animals and forests.",
+      "Weekend surfer, swimmer, and beach walker."
+    ];
+    const hobbiesList = [
+      ['hiking', 'coffee', 'travel'],
+      ['art', 'photography', 'music'],
+      ['hiking', 'running', 'travel'],
+      ['reading', 'coffee', 'writing'],
+      ['music', 'art', 'dancing'],
+      ['cooking', 'baking', 'gardening'],
+      ['coding', 'music', 'gaming'],
+      ['reading', 'writing', 'coffee'],
+      ['hiking', 'travel', 'cooking'],
+      ['art', 'photography', 'travel'],
+      ['dancing', 'music', 'coffee'],
+      ['coffee', 'reading', 'music'],
+      ['reading', 'writing', 'coffee'],
+      ['music', 'reading', 'travel'],
+      ['travel', 'photography', 'art'],
+      ['yoga', 'photography', 'reading'],
+      ['running', 'cycling', 'travel'],
+      ['coffee', 'reading', 'hiking'],
+      ['gardening', 'cooking', 'yoga'],
+      ['reading', 'music', 'coffee'],
+      ['movies', 'photography', 'writing'],
+      ['cooking', 'baking', 'travel'],
+      ['art', 'gaming', 'coding'],
+      ['yoga', 'meditation', 'hiking'],
+      ['reading', 'gaming', 'coffee'],
+      ['music', 'writing', 'coffee'],
+      ['travel', 'hiking', 'photography'],
+      ['photography', 'reading', 'music'],
+      ['photography', 'travel', 'hiking'],
+      ['swimming', 'travel', 'yoga']
+    ];
+
+    const user = req.session.user || { hobbies: [] };
+    const userHobbies = Array.isArray(user.hobbies) ? user.hobbies : [];
+    const userHobbiesLower = userHobbies.map(h => String(h).toLowerCase());
+
+    const mappedProfiles = femaleNames.map((name, idx) => {
+      const pad = String(idx + 1).padStart(2, '0');
+      const username = name.toLowerCase().replace(/\s+/g, '_');
+      const hobbies = hobbiesList[idx];
+      const matchingHobbies = hobbies.filter(h => userHobbiesLower.includes(h.toLowerCase()));
+      return {
+        id: 1000 + idx + 1,
+        username,
+        gender: 'female',
+        bio: bios[idx],
+        hobbies,
+        matching_hobbies: matchingHobbies,
+        match_count: matchingHobbies.length,
+        avatar: {
+          idle: `/avatars/female_${pad}.png`,
+          wave: `/avatars/female_${pad}.png`
+        }
+      };
+    });
+
+    return res.json({ profiles: mappedProfiles });
+  }
+
   const user = await userOps.getById(req.session.userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
 
@@ -1118,12 +1219,86 @@ app.post('/api/connections/dismiss', requireAuth, discoverLimiter, async (req, r
 
 // Get pending requests (incoming)
 app.get('/api/connections/incoming', requireAuth, async (req, res) => {
+  if (isDemoMode) {
+    return res.json({
+      requests: [
+        {
+          id: 9001,
+          from_user_id: 1007,
+          to_user_id: 999,
+          status: 'pending',
+          other_user_id: 1007,
+          other_username: 'ananya_sen',
+          other_avatar: {
+            idle: '/avatars/female_07.png',
+            wave: '/avatars/female_07.png'
+          },
+          other_bio: 'Psychology undergrad. Let\'s talk about coffee and dreams.',
+          other_hobbies: ['coffee', 'reading', 'music'],
+          created_at: new Date(Date.now() - 3600 * 1000).toISOString()
+        },
+        {
+          id: 9002,
+          from_user_id: 1009,
+          to_user_id: 999,
+          status: 'pending',
+          other_user_id: 1009,
+          other_username: 'isha_verma',
+          other_avatar: {
+            idle: '/avatars/female_09.png',
+            wave: '/avatars/female_09.png'
+          },
+          other_bio: 'Always looking for the next adventure. Hiker and foodie.',
+          other_hobbies: ['hiking', 'travel', 'cooking'],
+          created_at: new Date(Date.now() - 7200 * 1000).toISOString()
+        }
+      ]
+    });
+  }
+
   const requests = await connectionOps.getPendingForUser(req.session.userId);
   res.json({ requests });
 });
 
 // Get sent requests
 app.get('/api/connections/sent', requireAuth, async (req, res) => {
+  if (isDemoMode) {
+    return res.json({
+      requests: [
+        {
+          id: 9003,
+          from_user_id: 999,
+          to_user_id: 1012,
+          status: 'pending',
+          other_user_id: 1012,
+          other_username: 'riya_kapoor',
+          other_avatar: {
+            idle: '/avatars/female_12.png',
+            wave: '/avatars/female_12.png'
+          },
+          other_bio: 'Design student. Sketching my way through college.',
+          other_hobbies: ['art', 'photography', 'travel'],
+          created_at: new Date(Date.now() - 1800 * 1000).toISOString()
+        },
+        {
+          id: 9004,
+          from_user_id: 999,
+          to_user_id: 1019,
+          status: 'pending',
+          other_user_id: 1019,
+          other_username: 'sanya_malhotra',
+          other_avatar: {
+            idle: '/avatars/female_19.png',
+            wave: '/avatars/female_19.png'
+          },
+          other_bio: 'Dancer and music enthusiast. Let\'s share a playlist.',
+          other_hobbies: ['dancing', 'music', 'coffee'],
+          created_at: new Date(Date.now() - 5400 * 1000).toISOString()
+        }
+      ]
+    });
+  }
+
   const requests = await connectionOps.getSentRequests(req.session.userId);
   res.json({ requests });
 });
@@ -1175,6 +1350,35 @@ app.delete('/api/connections/:id', requireAuth, async (req, res) => {
 
 // Get active connections (accepted chats)
 app.get('/api/connections/active', requireAuth, async (req, res) => {
+  if (isDemoMode) {
+    return res.json({
+      connections: [
+        {
+          id: 888,
+          from_user_id: 999,
+          to_user_id: 101,
+          status: 'accepted',
+          other_user_id: 101,
+          other_username: 'Alex',
+          other_avatar: {
+            idle: '/avatars/male_14.png',
+            wave: '/avatars/male_14.png'
+          },
+          other_bio: 'Electronics engineer. Guitar player and hiking lover.',
+          other_hobbies: ['music', 'hiking', 'coffee'],
+          last_message: 'Awesome! I started a game, answer it!',
+          last_message_time: new Date(Date.now() - 2 * 60 * 1000).toISOString(),
+          both_identity_revealed: true,
+          my_identity_reveal: 1,
+          other_identity_reveal: 1,
+          identity_reveal_available_at: new Date(Date.now() - 24 * 3600 * 1000).toISOString(),
+          face_reveal_available_at: new Date(Date.now() - 24 * 3600 * 1000).toISOString(),
+          active_game: mockActiveGame
+        }
+      ]
+    });
+  }
+
   const connections = await connectionOps.getActiveConnections(req.session.userId);
   
   const enriched = connections.map(c => {
@@ -1189,6 +1393,33 @@ app.get('/api/connections/active', requireAuth, async (req, res) => {
 
 // Get single connection details
 app.get('/api/connections/:id', requireAuth, async (req, res) => {
+  if (isDemoMode && req.params.id === '888') {
+    return res.json({
+      connection: {
+        id: 888,
+        from_user_id: 999,
+        to_user_id: 101,
+        status: 'accepted',
+        other_user_id: 101,
+        other_username: 'Alex',
+        other_avatar: {
+          idle: '/avatars/male_14.png',
+          wave: '/avatars/male_14.png'
+        },
+        other_bio: 'Electronics engineer. Guitar player and hiking lover.',
+        other_hobbies: ['music', 'hiking', 'coffee'],
+        last_message: 'Awesome! I started a game, answer it!',
+        last_message_time: new Date(Date.now() - 2 * 60 * 1000).toISOString(),
+        both_identity_revealed: true,
+        my_identity_reveal: 1,
+        other_identity_reveal: 1,
+        identity_reveal_available_at: new Date(Date.now() - 24 * 3600 * 1000).toISOString(),
+        face_reveal_available_at: new Date(Date.now() - 24 * 3600 * 1000).toISOString(),
+        active_game: mockActiveGame
+      }
+    });
+  }
+
   const conn = await connectionOps.getConnection(req.params.id, req.session.userId);
   if (conn && conn._dataIntegrityError) {
     return res.status(410).json({ error: 'This chat is no longer available — one of the accounts involved no longer exists.' });
@@ -1210,8 +1441,12 @@ app.get('/api/connections/:id/stream', requireAuth, async (req, res) => {
   const connectionId = req.params.id;
   const userId = req.session.userId;
   
-  // Verify that the connection exists and the user belongs to it
-  const conn = await connectionOps.getConnection(connectionId, userId);
+  let conn = null;
+  if (isDemoMode && connectionId === '888') {
+    conn = { id: 888, from_user_id: 999, to_user_id: 101 };
+  } else {
+    conn = await connectionOps.getConnection(connectionId, userId);
+  }
   if (!conn || conn._dataIntegrityError) {
     return res.status(404).end();
   }
@@ -1344,6 +1579,31 @@ app.post('/api/connections/end-after-decline', requireAuth, async (req, res) => 
 app.post('/api/connections/:id/start-game', requireAuth, async (req, res) => {
   const { game_type, question } = req.body;
   if (!game_type || !question) return res.status(400).json({ error: 'Missing game_type or question' });
+
+  if (isDemoMode && req.params.id === '888') {
+    mockActiveGame = {
+      game_type,
+      question,
+      answers: {},
+      created_at: new Date().toISOString()
+    };
+    
+    io.to('chat:888').emit('status_change', { connection_id: '888' });
+    io.to('chat:888').emit('game_update', {
+      connection_id: '888',
+      from_user_id: 999,
+      to_user_id: 101,
+      active_game: mockActiveGame
+    });
+    connectionEmitter.emit('update:888', {
+      type: 'game',
+      from_user_id: 999,
+      to_user_id: 101,
+      active_game: mockActiveGame
+    });
+    return res.json({ success: true, active_game: mockActiveGame });
+  }
+
   try {
     const conn = await connectionOps.getConnection(req.params.id, req.session.userId);
     if (!conn || conn._dataIntegrityError) return res.status(404).json({ error: 'Connection not found' });
@@ -1378,6 +1638,30 @@ app.post('/api/connections/:id/start-game', requireAuth, async (req, res) => {
 app.post('/api/connections/:id/answer-game', requireAuth, async (req, res) => {
   const { answer } = req.body;
   if (!answer) return res.status(400).json({ error: 'Missing answer' });
+
+  if (isDemoMode && req.params.id === '888') {
+    if (!mockActiveGame) return res.status(400).json({ error: 'No active game found' });
+    mockActiveGame.answers = mockActiveGame.answers || {};
+    mockActiveGame.answers['999'] = answer;
+    
+    const bothAnswered = mockActiveGame.answers['101'] !== undefined && mockActiveGame.answers['999'] !== undefined;
+    
+    io.to('chat:888').emit('status_change', { connection_id: '888' });
+    io.to('chat:888').emit('game_update', {
+      connection_id: '888',
+      from_user_id: 999,
+      to_user_id: 101,
+      active_game: mockActiveGame
+    });
+    connectionEmitter.emit('update:888', {
+      type: 'game',
+      from_user_id: 999,
+      to_user_id: 101,
+      active_game: mockActiveGame
+    });
+    return res.json({ success: true, bothAnswered, gameData: mockActiveGame });
+  }
+
   try {
     const conn = await connectionOps.getConnection(req.params.id, req.session.userId);
     if (!conn || conn._dataIntegrityError) return res.status(404).json({ error: 'Connection not found' });
@@ -1410,22 +1694,31 @@ app.post('/api/connections/:id/answer-game', requireAuth, async (req, res) => {
 });
 
 // Clear icebreaker game
-// IMPORTANT: Do NOT emit status_change here — both users already saw the game card dissolve
-// via handleBothAnswered's setTimeout. Emitting status_change creates a race condition where
-// a stale clear-game event can arrive AFTER start-game has created a new game, causing
-// syncActiveGame to see active_game=null and remove the NEW game card.
 app.post('/api/connections/:id/clear-game', requireAuth, async (req, res) => {
   const { game_created_at } = req.body;
+
+  if (isDemoMode && req.params.id === '888') {
+    mockActiveGame = null;
+    io.to('chat:888').emit('game_update', {
+      connection_id: '888',
+      from_user_id: 999,
+      to_user_id: 101,
+      active_game: null
+    });
+    connectionEmitter.emit('update:888', {
+      type: 'game',
+      from_user_id: 999,
+      to_user_id: 101,
+      active_game: null
+    });
+    return res.json({ success: true, cleared: true });
+  }
+
   try {
     const conn = await connectionOps.getConnection(req.params.id, req.session.userId);
     if (!conn || conn._dataIntegrityError) return res.status(404).json({ error: 'Connection not found' });
     
-    // Clear game in Firestore connection doc. Returns { cleared: true } if
-    // the game was actually removed, { cleared: false } if the transaction was
-    // skipped because the active_game's created_at didn't match (meaning a new
-    // game replaced the old one). We only broadcast game_update(null) when
-    // something actually changed, preventing a stale timeout from removing a
-    // newly created game.
+    // Clear game in Firestore connection doc.
     const { cleared } = await connectionOps.clearGame(req.params.id, game_created_at);
     
     // Broadcast the clear state to both clients only if the game was actually removed
@@ -1455,6 +1748,29 @@ app.post('/api/connections/:id/clear-game', requireAuth, async (req, res) => {
 
 // Get messages for a connection
 app.get('/api/messages/:connectionId', requireAuth, async (req, res) => {
+  if (isDemoMode && req.params.connectionId === '888') {
+    const conn = {
+      id: 888,
+      from_user_id: 999,
+      to_user_id: 101,
+      status: 'accepted',
+      other_user_id: 101,
+      other_username: 'Alex',
+      other_avatar: {
+        idle: '/avatars/male_14.png',
+        wave: '/avatars/male_14.png'
+      },
+      other_bio: 'Electronics engineer. Guitar player and hiking lover.',
+      other_hobbies: ['music', 'hiking', 'coffee'],
+      both_identity_revealed: true,
+      my_identity_reveal: 1,
+      other_identity_reveal: 1,
+      identity_reveal_available_at: new Date(Date.now() - 24 * 3600 * 1000).toISOString(),
+      face_reveal_available_at: new Date(Date.now() - 24 * 3600 * 1000).toISOString()
+    };
+    return res.json({ messages: mockMessages, connection: conn });
+  }
+
   const conn = await connectionOps.getConnection(req.params.connectionId, req.session.userId);
   if (conn && conn._dataIntegrityError) {
     return res.status(410).json({ error: 'This chat is no longer available — one of the accounts involved no longer exists.' });
@@ -1468,6 +1784,10 @@ app.get('/api/messages/:connectionId', requireAuth, async (req, res) => {
 
 // REST fallback for read receipts when Socket.io is disabled or unavailable.
 app.post('/api/messages/:connectionId/read', requireAuth, async (req, res) => {
+  if (isDemoMode && req.params.connectionId === '888') {
+    return res.json({ success: true, readAt: new Date().toISOString(), count: 0 });
+  }
+
   const conn = await connectionOps.getConnection(req.params.connectionId, req.session.userId);
   if (conn && conn._dataIntegrityError) {
     return res.status(410).json({ error: 'This chat is no longer available — one of the accounts involved no longer exists.' });
@@ -1483,6 +1803,40 @@ app.post('/api/messages/send', requireAuth, async (req, res) => {
   const { connection_id, content, is_encrypted, iv } = req.body;
   if (!connection_id || !content?.trim()) {
     return res.status(400).json({ error: 'Missing connection_id or content' });
+  }
+
+  if (isDemoMode && String(connection_id) === '888') {
+    const newMsg = {
+      id: Date.now(),
+      connection_id: 888,
+      sender_id: 999,
+      content: sanitizeText(content.trim()),
+      reactions: {},
+      is_voice: 0,
+      voice_duration: 0,
+      is_encrypted: is_encrypted || 0,
+      iv: iv || null,
+      created_at: new Date().toISOString()
+    };
+    mockMessages.push(newMsg);
+
+    // Emit socket event for real-time receipt
+    io.to('chat:888').emit('new-message', {
+      ...newMsg,
+      sender_id: 999
+    });
+    io.to('chat:888').emit('chat-update', {
+      connectionId: 888,
+      lastMessage: sanitizeText(content.trim()),
+      lastMessageTime: newMsg.created_at,
+      senderId: 999
+    });
+    connectionEmitter.emit('update:888', {
+      type: 'message',
+      senderId: 999,
+      messageId: newMsg.id
+    });
+    return res.json(newMsg);
   }
 
   const conn = await connectionOps.getConnection(connection_id, req.session.userId);
@@ -1540,6 +1894,40 @@ app.post('/api/messages/upload-voice', requireAuth, (req, res, next) => {
     const { connection_id, duration, is_encrypted, iv } = req.body;
     if (!req.file || !connection_id) {
       return res.status(400).json({ error: 'Missing audio file or connection_id' });
+    }
+
+    if (isDemoMode && String(connection_id) === '888') {
+      const content = `/uploads/voice/${req.file.filename}`;
+      const newMsg = {
+        id: Date.now(),
+        connection_id: 888,
+        sender_id: 999,
+        content,
+        reactions: {},
+        is_voice: 1,
+        voice_duration: Math.round(duration || 0),
+        is_encrypted: is_encrypted || 0,
+        iv: iv || null,
+        created_at: new Date().toISOString()
+      };
+      mockMessages.push(newMsg);
+
+      io.to('chat:888').emit('new-message', {
+        ...newMsg,
+        sender_id: 999
+      });
+      io.to('chat:888').emit('chat-update', {
+        connectionId: 888,
+        lastMessage: '🎤 Voice note',
+        lastMessageTime: newMsg.created_at,
+        senderId: 999
+      });
+      connectionEmitter.emit('update:888', {
+        type: 'message',
+        senderId: 999,
+        messageId: newMsg.id
+      });
+      return res.json({ success: true, message: newMsg });
     }
 
     const conn = await connectionOps.getConnection(connection_id, req.session.userId);
