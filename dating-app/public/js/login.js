@@ -133,7 +133,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       'design.rishihood.edu.in'
     ];
     if (!domain || !allowedDomains.includes(domain)) {
-      errEl.textContent = 'Only @rishihood.edu.in, @nst.rishihood.edu.in, @psy.rishihood.edu.in, @csds.rishihood.edu.in, @makers.rishihood.edu.in, @design.rishihood.edu.in and @vitbhopal.ac.in email addresses are allowed';
+      errEl.textContent = 'Invalid email';
       errEl.classList.remove('hidden');
       return;
     }
