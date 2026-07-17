@@ -1,5 +1,4 @@
-// CSS-based Avatar Carousel — replaces Three.js WebGL to guarantee pixel-perfect colors
-let avatarGroups = [];
+// Single-avatar display — shows one avatar at a time, centered, fades on navigate
 let isSceneReady = false;
 let currentCenterIndex = 0;
 let targetIndex = 0;
@@ -7,6 +6,7 @@ let sceneContainer;
 let profilesData = [];
 let animationId = null;
 let waveTimers = [];
+let avatarEls = [];  // array of wrapper divs, one per profile
 
 function initAvatarScene(containerId, profiles) {
   destroyAvatarScene();
@@ -18,19 +18,19 @@ function initAvatarScene(containerId, profiles) {
   currentCenterIndex = 0;
   targetIndex = 0;
 
-  // Build the CSS carousel DOM
   sceneContainer.innerHTML = '';
   sceneContainer.style.cssText = `
     position: relative;
     width: 100%;
     height: 100%;
-    overflow: visible;
+    min-height: 340px;
     display: flex;
     align-items: flex-end;
     justify-content: center;
+    overflow: visible;
   `;
 
-  avatarGroups = profiles.map((profile, i) => {
+  avatarEls = profiles.map((profile, i) => {
     const idleSrc = profile.avatar && typeof profile.avatar === 'object'
       ? profile.avatar.idle
       : profile.avatar ? `/avatars/${profile.avatar}.png` : null;
@@ -40,52 +40,45 @@ function initAvatarScene(containerId, profiles) {
 
     const wrapper = document.createElement('div');
     wrapper.dataset.index = i;
+    wrapper.dataset.state = 'idle';
     wrapper.style.cssText = `
       position: absolute;
       bottom: 0;
       left: 50%;
+      transform: translateX(-50%);
       display: flex;
-      flex-direction: column;
-      align-items: center;
-      transform-origin: bottom center;
-      transition: transform 0.5s cubic-bezier(0.34,1.56,0.64,1), opacity 0.4s ease;
-      pointer-events: none;
-      will-change: transform, opacity;
+      align-items: flex-end;
+      justify-content: center;
+      opacity: ${i === 0 ? '1' : '0'};
+      transition: opacity 0.35s ease;
+      pointer-events: ${i === 0 ? 'auto' : 'none'};
     `;
 
     if (idleSrc) {
-      const imgIdle = document.createElement('img');
-      imgIdle.src = idleSrc;
-      imgIdle.dataset.idle = idleSrc;
-      imgIdle.dataset.wave = waveSrc || idleSrc;
-      imgIdle.alt = profile.username;
-      imgIdle.draggable = false;
-      imgIdle.style.cssText = `
-        width: auto;
+      const img = document.createElement('img');
+      img.src = idleSrc;
+      img.dataset.idle = idleSrc;
+      img.dataset.wave = waveSrc || idleSrc;
+      img.alt = profile.username;
+      img.draggable = false;
+      img.style.cssText = `
         height: 320px;
+        width: auto;
         object-fit: contain;
         display: block;
         pointer-events: none;
         user-select: none;
         -webkit-user-drag: none;
       `;
-      wrapper.appendChild(imgIdle);
-      wrapper.dataset.state = 'idle';
+      wrapper.appendChild(img);
     } else {
-      // Fallback letter avatar
       const fallback = document.createElement('div');
       fallback.textContent = profile.username.charAt(0).toUpperCase();
       fallback.style.cssText = `
-        width: 120px;
-        height: 120px;
-        border-radius: 50%;
-        background: #ffdad4;
-        color: #731709;
-        font-size: 56px;
-        font-weight: 700;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        width: 120px; height: 120px; border-radius: 50%;
+        background: #ffdad4; color: #731709;
+        font-size: 56px; font-weight: 700;
+        display: flex; align-items: center; justify-content: center;
       `;
       wrapper.appendChild(fallback);
     }
@@ -95,83 +88,53 @@ function initAvatarScene(containerId, profiles) {
   });
 
   isSceneReady = true;
-  updateLayout(0);
-  startAnimation();
+  startFloatAnimation();
   startWaveCycle();
 
-  // Touch/pointer drag support
-  let dragStart = null;
-  let dragging = false;
+  // Swipe/drag support
+  let dragStartX = null;
 
   const onPointerDown = (e) => {
-    dragStart = e.clientX ?? e.touches?.[0]?.clientX;
-    dragging = true;
+    dragStartX = e.clientX ?? e.touches?.[0]?.clientX ?? null;
   };
   const onPointerMove = (e) => {
-    if (!dragging || dragStart === null) return;
-    const x = e.clientX ?? e.touches?.[0]?.clientX;
-    if (Math.abs(x - dragStart) > 40) {
-      const dir = x < dragStart ? 1 : -1;
-      dragging = false;
-      dragStart = null;
+    if (dragStartX === null) return;
+    const x = e.clientX ?? e.touches?.[0]?.clientX ?? dragStartX;
+    if (Math.abs(x - dragStartX) > 50) {
+      const dir = x < dragStartX ? 1 : -1;
+      dragStartX = null;
       window.updateAvatarScene(Math.max(0, Math.min(profilesData.length - 1, targetIndex + dir)));
-      if (typeof window.updateNavButtons === 'function') window.updateNavButtons();
     }
   };
-  const onPointerEnd = () => { dragging = false; dragStart = null; };
+  const onPointerEnd = () => { dragStartX = null; };
 
   sceneContainer.addEventListener('pointerdown', onPointerDown);
   sceneContainer.addEventListener('pointermove', onPointerMove);
   sceneContainer.addEventListener('pointerup', onPointerEnd);
   sceneContainer.addEventListener('pointercancel', onPointerEnd);
-
   window.__avatarListeners = { onPointerDown, onPointerMove, onPointerEnd };
 }
 
-function updateLayout(centerIdx) {
-  const total = avatarGroups.length;
-  if (!total) return;
-
-  const isMobile = window.innerWidth < 768;
-  // Spacing between cards in px (visual center-to-center)
-  const spacing = isMobile ? window.innerWidth * 0.90 : window.innerWidth * 0.65;
-
-  avatarGroups.forEach((wrapper, i) => {
-    const offset = i - centerIdx;
-    const absOffset = Math.abs(offset);
-
-    const tx = offset * spacing;
-    const scale = 1 - Math.min(absOffset * 0.22, 0.6);
-    const opacity = absOffset > 1.5 ? 0 : Math.max(0.15, 1 - absOffset * 0.65);
-    const zIndex = 100 - Math.round(absOffset * 10);
-
-    wrapper.style.transform = `translateX(calc(-50% + ${tx}px)) scale(${scale})`;
-    wrapper.style.opacity = opacity;
-    wrapper.style.zIndex = zIndex;
+function showAvatar(index) {
+  avatarEls.forEach((el, i) => {
+    const visible = i === index;
+    el.style.opacity = visible ? '1' : '0';
+    el.style.pointerEvents = visible ? 'auto' : 'none';
   });
 }
 
-function startAnimation() {
-  let lastTime = 0;
-  const floatAmplitude = 6; // px up/down
+function startFloatAnimation() {
+  const floatAmplitude = 7;
 
   function frame(ts) {
     if (!isSceneReady) return;
     animationId = requestAnimationFrame(frame);
 
-    // Lerp currentCenterIndex toward targetIndex
-    currentCenterIndex += (targetIndex - currentCenterIndex) * 0.12;
-
-    // Update card positions
-    updateLayout(currentCenterIndex);
-
-    // Floating bob only on the center card
-    const centerWrapper = avatarGroups[Math.round(currentCenterIndex)];
-    if (centerWrapper) {
-      const img = centerWrapper.querySelector('img');
+    const centerEl = avatarEls[targetIndex];
+    if (centerEl) {
+      const img = centerEl.querySelector('img');
       if (img) {
-        const bob = Math.sin(ts * 0.002) * floatAmplitude;
-        img.style.marginBottom = bob + 'px';
+        img.style.marginBottom = (Math.sin(ts * 0.002) * floatAmplitude) + 'px';
       }
     }
   }
@@ -180,21 +143,18 @@ function startAnimation() {
 }
 
 function startWaveCycle() {
-  // Swap idle→wave→idle for center card on a 3s cycle
   function scheduleWave() {
     const id = setTimeout(() => {
       if (!isSceneReady) return;
-
-      const centerWrapper = avatarGroups[Math.round(targetIndex)];
-      if (centerWrapper && centerWrapper.dataset.state === 'idle') {
-        const img = centerWrapper.querySelector('img');
+      const el = avatarEls[targetIndex];
+      if (el && el.dataset.state === 'idle') {
+        const img = el.querySelector('img');
         if (img && img.dataset.wave) {
-          centerWrapper.dataset.state = 'wave';
+          el.dataset.state = 'wave';
           img.src = img.dataset.wave;
-
           const restoreId = setTimeout(() => {
-            if (centerWrapper && img) {
-              centerWrapper.dataset.state = 'idle';
+            if (el && img) {
+              el.dataset.state = 'idle';
               img.src = img.dataset.idle;
             }
             scheduleWave();
@@ -209,7 +169,6 @@ function startWaveCycle() {
     }, 3000);
     waveTimers.push(id);
   }
-
   scheduleWave();
 }
 
@@ -238,28 +197,26 @@ function destroyAvatarScene() {
     sceneContainer.style.cssText = '';
   }
 
-  avatarGroups = [];
+  avatarEls = [];
   profilesData = [];
   sceneContainer = null;
   currentCenterIndex = 0;
   targetIndex = 0;
 }
 
-// Exposed navigation — called by discover.js
+// Called by discover.js when navigating
 window.updateAvatarScene = function(index) {
   if (!profilesData.length) return;
   if (index < 0) index = 0;
   if (index >= profilesData.length) index = profilesData.length - 1;
   targetIndex = index;
+  currentCenterIndex = index;
 
-  if (typeof window.updateProfileOverlay === 'function') {
-    window.updateProfileOverlay(index);
-  }
-  if (typeof window.updateNavButtons === 'function') {
-    window.updateNavButtons();
-  }
+  showAvatar(index);
+
+  if (typeof window.updateProfileOverlay === 'function') window.updateProfileOverlay(index);
+  if (typeof window.updateNavButtons === 'function') window.updateNavButtons();
 };
 
-// Expose to window
 window.initAvatarScene = initAvatarScene;
 window.destroyAvatarScene = destroyAvatarScene;
