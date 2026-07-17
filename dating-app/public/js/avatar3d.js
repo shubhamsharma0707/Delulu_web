@@ -126,10 +126,6 @@ function initAvatarScene(containerId, profiles) {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  if (renderer.toneMapping) {
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.2;
-  }
   sceneContainer.appendChild(renderer.domElement);
 
   // Lighting
