@@ -13,8 +13,10 @@ let sceneContainer;
 let profilesData = [];
 
 function loadAndProcessTexture(path, callback) {
-  const img = new Image();
-  img.onload = () => {
+  const loader = new THREE.TextureLoader();
+  loader.setCrossOrigin('anonymous');
+  loader.load(path, (texture) => {
+    const img = texture.image;
     const canvas = document.createElement('canvas');
     canvas.width = img.width;
     canvas.height = img.height;
@@ -81,15 +83,13 @@ function loadAndProcessTexture(path, callback) {
       console.warn("Failed to apply chroma key filter due to security/CORS, loading fallback texture:", e);
     }
     
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.minFilter = THREE.LinearFilter;
-    texture.needsUpdate = true;
-    callback(texture);
-  };
-  img.onerror = (err) => {
+    const cleanTexture = new THREE.CanvasTexture(canvas);
+    cleanTexture.minFilter = THREE.LinearFilter;
+    cleanTexture.needsUpdate = true;
+    callback(cleanTexture);
+  }, undefined, (err) => {
     console.error("Error loading image:", path, err);
-  };
-  img.src = path;
+  });
 }
 
 function initAvatarScene(containerId, profiles) {
@@ -119,27 +119,11 @@ function initAvatarScene(containerId, profiles) {
   });
   renderer.setSize(width, height);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   sceneContainer.appendChild(renderer.domElement);
 
-  // Lighting
-  const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+  // Lighting (Matches profile.js exactly)
+  const ambientLight = new THREE.AmbientLight(0xffffff, 1.0);
   scene.add(ambientLight);
-
-  const mainLight = new THREE.DirectionalLight(0xffffff, 1.2);
-  mainLight.position.set(5, 8, 5);
-  mainLight.castShadow = true;
-  scene.add(mainLight);
-
-  const fillLight = new THREE.DirectionalLight(0xffb4a6, 0.5);
-  fillLight.position.set(-3, 2, 4);
-  scene.add(fillLight);
-
-  const rimLight = new THREE.DirectionalLight(0xff7e67, 0.4);
-  rimLight.position.set(0, -2, -6);
-  scene.add(rimLight);
-
   // Store profiles data
   profilesData = profiles;
 
