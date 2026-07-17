@@ -1,4 +1,6 @@
-// Single-avatar display — shows one avatar at a time, centered, fades on navigate
+// 3-avatar discover carousel: center card is hero, left/right are peeking side cards
+// Uses fixed slot offsets so gap is always visible regardless of screen size
+
 let isSceneReady = false;
 let currentCenterIndex = 0;
 let targetIndex = 0;
@@ -6,7 +8,15 @@ let sceneContainer;
 let profilesData = [];
 let animationId = null;
 let waveTimers = [];
-let avatarEls = [];  // array of wrapper divs, one per profile
+let avatarEls = []; // one DOM element per profile
+
+// ─── Slot offsets from screen center (in vw units converted at runtime) ──────
+// Slot -1 (left)  : -38vw
+// Slot  0 (center): 0
+// Slot +1 (right) : +38vw
+function getSlotOffset() {
+  return Math.round(window.innerWidth * 0.38);
+}
 
 function initAvatarScene(containerId, profiles) {
   destroyAvatarScene();
@@ -24,9 +34,6 @@ function initAvatarScene(containerId, profiles) {
     width: 100%;
     height: 100%;
     min-height: 340px;
-    display: flex;
-    align-items: flex-end;
-    justify-content: center;
     overflow: visible;
   `;
 
@@ -45,13 +52,9 @@ function initAvatarScene(containerId, profiles) {
       position: absolute;
       bottom: 0;
       left: 50%;
-      transform: translateX(-50%);
-      display: flex;
-      align-items: flex-end;
-      justify-content: center;
-      opacity: ${i === 0 ? '1' : '0'};
-      transition: opacity 0.35s ease;
-      pointer-events: ${i === 0 ? 'auto' : 'none'};
+      transform-origin: bottom center;
+      transition: transform 0.45s cubic-bezier(0.34,1.4,0.64,1), opacity 0.35s ease;
+      will-change: transform, opacity;
     `;
 
     if (idleSrc) {
@@ -59,10 +62,10 @@ function initAvatarScene(containerId, profiles) {
       img.src = idleSrc;
       img.dataset.idle = idleSrc;
       img.dataset.wave = waveSrc || idleSrc;
-      img.alt = profile.username;
+      img.alt = profile.username || '';
       img.draggable = false;
       img.style.cssText = `
-        height: 320px;
+        height: 300px;
         width: auto;
         object-fit: contain;
         display: block;
@@ -73,12 +76,12 @@ function initAvatarScene(containerId, profiles) {
       wrapper.appendChild(img);
     } else {
       const fallback = document.createElement('div');
-      fallback.textContent = profile.username.charAt(0).toUpperCase();
+      fallback.textContent = (profile.username || '?').charAt(0).toUpperCase();
       fallback.style.cssText = `
-        width: 120px; height: 120px; border-radius: 50%;
-        background: #ffdad4; color: #731709;
-        font-size: 56px; font-weight: 700;
-        display: flex; align-items: center; justify-content: center;
+        width:110px;height:110px;border-radius:50%;
+        background:#ffdad4;color:#731709;
+        font-size:52px;font-weight:700;
+        display:flex;align-items:center;justify-content:center;
       `;
       wrapper.appendChild(fallback);
     }
@@ -88,19 +91,17 @@ function initAvatarScene(containerId, profiles) {
   });
 
   isSceneReady = true;
+  applyLayout(targetIndex); // initial placement (no animation)
   startFloatAnimation();
   startWaveCycle();
 
-  // Swipe/drag support
+  // ── Swipe / drag ──────────────────────────────────────────────────────────
   let dragStartX = null;
-
-  const onPointerDown = (e) => {
-    dragStartX = e.clientX ?? e.touches?.[0]?.clientX ?? null;
-  };
+  const onPointerDown = (e) => { dragStartX = e.clientX ?? e.touches?.[0]?.clientX ?? null; };
   const onPointerMove = (e) => {
     if (dragStartX === null) return;
     const x = e.clientX ?? e.touches?.[0]?.clientX ?? dragStartX;
-    if (Math.abs(x - dragStartX) > 50) {
+    if (Math.abs(x - dragStartX) > 48) {
       const dir = x < dragStartX ? 1 : -1;
       dragStartX = null;
       window.updateAvatarScene(Math.max(0, Math.min(profilesData.length - 1, targetIndex + dir)));
@@ -115,33 +116,50 @@ function initAvatarScene(containerId, profiles) {
   window.__avatarListeners = { onPointerDown, onPointerMove, onPointerEnd };
 }
 
-function showAvatar(index) {
-  avatarEls.forEach((el, i) => {
-    const visible = i === index;
-    el.style.opacity = visible ? '1' : '0';
-    el.style.pointerEvents = visible ? 'auto' : 'none';
+// ─── Position every avatar relative to the current center index ───────────
+function applyLayout(centerIdx) {
+  const slotPx = getSlotOffset(); // px distance between slots
+
+  avatarEls.forEach((wrapper, i) => {
+    const slot = i - centerIdx;        // -2, -1, 0, 1, 2 …
+    const absSlot = Math.abs(slot);
+
+    // Only show center and immediate neighbours
+    const visible = absSlot <= 1;
+    if (!visible) {
+      wrapper.style.opacity = '0';
+      wrapper.style.pointerEvents = 'none';
+      wrapper.style.transform = `translateX(calc(-50% + ${slot * slotPx}px)) scale(0.6)`;
+      return;
+    }
+
+    const tx    = slot * slotPx;                          // px offset from center
+    const scale = slot === 0 ? 1.0 : 0.68;              // center full, sides 68 %
+    const opacity = slot === 0 ? 1 : 0.45;              // center bright, sides faded
+
+    wrapper.style.opacity = String(opacity);
+    wrapper.style.pointerEvents = slot === 0 ? 'auto' : 'none';
+    wrapper.style.transform = `translateX(calc(-50% + ${tx}px)) scale(${scale})`;
+    wrapper.style.zIndex = slot === 0 ? '10' : '1';
   });
 }
 
+// ─── Floating bob on center avatar ────────────────────────────────────────
 function startFloatAnimation() {
-  const floatAmplitude = 7;
-
   function frame(ts) {
     if (!isSceneReady) return;
     animationId = requestAnimationFrame(frame);
 
-    const centerEl = avatarEls[targetIndex];
-    if (centerEl) {
-      const img = centerEl.querySelector('img');
-      if (img) {
-        img.style.marginBottom = (Math.sin(ts * 0.002) * floatAmplitude) + 'px';
-      }
+    const el = avatarEls[targetIndex];
+    if (el) {
+      const img = el.querySelector('img');
+      if (img) img.style.marginBottom = (Math.sin(ts * 0.002) * 7) + 'px';
     }
   }
-
   animationId = requestAnimationFrame(frame);
 }
 
+// ─── Wave animation on center avatar every 3 s ────────────────────────────
 function startWaveCycle() {
   function scheduleWave() {
     const id = setTimeout(() => {
@@ -152,34 +170,24 @@ function startWaveCycle() {
         if (img && img.dataset.wave) {
           el.dataset.state = 'wave';
           img.src = img.dataset.wave;
-          const restoreId = setTimeout(() => {
-            if (el && img) {
-              el.dataset.state = 'idle';
-              img.src = img.dataset.idle;
-            }
+          const r = setTimeout(() => {
+            if (el && img) { el.dataset.state = 'idle'; img.src = img.dataset.idle; }
             scheduleWave();
           }, 600);
-          waveTimers.push(restoreId);
-        } else {
-          scheduleWave();
-        }
-      } else {
-        scheduleWave();
-      }
+          waveTimers.push(r);
+        } else { scheduleWave(); }
+      } else { scheduleWave(); }
     }, 3000);
     waveTimers.push(id);
   }
   scheduleWave();
 }
 
+// ─── Cleanup ──────────────────────────────────────────────────────────────
 function destroyAvatarScene() {
   isSceneReady = false;
 
-  if (animationId) {
-    cancelAnimationFrame(animationId);
-    animationId = null;
-  }
-
+  if (animationId) { cancelAnimationFrame(animationId); animationId = null; }
   waveTimers.forEach(id => clearTimeout(id));
   waveTimers = [];
 
@@ -192,27 +200,19 @@ function destroyAvatarScene() {
     window.__avatarListeners = null;
   }
 
-  if (sceneContainer) {
-    sceneContainer.innerHTML = '';
-    sceneContainer.style.cssText = '';
-  }
-
-  avatarEls = [];
-  profilesData = [];
-  sceneContainer = null;
-  currentCenterIndex = 0;
-  targetIndex = 0;
+  if (sceneContainer) { sceneContainer.innerHTML = ''; sceneContainer.style.cssText = ''; }
+  avatarEls = []; profilesData = []; sceneContainer = null;
+  currentCenterIndex = 0; targetIndex = 0;
 }
 
-// Called by discover.js when navigating
+// ─── Public API (called by discover.js) ───────────────────────────────────
 window.updateAvatarScene = function(index) {
   if (!profilesData.length) return;
-  if (index < 0) index = 0;
-  if (index >= profilesData.length) index = profilesData.length - 1;
+  index = Math.max(0, Math.min(profilesData.length - 1, index));
   targetIndex = index;
   currentCenterIndex = index;
 
-  showAvatar(index);
+  applyLayout(index);
 
   if (typeof window.updateProfileOverlay === 'function') window.updateProfileOverlay(index);
   if (typeof window.updateNavButtons === 'function') window.updateNavButtons();
