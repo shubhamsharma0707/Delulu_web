@@ -210,7 +210,7 @@ function initRealtimeStream() {
   if (!currentConnId || eventSource) return;
 
   console.log('[SSE] Connecting to real-time event stream...');
-  eventSource = new EventSource(`/api/connections/${currentConnId}/stream`);
+  eventSource = new EventSource(resolveUrl(`/api/connections/${currentConnId}/stream`));
 
   eventSource.onopen = () => {
     console.log('[SSE] Connection established successfully.');
@@ -934,8 +934,9 @@ async function initializeChat() {
             formData.append('audio', audioBlob, `voice.${ext}`);
           }
 
-          const res = await fetch('/api/messages/upload-voice', {
+          const res = await fetch(resolveUrl('/api/messages/upload-voice'), {
             method: 'POST',
+            credentials: 'include',
             body: formData
           });
           const data = await res.json();
@@ -1280,9 +1281,10 @@ async function loadChatInfo() {
     setTimeout(() => markMessagesAsRead(), 500);
   } catch (err) {
     console.error('loadChatInfo caught error:', err);
-    fetch('/api/log-error', {
+    fetch(resolveUrl('/api/log-error'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ message: err.message, stack: err.stack, path: window.location.href, context: 'loadChatInfo catch' })
     }).catch(() => {});
     
@@ -1536,9 +1538,10 @@ async function loadMessages(isInitial = false, forceFull = false) {
   } catch (err) {
     console.error('loadMessages caught error:', err);
     if (!hasCachedMessages) {
-      await fetch('/api/log-error', {
+      await fetch(resolveUrl('/api/log-error'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ message: err.message, stack: err.stack, path: window.location.href, context: 'loadMessages catch' })
       }).catch(() => {});
       cont.innerHTML = `<p class="text-error">${escapeHtml(err.message)}</p>`;
@@ -1885,11 +1888,13 @@ window.playVoiceNote = async (btn, url, isEncrypted = 0, iv = null) => {
   icon.textContent = 'hourglass_bottom';
   
   try {
-    let playUrl = url;
+    let playUrl = resolveUrl(url);
     
     // Decrypt the voice note blob dynamically in memory if encrypted
     if (Number(isEncrypted) === 1 && iv && isE2EEActive && sharedSecretKey) {
-      const res = await fetch(url);
+      const res = await fetch(resolveUrl(url), {
+        credentials: 'include'
+      });
       if (!res.ok) throw new Error('Failed to fetch encrypted voice note file');
       const encryptedBuffer = await res.arrayBuffer();
       

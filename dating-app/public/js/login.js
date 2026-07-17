@@ -4,7 +4,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   try {
     const data = await apiCall('/api/session');
     if (data.authenticated) {
-      window.location.href = '/discover';
+      window.location.href = 'discover.html';
       return;
     }
   } catch (err) {}
@@ -104,7 +104,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           // Clear any old key if logging in as a legacy user
           window.localStorage.removeItem('e2ee_private_key');
         }
-        window.location.href = '/discover';
+        window.location.href = 'discover.html';
       }
     } catch (err) {
       console.error(err);
@@ -185,7 +185,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           document.getElementById('profile-username').focus();
         } else {
           // If already registered, redirect straight to discover since session is set
-          window.location.href = '/discover';
+          window.location.href = 'discover.html';
         }
       }
     } catch (err) {
@@ -300,7 +300,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (data && data.user) {
         window.localStorage.setItem('cached_user', JSON.stringify(data.user));
       }
-      window.location.href = '/discover';
+      window.location.href = 'discover.html';
     } catch (err) {
       document.getElementById('profile-error').textContent = err.message || 'Failed to initialize E2EE keys';
       document.getElementById('profile-error').classList.remove('hidden');

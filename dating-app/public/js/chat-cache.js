@@ -126,9 +126,10 @@ const outboxQueue = {
             payload.is_encrypted = 1;
             payload.iv = item.iv;
           }
-          const res = await fetch('/api/messages/send', {
+          const res = await fetch(resolveUrl('/api/messages/send'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
             body: JSON.stringify(payload)
           });
           const data = await res.json();

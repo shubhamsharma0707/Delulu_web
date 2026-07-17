@@ -1,3 +1,11 @@
+const API_BASE = 'https://delulu-college.onrender.com';
+function resolveUrl(url) {
+  if (!url) return '';
+  if (url.startsWith('http') || url.startsWith('blob:') || url.startsWith('data:')) return url;
+  const cleanUrl = url.startsWith('/') ? url : `/${url}`;
+  return `${API_BASE}${cleanUrl}`;
+}
+
 let currentUser = null;
 let socket = {
   on: function() { return this; },
@@ -12,16 +20,18 @@ let socket = {
 
 // Global client error logger to diagnose browser-specific issues
 window.onerror = function (message, source, lineno, colno, error) {
-  fetch('/api/log-error', {
+  fetch(resolveUrl('/api/log-error'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
     body: JSON.stringify({ message, source, lineno, colno, stack: error ? error.stack : '', path: window.location.href })
   }).catch(() => {});
 };
 window.addEventListener('unhandledrejection', function (event) {
-  fetch('/api/log-error', {
+  fetch(resolveUrl('/api/log-error'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
     body: JSON.stringify({ message: event.reason ? event.reason.message : 'Unhandled Rejection', stack: event.reason ? event.reason.stack : '', path: window.location.href })
   }).catch(() => {});
 });
@@ -57,7 +67,7 @@ async function requireAuth() {
         } else {
           window.localStorage.removeItem('cached_user');
           window.localStorage.removeItem('e2ee_private_key');
-          window.location.href = '/';
+          window.location.href = 'login.html';
         }
       }).catch(() => {}); // suppress any unhandled rejections
       
@@ -82,16 +92,16 @@ async function requireAuth() {
     } else if (!data) {
       // Timeout occurred - wait for cached data or redirect
       if (!window.localStorage.getItem('cached_user')) {
-        window.location.href = '/';
+        window.location.href = 'login.html';
       }
       // else: silently keep cached data
     } else {
-      window.location.href = '/';
+      window.location.href = 'login.html';
     }
   } catch (err) {
     // Only redirect if we don't have cached user data
     if (!window.localStorage.getItem('cached_user')) {
-      window.location.href = '/';
+      window.location.href = 'login.html';
     } else {
       // Use cached data as fallback
       console.warn('Session check failed, using cached user');
@@ -129,15 +139,19 @@ function initGlobalSocket() {
 }
 
 async function apiCall(url, method = 'GET', body = null) {
-  const options = { method, headers: { 'Content-Type': 'application/json' } };
+  const options = { 
+    method, 
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include'
+  };
   if (body) options.body = JSON.stringify(body);
-  const res = await fetch(url, options);
+  const res = await fetch(resolveUrl(url), options);
   const data = await res.json();
   if (!res.ok) {
     if (res.status === 401) {
       window.localStorage.removeItem('cached_user');
       window.localStorage.removeItem('e2ee_private_key');
-      window.location.href = '/';
+      window.location.href = 'login.html';
       return new Promise(() => {}); // Return pending promise to halt further execution while redirecting
     }
     throw new Error(data.error || 'API Error');
@@ -192,7 +206,7 @@ function setupLogout() {
       window.localStorage.removeItem('e2ee_private_key');
       await apiCall('/api/users/logout', 'POST');
       if (socket) socket.disconnect();
-      window.location.href = '/';
+      window.location.href = 'login.html';
     };
   }
 }
@@ -335,7 +349,9 @@ async function initPushNotifications() {
     }
     
     // Get VAPID key from server
-    const keyRes = await fetch('/api/push/vapid-key');
+    const keyRes = await fetch(resolveUrl('/api/push/vapid-key'), {
+      credentials: 'include'
+    });
     const keyData = await keyRes.json();
     if (!keyData.publicKey) return;
     

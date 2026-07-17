@@ -291,7 +291,7 @@ function showMatchCelebration(username, connectionId) {
   if (chatBtn) {
     chatBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      window.location.href = `/chat?id=${connectionId}`;
+      window.location.href = `chat.html?id=${connectionId}`;
     });
   }
   overlay.appendChild(card);
