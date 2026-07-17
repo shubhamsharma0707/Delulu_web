@@ -16,6 +16,7 @@
     "node": "22.x"
   },
   "dependencies": {
+    "@capacitor/core": "^8.4.2",
     "@supabase/supabase-js": "^2.110.2",
     "bcrypt": "6.0.0",
     "compression": "^1.8.1",
@@ -32,5 +33,9 @@
     "pino-http": "^11.0.0",
     "socket.io": "4.8.3",
     "web-push": "^3.6.7"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^8.4.2",
+    "@capacitor/cli": "^8.4.2"
   }
 }
