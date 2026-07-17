@@ -163,6 +163,31 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
+// Custom CORS Middleware to handle credentials and Capacitor/Localhost origins
+app.use((req, res, next) => {
+  const allowedOrigins = [
+    'https://localhost',
+    'capacitor://localhost'
+  ];
+  if (process.env.NODE_ENV !== 'production') {
+    allowedOrigins.push('http://localhost');
+    allowedOrigins.push('http://localhost:3000');
+  }
+  
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  }
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+  
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 // Security headers via Helmet with Content Security Policy allowlist
 app.use(helmet({
   contentSecurityPolicy: {
@@ -258,7 +283,7 @@ const sessionMiddleware = session({
   cookie: {
     maxAge: 24 * 60 * 60 * 1000,
     httpOnly: true, // Prevent JS access to cookie
-    sameSite: 'lax', // CSRF protection
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // Must be 'none' for cross-site cookie sharing in native WebView
     secure: process.env.NODE_ENV === 'production' // HTTPS only in production
   }
 });
@@ -275,6 +300,20 @@ app.use('/api/', apiLimiter);
 // CSRF Sec-Fetch-Site / Origin check — defense-in-depth on top of sameSite: 'lax'
 app.use((req, res, next) => {
   if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) {
+    const allowedOrigins = [
+      'https://localhost',
+      'capacitor://localhost'
+    ];
+    if (process.env.NODE_ENV !== 'production') {
+      allowedOrigins.push('http://localhost');
+      allowedOrigins.push('http://localhost:3000');
+    }
+    
+    const requestOrigin = req.get('origin') || '';
+    if (allowedOrigins.includes(requestOrigin)) {
+      return next();
+    }
+
     const secFetchSite = req.get('sec-fetch-site');
     // Block cross-site state-changing requests outright if sent by browser
     if (secFetchSite === 'cross-site') {

@@ -20,3 +20,10 @@ public/uploads/voice/*
 
 # Local seed sentinel (machine-specific, never commit)
 .seed-done
+
+# Capacitor Android native build files
+android/
+*.apk
+*.aar
+.gradle/
+build/
