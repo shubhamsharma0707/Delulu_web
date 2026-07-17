@@ -538,21 +538,14 @@ body {
   will-change: transform;
 }
 
-/* ===== Three.js 3D Scene Container ===== */
+/* ===== CSS Avatar Carousel Container ===== */
 #avatar-3d-container {
   position: relative;
-  overflow: hidden;
+  overflow: visible;
   flex-grow: 1;
   flex-shrink: 1;
-  height: 0;
-  min-height: 150px;
-  max-height: 480px;
-}
-
-#avatar-3d-container canvas {
-  display: block;
-  width: 100% !important;
-  height: 100% !important;
+  min-height: 340px;
+  max-height: 420px;
 }
 
 /* ===== Fallback Card Styles ===== */

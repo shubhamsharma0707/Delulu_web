@@ -3,7 +3,6 @@ let currentIndex = 0;
 let navTimeout = null;
 let discoveryLoading = false;
 let lastDiscoveryLoadAt = 0;
-let threeJSLoadPromise = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
   await requireAuth();
@@ -170,28 +169,6 @@ function updateProfileOverlay(index) {
   }
 }
 
-// Dynamically load Three.js when discover page needs it, to avoid blocking render
-function loadThreeJS(callback) {
-  if (typeof THREE !== 'undefined') {
-    callback();
-    return;
-  }
-  if (threeJSLoadPromise) {
-    threeJSLoadPromise.then(callback).catch(() => renderFallbackCards());
-    return;
-  }
-  const script = document.createElement('script');
-  script.src = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
-  threeJSLoadPromise = new Promise((resolve, reject) => {
-    script.onload = resolve;
-    script.onerror = reject;
-  });
-  threeJSLoadPromise.then(callback).catch(() => {
-    console.warn('Three.js failed to load, using fallback cards');
-    renderFallbackCards();
-  });
-  document.head.appendChild(script);
-}
 
 async function loadDiscovery(options = {}) {
   if (discoveryLoading) return;
@@ -241,14 +218,12 @@ function init3DScene() {
   const container = document.getElementById('avatar-3d-container');
   if (!container) return;
   
-  // Load Three.js dynamically first, then initialize scene
-  loadThreeJS(() => {
-    if (typeof initAvatarScene === 'function') {
-      initAvatarScene('avatar-3d-container', discoverProfiles);
-    } else {
-      renderFallbackCards();
-    }
-  });
+  if (typeof initAvatarScene === 'function') {
+    initAvatarScene('avatar-3d-container', discoverProfiles);
+    window.updateAvatarScene(currentIndex);
+  } else {
+    renderFallbackCards();
+  }
 }
 
 // ===== Match Celebration =====
