@@ -44,7 +44,7 @@
       }
     };
   </script>
-  <link rel="stylesheet" href="/styles.css?v=243">
+  <link rel="stylesheet" href="styles.css?v=243">
   <style>
     /* Hide navbars on mobile when in a chat for better UX, or keep them. We'll keep global header hidden on chat on mobile. */
   </style>
@@ -54,10 +54,10 @@
   <header id="global-header" class="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-4 md:px-16 py-3 md:py-4 bg-surface/80 backdrop-blur-xl shadow-sm hidden md:flex">
     <div class="text-2xl font-bold text-primary tracking-tight">Delulu</div>
     <nav class="hidden md:flex gap-8 items-center font-semibold text-sm">
-      <a href="/discover" class="nav-link text-on-surface-variant hover:text-primary transition-colors">Discover</a>
-      <a href="/requests" class="nav-link text-on-surface-variant hover:text-primary transition-colors">Requests</a>
-      <a href="/messages" class="nav-link text-primary transition-colors">Messages</a>
-      <a href="/profile" class="nav-link text-on-surface-variant hover:text-primary transition-colors">Profile</a>
+      <a href="discover.html" class="nav-link text-on-surface-variant hover:text-primary transition-colors">Discover</a>
+      <a href="requests.html" class="nav-link text-on-surface-variant hover:text-primary transition-colors">Requests</a>
+      <a href="messages.html" class="nav-link text-primary transition-colors">Messages</a>
+      <a href="profile.html" class="nav-link text-on-surface-variant hover:text-primary transition-colors">Profile</a>
     </nav>
     <div class="flex items-center gap-2">
       <button id="theme-toggle" class="w-9 h-9 rounded-full text-on-surface-variant hover:text-primary flex items-center justify-center transition-colors" title="Toggle theme">
@@ -72,7 +72,7 @@
     <div class="flex flex-col w-full h-full md:rounded-2xl bg-surface-container-lowest shadow-sm border border-outline-variant/20 overflow-hidden relative">
       <div class="flex items-center justify-between p-4 border-b border-outline-variant/10 glass-panel z-10 pt-safe bg-surface/90">
         <div class="flex items-center gap-3">
-          <a href="/messages" class="p-2 -ml-2 text-on-surface-variant hover:text-primary transition-colors">
+          <a href="messages.html" class="p-2 -ml-2 text-on-surface-variant hover:text-primary transition-colors">
             <span class="material-symbols-outlined">arrow_back</span>
           </a>
           <div id="chat-avatar" class="w-10 h-10 rounded-full flex items-center justify-center font-bold text-white bg-primary-container shadow-sm overflow-hidden border border-outline-variant/30"></div>
@@ -267,10 +267,10 @@
 
   </div>
 
-  <link rel="preload" href="/js/shared.js?v=243" as="script">
-  <script src="/js/shared.js?v=243"></script>
-  <script src="/js/chat-cache.js?v=243"></script>
-  <script src="/js/crypto.js"></script>
-  <script src="/js/chat.js?v=243"></script>
+  <link rel="preload" href="js/shared.js?v=243" as="script">
+  <script src="js/shared.js?v=243"></script>
+  <script src="js/chat-cache.js?v=243"></script>
+  <script src="js/crypto.js"></script>
+  <script src="js/chat.js?v=243"></script>
 </body>
 </html>
