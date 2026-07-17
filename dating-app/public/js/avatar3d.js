@@ -82,12 +82,7 @@ function loadAndProcessTexture(path, callback) {
     }
     
     const texture = new THREE.CanvasTexture(canvas);
-    // sRGBEncoding was renamed to SRGBColorSpace in r144+
-    if (THREE.SRGBColorSpace !== undefined) {
-      texture.colorSpace = THREE.SRGBColorSpace;
-    } else if (THREE.sRGBEncoding !== undefined) {
-      texture.encoding = THREE.sRGBEncoding;
-    }
+    texture.minFilter = THREE.LinearFilter;
     texture.needsUpdate = true;
     callback(texture);
   };
