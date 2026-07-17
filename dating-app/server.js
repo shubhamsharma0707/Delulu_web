@@ -530,6 +530,15 @@ function sanitizeUser(user) {
     try { safeUser.hobbies = JSON.parse(safeUser.hobbies); } 
     catch(e) { safeUser.hobbies = []; }
   }
+  if (safeUser.avatar && typeof safeUser.avatar === 'string') {
+    const match = safeUser.avatar.match(/^(male|female)_(\d+)$/);
+    if (match) {
+      const num = parseInt(match[2], 10);
+      if (num < 10 && !match[2].startsWith('0')) {
+        safeUser.avatar = `${match[1]}_0${num}`;
+      }
+    }
+  }
   return safeUser;
 }
 
@@ -906,8 +915,26 @@ app.get('/api/discover', requireAuth, async (req, res) => {
       matching_hobbies: matchingHobbies,
       match_count: matchCount,
       avatar: {
-        idle: p.avatar ? `/avatars/${p.gender}/${p.avatar}/idle.png` : null,
-        wave: p.avatar ? `/avatars/${p.gender}/${p.avatar}/wave.png` : null
+        idle: p.avatar ? (() => {
+          const match = p.avatar.match(/^(male|female)_(\d+)$/);
+          if (match) {
+            const num = parseInt(match[2], 10);
+            if (num < 10 && !match[2].startsWith('0')) {
+              return `/avatars/${p.gender}/${match[1]}_0${num}/idle.png`;
+            }
+          }
+          return `/avatars/${p.gender}/${p.avatar}/idle.png`;
+        })() : null,
+        wave: p.avatar ? (() => {
+          const match = p.avatar.match(/^(male|female)_(\d+)$/);
+          if (match) {
+            const num = parseInt(match[2], 10);
+            if (num < 10 && !match[2].startsWith('0')) {
+              return `/avatars/${p.gender}/${match[1]}_0${num}/wave.png`;
+            }
+          }
+          return `/avatars/${p.gender}/${p.avatar}/wave.png`;
+        })() : null
       },
       gender: p.gender
     };
