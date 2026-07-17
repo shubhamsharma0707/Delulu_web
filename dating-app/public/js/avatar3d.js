@@ -134,7 +134,7 @@ function updateLayout(centerIdx) {
 
   const isMobile = window.innerWidth < 768;
   // Spacing between cards in px (visual center-to-center)
-  const spacing = isMobile ? 90 : 140;
+  const spacing = isMobile ? 130 : 200;
 
   avatarGroups.forEach((wrapper, i) => {
     const offset = i - centerIdx;
