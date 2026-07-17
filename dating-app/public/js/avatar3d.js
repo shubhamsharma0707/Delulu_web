@@ -134,15 +134,15 @@ function updateLayout(centerIdx) {
 
   const isMobile = window.innerWidth < 768;
   // Spacing between cards in px (visual center-to-center)
-  const spacing = isMobile ? window.innerWidth * 0.72 : window.innerWidth * 0.38;
+  const spacing = isMobile ? window.innerWidth * 0.90 : window.innerWidth * 0.65;
 
   avatarGroups.forEach((wrapper, i) => {
     const offset = i - centerIdx;
     const absOffset = Math.abs(offset);
 
     const tx = offset * spacing;
-    const scale = 1 - Math.min(absOffset * 0.18, 0.55);
-    const opacity = absOffset > 2.5 ? 0 : Math.max(0.1, 1 - absOffset * 0.38);
+    const scale = 1 - Math.min(absOffset * 0.22, 0.6);
+    const opacity = absOffset > 1.5 ? 0 : Math.max(0.15, 1 - absOffset * 0.65);
     const zIndex = 100 - Math.round(absOffset * 10);
 
     wrapper.style.transform = `translateX(calc(-50% + ${tx}px)) scale(${scale})`;
