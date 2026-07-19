@@ -641,7 +641,12 @@ app.post('/api/auth/send-verification-email', otpLimiter, async (req, res) => {
     'psy.rishihood.edu.in',
     'csds.rishihood.edu.in',
     'makers.rishihood.edu.in',
-    'design.rishihood.edu.in'
+    'design.rishihood.edu.in',
+    // Chandigarh University
+    'cuchd.in',
+    'cumail.in',
+    // Amity University
+    's.amity.edu'
   ];
   
   if (!domain || !allowedDomains.includes(domain)) {
