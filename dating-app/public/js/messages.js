@@ -33,7 +33,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (list) {
           const links = list.querySelectorAll('a');
           links.forEach(link => {
-            if (link.href.includes(`/chat?id=${data.connectionId}`)) {
+            if (link.href.includes(`chat.html?id=${data.connectionId}`) || link.href.includes(`/chat?id=${data.connectionId}`)) {
               const safeUsername = escapeHtml(conn.other_username);
               const isRevealed = conn.status === 'revealed';
               const lastMsg = renderLastMessage(conn);
@@ -124,7 +124,7 @@ function renderChatListItem(c, safeUsername, isRevealed, lastMsg) {
   const isUnread = c.last_sender_id && c.last_sender_id !== currentUser?.id && !c.last_read;
   
   return `
-    <a href="/chat?id=${c.id}" class="w-full flex items-center gap-4 p-4 rounded-2xl hover:bg-surface-container-low mb-2 transition-colors fade-in relative ${isUnread ? 'bg-primary-fixed/10 border border-primary/10' : ''}">
+    <a href="chat.html?id=${c.id}" class="w-full flex items-center gap-4 p-4 rounded-2xl hover:bg-surface-container-low mb-2 transition-colors fade-in relative ${isUnread ? 'bg-primary-fixed/10 border border-primary/10' : ''}">
       <div class="w-14 h-14 rounded-full overflow-hidden shrink-0 border border-outline-variant/30 relative">
         ${getAvatarHtml(c.other_username, c.other_avatar)}
         <div class="presence-dot absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 border-surface hidden" data-user-id="${c.other_user_id}"></div>

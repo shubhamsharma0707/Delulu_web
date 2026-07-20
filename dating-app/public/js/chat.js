@@ -257,7 +257,7 @@ function initRealtimeStream() {
       loadMessages(false, true).catch(() => {});
     } else if (streamEvent.type === 'ended') {
       sessionStorage.setItem('connection_ended_message', 'This chat has ended.');
-      window.location.href = '/discover';
+      window.location.href = 'discover.html';
     }
   };
 
@@ -378,7 +378,7 @@ async function initializeChat() {
   const urlParams = new URLSearchParams(window.location.search);
   const connId = urlParams.get('id');
   if (!connId) {
-    window.location.href = '/messages';
+    window.location.href = 'messages.html';
     return;
   }
   
@@ -521,7 +521,7 @@ async function initializeChat() {
         sessionStorage.setItem('fs_redirected_' + connectionId, '1');
         // Store message for display on the discover page after redirect
         sessionStorage.setItem('connection_ended_message', message);
-        window.location.href = '/discover';
+        window.location.href = 'discover.html';
       }
     });
     
@@ -1297,7 +1297,7 @@ async function loadChatInfo() {
       cont.innerHTML = `
         <div class="flex flex-col items-center justify-center h-full text-center p-6 gap-3">
           <p class="text-on-surface-variant text-sm">${escapeHtml(err.message || 'This chat could not be loaded.')}</p>
-          <a href="/messages" class="text-primary font-semibold text-sm hover:underline">← Back to Messages</a>
+          <a href="messages.html" class="text-primary font-semibold text-sm hover:underline">← Back to Messages</a>
         </div>`;
     }
     const chatForm = document.getElementById('chat-form');
@@ -2004,7 +2004,7 @@ async function submitNotVibing() {
   if (!confirm('Are you sure you want to end this chat? This cannot be undone.')) return;
   try {
     await apiCall('/api/connections/end', 'POST', { connection_id: currentConnId });
-    window.location.href = '/discover';
+    window.location.href = 'discover.html';
   } catch(err) { showToast(err.message, 'error'); }
 }
 
@@ -2042,7 +2042,7 @@ async function disconnectAfterDecline() {
   try {
     closeModal();
     await apiCall('/api/connections/end-after-decline', 'POST', { connection_id: currentConnId });
-    window.location.href = '/discover';
+    window.location.href = 'discover.html';
   } catch(err) { showToast(err.message, 'error'); }
 }
 
@@ -2628,7 +2628,7 @@ async function blockUser() {
     const otherId = data.connection.other_user_id;
     await apiCall('/api/users/block', 'POST', { blocked_user_id: otherId });
     showToast('User blocked.');
-    window.location.href = '/messages';
+    window.location.href = 'messages.html';
   } catch (err) {
     showToast(err.message, 'error');
   }
