@@ -24,6 +24,7 @@ public/uploads/voice/*
 # Capacitor Android native build files
 android/
 *.apk
+!public/delulu.apk
 *.aar
 .gradle/
 build/
