@@ -449,10 +449,54 @@ function getConnectionProgress(status, chatStartedAt, identityRevealAvailableAt,
   return stages;
 }
 
+// ===== Android Hardware Back Button Navigation =====
+function initNativeBackButton() {
+  if (!window.Capacitor || !window.Capacitor.isPluginAvailable('App')) return;
+  const App = window.Capacitor.Plugins.App;
+  
+  if (window.__capacitorBackButtonSet) return;
+  window.__capacitorBackButtonSet = true;
+
+  App.addListener('backButton', ({ canGoBack }) => {
+    const path = window.location.pathname;
+    const currentFile = path.substring(path.lastIndexOf('/') + 1);
+
+    // 1. If viewing a Chat screen -> go back to Messages list
+    if (currentFile.startsWith('chat.html') || path.includes('chat')) {
+      window.location.href = 'messages.html';
+      return;
+    }
+
+    // 2. If viewing Messages, Requests, or Profile -> go back to Discover (Home)
+    if (currentFile === 'messages.html' || currentFile === 'requests.html' || currentFile === 'profile.html') {
+      window.location.href = 'discover.html';
+      return;
+    }
+
+    // 3. If on Discover or Login -> exit app or go back in history if available
+    if (currentFile === 'discover.html' || currentFile === 'login.html' || currentFile === '' || currentFile === 'index.html') {
+      if (canGoBack && window.history.length > 1) {
+        window.history.back();
+      } else {
+        App.exitApp();
+      }
+      return;
+    }
+
+    // Fallback
+    if (canGoBack && window.history.length > 1) {
+      window.history.back();
+    } else {
+      window.location.href = 'discover.html';
+    }
+  });
+}
+
 // Automatically bind setup on every page
 document.addEventListener('DOMContentLoaded', () => {
   setupLogout();
   initDarkMode();
+  initNativeBackButton();
   
   // Defer heart background to after page is fully interactive
   if (document.querySelector('#heart-bg') || !document.querySelector('[data-no-hearts]')) {
