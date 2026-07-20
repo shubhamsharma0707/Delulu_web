@@ -41,7 +41,7 @@ userEmitter.setMaxListeners(200); // Allow many concurrent user SSE connections
 
 const session = require('express-session');
 const compression = require('compression');
-const MemoryStore = require('memorystore')(session);
+const PgSession = require('connect-pg-simple')(session);
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
@@ -272,21 +272,40 @@ function invalidateCache(userId) {
 }
 
 // Session middleware — using memorystore (pure JS, no native compilation)
-// NOTE: In-memory sessions are lost on server restart (all users logged out).
-// For production across multiple instances, use a database-backed store
-// (connect-redis, connect-session-knex, @supabase/supabase-js, etc.)
+// ===== Session Store (Supabase Postgres — survives server restarts) =====
+// Uses connect-pg-simple with Supabase's Postgres connection string.
+// SUPABASE_DB_URL must be set in environment (format: postgresql://postgres.<ref>:<password>@...:5432/postgres)
+// Find it at: Supabase Console -> Settings -> Database -> Connection String -> URI (Session mode port 5432)
+// If not set, falls back to in-memory store (sessions lost on restart).
+let sessionStore;
+if (process.env.SUPABASE_DB_URL) {
+  sessionStore = new PgSession({
+    conString: process.env.SUPABASE_DB_URL,
+    tableName: 'session',
+    createTableIfMissing: true,
+    ttl: 30 * 24 * 60 * 60 // 30 days in seconds
+  });
+  console.log('Session store: Supabase Postgres (persistent across restarts)');
+} else {
+  // Fallback: in-memory (sessions lost on server restart — users will need to re-login after deploys)
+  const MemoryStore = require('memorystore')(session);
+  sessionStore = new MemoryStore({
+    checkPeriod: 15 * 60 * 1000
+  });
+  console.log('Session store: MemoryStore (set SUPABASE_DB_URL for persistent sessions)');
+}
+
 const sessionMiddleware = session({
-  store: new MemoryStore({
-    checkPeriod: 15 * 60 * 1000 // auto-clear expired sessions every 15 min
-  }),
+  store: sessionStore,
   secret: process.env.SESSION_SECRET,
   resave: false,
-  saveUninitialized: false, // Don't create sessions for unauthenticated visitors
+  rolling: true,              // Extend session expiry on every request (keeps active users logged in)
+  saveUninitialized: false,   // Don't create sessions for unauthenticated visitors
   cookie: {
-    maxAge: 24 * 60 * 60 * 1000,
-    httpOnly: true, // Prevent JS access to cookie
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // Must be 'none' for cross-site cookie sharing in native WebView
-    secure: process.env.NODE_ENV === 'production' // HTTPS only in production
+    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days — users stay logged in for a month
+    httpOnly: true,            // Prevent JS access to cookie
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    secure: process.env.NODE_ENV === 'production'
   }
 });
 
