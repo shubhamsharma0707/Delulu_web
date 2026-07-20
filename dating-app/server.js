@@ -36,6 +36,8 @@ console.warn = (...args) => {
 
 const { EventEmitter } = require('events');
 const connectionEmitter = new EventEmitter();
+const userEmitter = new EventEmitter(); // Per-user SSE stream (messages list page)
+userEmitter.setMaxListeners(200); // Allow many concurrent user SSE connections
 
 const session = require('express-session');
 const compression = require('compression');
@@ -1125,6 +1127,38 @@ app.get('/api/connections/:id/stream', requireAuth, async (req, res) => {
   });
 });
 
+// ── Per-User SSE Stream (powers messages list real-time updates) ─────────────
+// Each user connects here once from the messages list page.
+// Events: { type: 'message', connectionId, lastMessage, lastMessageTime, senderId }
+app.get('/api/user/stream', requireAuth, (req, res) => {
+  const userId = req.session.userId;
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no'
+  });
+  res.write(': ok\n\n');
+
+  const onEvent = (event) => {
+    res.write(`data: ${JSON.stringify(event)}\n\n`);
+  };
+
+  const eventName = `user:${userId}`;
+  userEmitter.on(eventName, onEvent);
+
+  const heartbeat = setInterval(() => {
+    res.write(': heartbeat\n\n');
+  }, 25000);
+
+  req.on('close', () => {
+    userEmitter.off(eventName, onEvent);
+    clearInterval(heartbeat);
+    res.end();
+  });
+});
+
 // End connection ("Not Vibing")
 app.post('/api/connections/end', requireAuth, async (req, res) => {
   const { connection_id } = req.body;
@@ -1348,7 +1382,24 @@ app.post('/api/messages/:connectionId/read', requireAuth, async (req, res) => {
   if (!conn) return res.status(404).json({ error: 'Connection not found' });
 
   const result = await messageOps.markAsRead(req.params.connectionId, req.session.userId, conn);
-  res.json({ success: true, readAt: result.readAt || new Date().toISOString(), count: result.count || 0 });
+  const readAt = result.readAt || new Date().toISOString();
+
+  // Instantly notify the OTHER user's SSE stream that their messages were seen
+  const otherUserId = Number(conn.from_user_id) === Number(req.session.userId)
+    ? conn.to_user_id
+    : conn.from_user_id;
+  connectionEmitter.emit(`update:${req.params.connectionId}`, {
+    type: 'read',
+    readAt,
+    connectionId: Number(req.params.connectionId)
+  });
+  // Also notify via socket for users in the chat room
+  io.to(`chat:${req.params.connectionId}`).emit('messages-read', {
+    connectionId: req.params.connectionId,
+    readAt
+  });
+
+  res.json({ success: true, readAt, count: result.count || 0 });
 });
 
 // Send normal text message
@@ -1374,22 +1425,40 @@ app.post('/api/messages/send', requireAuth, async (req, res) => {
     iv || null
   );
 
+  const senderId = Number(req.session.userId);
+  const displayContent = Number(is_encrypted) === 1 ? '🔒 Encrypted message' : sanitizeText(content.trim());
+
   // Emit socket event for real-time receipt — sender_id MUST be Number for client === checks
   io.to(`chat:${connection_id}`).emit('new-message', {
     ...msg,
-    sender_id: Number(req.session.userId)
+    sender_id: senderId
   });
   io.to(`chat:${connection_id}`).emit('chat-update', {
     connectionId: connection_id,
-    lastMessage: Number(is_encrypted) === 1 ? '🔒 Encrypted message' : sanitizeText(content.trim()),
+    lastMessage: displayContent,
     lastMessageTime: msg.created_at,
-    senderId: Number(req.session.userId)
+    senderId
   });
+
+  // Embed full message in SSE event so the receiver gets it with ZERO extra round-trips
   connectionEmitter.emit(`update:${connection_id}`, {
     type: 'message',
-    senderId: Number(req.session.userId),
-    messageId: msg.id
+    senderId,
+    msg: { ...msg, sender_id: senderId }
   });
+
+  // Notify the OTHER user's per-user stream (messages list page) for instant updates
+  const otherUserId = Number(conn.from_user_id) === senderId ? conn.to_user_id : conn.from_user_id;
+  userEmitter.emit(`user:${otherUserId}`, {
+    type: 'message',
+    connectionId: Number(connection_id),
+    lastMessage: displayContent,
+    lastMessageTime: msg.created_at,
+    senderId
+  });
+
+  // Send push notification to the other user (for background/closed app)
+  sendPushNotification(otherUserId, 'New message', displayContent, `chat.html?id=${connection_id}`);
 
   // Update last_message_at on the connection doc (fire-and-forget is fine — non-critical metadata)
   const firestore = getDB();
@@ -1433,22 +1502,39 @@ app.post('/api/messages/upload-voice', requireAuth, (req, res, next) => {
       iv || null
     );
 
+    const voiceSenderId = Number(req.session.userId);
+
     // Emit socket event for real-time receipt — sender_id MUST be Number for client === checks
     io.to(`chat:${connection_id}`).emit('new-message', {
       ...msg,
-      sender_id: Number(req.session.userId)
+      sender_id: voiceSenderId
     });
     io.to(`chat:${connection_id}`).emit('chat-update', {
       connectionId: connection_id,
       lastMessage: '🎤 Voice note',
       lastMessageTime: msg.created_at,
-      senderId: Number(req.session.userId)
+      senderId: voiceSenderId
     });
+
+    // Embed full message in SSE event (zero round-trip delivery)
     connectionEmitter.emit(`update:${connection_id}`, {
       type: 'message',
-      senderId: Number(req.session.userId),
-      messageId: msg.id
+      senderId: voiceSenderId,
+      msg: { ...msg, sender_id: voiceSenderId }
     });
+
+    // Notify the OTHER user's per-user stream (messages list page)
+    const voiceOtherUserId = Number(conn.from_user_id) === voiceSenderId ? conn.to_user_id : conn.from_user_id;
+    userEmitter.emit(`user:${voiceOtherUserId}`, {
+      type: 'message',
+      connectionId: Number(connection_id),
+      lastMessage: '🎤 Voice note',
+      lastMessageTime: msg.created_at,
+      senderId: voiceSenderId
+    });
+
+    // Send push notification to the other user
+    sendPushNotification(voiceOtherUserId, 'New voice note', '🎤 Voice note', `chat.html?id=${connection_id}`);
 
     const firestore = getDB();
     firestore.collection('connections').doc(String(connection_id)).update({

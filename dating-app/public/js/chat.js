@@ -249,8 +249,41 @@ function initRealtimeStream() {
         scheduleChatInfoRefresh();
       }
     } else if (streamEvent.type === 'message') {
-      if (Number(streamEvent.senderId) !== Number(currentUser.id)) {
+      // Server now embeds the full message object in the SSE payload.
+      // If it's present and from the other user, append it directly — zero extra HTTP round-trip.
+      if (streamEvent.msg && Number(streamEvent.senderId) !== Number(currentUser.id)) {
+        const alreadyExists = document.querySelector(`[data-msg-id="${streamEvent.msg.id}"]`);
+        if (!alreadyExists) {
+          hasReadMessagesInView = false;
+          hasUnreadMessagesInView = true;
+          appendMessage({ ...streamEvent.msg }, true).then(() => {
+            scrollToBottom();
+            markMessagesAsRead();
+          }).catch(() => {});
+          // Fire native notification if the app/tab is in the background
+          if (document.hidden && typeof window.showNativeNotification === 'function') {
+            window.showNativeNotification({
+              title: 'New message',
+              body: streamEvent.msg.is_voice ? '🎤 Voice note' : (streamEvent.msg.content || 'You have a new message'),
+              url: `chat.html?id=${currentConnId}`,
+              id: streamEvent.msg.id
+            });
+          }
+        }
+      } else if (!streamEvent.msg) {
+        // Fallback: old-style SSE with no embedded message — do a delta fetch
         scheduleDeltaSyncSoon();
+      }
+    } else if (streamEvent.type === 'read') {
+      // Instantly update seen ticks without any extra fetch
+      if (streamEvent.readAt) {
+        otherLastReadAt = streamEvent.readAt;
+        document.querySelectorAll('[data-msg-id]').forEach(el => {
+          const statusIcon = el.querySelector('.msg-status-icon');
+          if (statusIcon) {
+            statusIcon.innerHTML = '<span class="text-[11px] text-blue-500 material-symbols-outlined text-[14px] align-middle" style="font-variation-settings: \'FILL\' 1">done_all</span>';
+          }
+        });
       }
     } else if (streamEvent.type === 'messages') {
       console.log('[SSE] Received message update event. Refreshing messages...');

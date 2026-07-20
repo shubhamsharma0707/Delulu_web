@@ -1,11 +1,54 @@
+// Per-user SSE stream for real-time messages list updates
+let userEventSource = null;
+
+function initUserStream() {
+  if (userEventSource) return; // Already connected
+  userEventSource = new EventSource(resolveUrl('/api/user/stream'));
+
+  userEventSource.onmessage = (event) => {
+    if (!event.data || event.data.startsWith(':')) return;
+    let data;
+    try { data = JSON.parse(event.data); } catch { return; }
+
+    if (data.type === 'message') {
+      // Update chat list instantly with the new message
+      updateChatListItem({
+        connectionId: data.connectionId,
+        lastMessage: data.lastMessage,
+        lastMessageTime: data.lastMessageTime,
+        senderId: data.senderId
+      });
+
+      // Fire native notification if app is backgrounded
+      if (document.hidden && typeof window.showNativeNotification === 'function') {
+        window.showNativeNotification({
+          title: 'New message',
+          body: data.lastMessage || 'You have a new message',
+          url: `messages.html`,
+          id: data.connectionId
+        });
+      }
+    }
+  };
+
+  userEventSource.onerror = () => {
+    // Auto-reconnect after 5 seconds on error
+    userEventSource = null;
+    setTimeout(initUserStream, 5000);
+  };
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   await requireAuth();
   loadMessagesList();
+  initUserStream();
 
   // Auto-refresh when tab becomes visible (compensates for mock socket)
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) {
       loadMessagesList({ skipRecent: true });
+      // Reconnect SSE if it dropped while backgrounded
+      if (!userEventSource) initUserStream();
     }
   });
 
