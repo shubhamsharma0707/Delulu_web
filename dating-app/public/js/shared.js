@@ -331,35 +331,52 @@ function showSkeleton(containerId, count = 3, type = 'line') {
   }
 }
 
-// ===== Push Notification Subscription =====
+// ===== Push & Native Local Notification Subscription =====
 async function initPushNotifications() {
+  // 1. Native Capacitor App (Android / iOS)
+  if (window.Capacitor && window.Capacitor.isPluginAvailable('LocalNotifications')) {
+    try {
+      const LocalNotifications = window.Capacitor.Plugins.LocalNotifications;
+      const permResult = await LocalNotifications.requestPermissions();
+      console.log('[Capacitor] Local notifications permission:', permResult.display);
+      
+      // Register tap listener once
+      if (!window.__capacitorNotificationListenerSet) {
+        window.__capacitorNotificationListenerSet = true;
+        LocalNotifications.addListener('localNotificationActionPerformed', (action) => {
+          console.log('[Capacitor] Notification tapped:', action);
+          const targetUrl = action.notification.extra?.url;
+          if (targetUrl) {
+            window.location.href = targetUrl;
+          }
+        });
+      }
+      return;
+    } catch (e) {
+      console.warn('[Capacitor] Local notifications setup failed:', e.message);
+    }
+  }
+
+  // 2. Web Browser (Web Push API fallback)
   if (!('Notification' in window) || !('PushManager' in window) || !('serviceWorker' in navigator)) return;
   
   try {
     const perm = await Notification.requestPermission();
     if (perm !== 'granted') return;
     
-    // Register the service worker if not already active
     let reg;
     if (navigator.serviceWorker.controller) {
       reg = await navigator.serviceWorker.ready;
     } else {
-      // First registration — register sw.js (only happens once per browser)
       reg = await navigator.serviceWorker.register('/sw.js');
     }
     
-    // Get VAPID key from server
-    const keyRes = await fetch(resolveUrl('/api/push/vapid-key'), {
-      credentials: 'include'
-    });
+    const keyRes = await fetch(resolveUrl('/api/push/vapid-key'), { credentials: 'include' });
     const keyData = await keyRes.json();
     if (!keyData.publicKey) return;
     
     const existingSub = await reg.pushManager.getSubscription();
-    if (existingSub) {
-      // Already subscribed — no extra cost
-      return;
-    }
+    if (existingSub) return;
     
     const sub = await reg.pushManager.subscribe({
       userVisibleOnly: true,
@@ -367,11 +384,49 @@ async function initPushNotifications() {
     });
     
     await apiCall('/api/push/subscribe', 'POST', { subscription: sub.toJSON() });
-    console.log('Push notifications enabled');
+    console.log('Web Push notifications enabled');
   } catch (err) {
     console.log('Push notification setup deferred:', err.message);
   }
 }
+
+// ===== Global Native Notification Trigger Helper =====
+async function showNativeNotification({ title, body, url, id }) {
+  // If running inside Capacitor Native App
+  if (window.Capacitor && window.Capacitor.isPluginAvailable('LocalNotifications')) {
+    try {
+      const LocalNotifications = window.Capacitor.Plugins.LocalNotifications;
+      const notifId = id || Math.floor(Math.random() * 1000000);
+      await LocalNotifications.schedule({
+        notifications: [
+          {
+            title: title || 'Delulu',
+            body: body || '',
+            id: notifId,
+            schedule: { at: new Date(Date.now() + 100) },
+            extra: { url: url || 'messages.html' }
+          }
+        ]
+      });
+      return;
+    } catch (err) {
+      console.warn('[Capacitor] Failed to schedule notification:', err);
+    }
+  }
+
+  // Web Browser fallback
+  if ('Notification' in window && Notification.permission === 'granted') {
+    try {
+      new Notification(title || 'Delulu', {
+        body: body || '',
+        icon: '/favicon.ico',
+        data: { url: url || 'messages.html' }
+      });
+    } catch (e) {}
+  }
+}
+
+window.showNativeNotification = showNativeNotification;
 
 // ===== Connection Timeline Helper =====
 function getConnectionProgress(status, chatStartedAt, identityRevealAvailableAt, faceRevealAvailableAt) {
