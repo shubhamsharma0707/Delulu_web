@@ -582,7 +582,7 @@ const connectionOps = {
     if (action === 'accept') {
       const now = new Date();
       const identityRevealAvailable = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
-      const faceRevealAvailable = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString();
+      const faceRevealAvailable = new Date(now.getTime() + 10 * 24 * 60 * 60 * 1000).toISOString();
       await connDocRef.update({
         status: 'accepted',
         chat_started_at: now.toISOString(),
@@ -811,7 +811,7 @@ const connectionOps = {
     return { success: true, bothRevealed: false };
   },
 
-  // Face Reveal (Day 14): User agrees to face reveal via Google Meet
+  // Face Reveal (Day 10): User agrees to face reveal via Google Meet
   // Wrapped in a Firestore transaction — same atomicity rationale as submitIdentityReveal.
   async submitFaceReveal(connectionId, userId) {
     const firestore = getDB();

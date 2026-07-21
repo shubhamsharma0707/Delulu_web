@@ -104,7 +104,7 @@ dating-app/
   from_identity_reveal: 0|1,
   to_identity_reveal: 0|1,
   meeting_code: String|null,   // Google Meet code when both agree
-  // Face reveal (Day 14+)
+  // Face reveal (Day 10+)
   face_reveal_available_at: ISO8601|null,
   from_face_reveal: 0|1,
   to_face_reveal: 0|1,
@@ -202,7 +202,7 @@ The `getDiscoverable(userId, gender, excludeIds)` method in `database.js` handle
 [Requests page] → Accept → status: "accepted"
     - chat_started_at = NOW
     - identity_reveal_available_at = NOW + 7 days
-    - face_reveal_available_at = NOW + 14 days
+    - face_reveal_available_at = NOW + 10 days
     ↓
 [Chat] Day 0-6: Anonymous chat only
     ↓
@@ -212,7 +212,7 @@ The `getDiscoverable(userId, gender, excludeIds)` method in `database.js` handle
     - If both agree → meeting_code generated → Google Meet link
     - status changes to "revealed"
     ↓
-[Chat] Day 14+: Face Reveal button appears
+[Chat] Day 10+: Face Reveal button appears
     - Both must agree within the window
     - If either declines → other user gets notification
     - If window passes without both agreeing → status: "expired" (sweepExpired)
@@ -439,7 +439,7 @@ Cache invalidation via `evictConnection()` / `invalidateUserCache()` on every wr
 3. **Never inject raw HTML** — always `escapeHtml()` on user content
 4. **Socket.io is mocked** — `socket.isMock = true`. Don't add real socket client code
 5. **Firestore for relationships, Supabase for messages** — permanent architecture split
-6. **Reveal timeline is sacred** — Day 7 = identity reveal, Day 14 = face reveal
+6. **Reveal timeline is sacred** — Day 7 = identity reveal, Day 10 = face reveal
 7. **No server-rendered HTML** — pure MPA with static HTML + vanilla JS
 8. **Run `npx cap sync android`** before building APK after any web change
 9. **APK is gitignored** — 126MB, distribute manually

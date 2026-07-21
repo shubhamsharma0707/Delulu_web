@@ -1215,7 +1215,7 @@ app.post('/api/connections/identity-reveal', requireAuth, async (req, res) => {
   res.json(result);
 });
 
-// Submit face reveal (Day 14)
+// Submit face reveal (Day 10)
 app.post('/api/connections/face-reveal', requireAuth, async (req, res) => {
   const { connection_id } = req.body;
   if (!connection_id) return res.status(400).json({ error: 'Missing connection id' });
