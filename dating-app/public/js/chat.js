@@ -285,6 +285,14 @@ function initRealtimeStream() {
           }
         });
       }
+    } else if (streamEvent.type === 'typing') {
+      if (Number(streamEvent.userId) !== Number(currentUser.id)) {
+        handleOtherUserTyping(streamEvent.isTyping);
+      }
+    } else if (streamEvent.type === 'presence') {
+      if (Number(streamEvent.userId) !== Number(currentUser.id)) {
+        handlePresenceChange(streamEvent.status === 'online');
+      }
     } else if (streamEvent.type === 'messages') {
       console.log('[SSE] Received message update event. Refreshing messages...');
       loadMessages(false, true).catch(() => {});
@@ -767,30 +775,26 @@ async function initializeChat() {
     return;
   }
 
-  // Text input changed (show/hide mic or send buttons)
+  // Text input changed (show/hide mic or send buttons + notify typing)
   chatInput.oninput = () => {
     if (chatInput.value.trim().length > 0) {
       chatSendBtn.classList.remove('hidden');
       chatMicBtn.classList.add('hidden');
+      
+      notifyTypingState(true);
+      if (typingThrottleTimer) clearTimeout(typingThrottleTimer);
+      typingThrottleTimer = setTimeout(() => {
+        notifyTypingState(false);
+      }, 2500);
     } else {
       chatSendBtn.classList.add('hidden');
       chatMicBtn.classList.remove('hidden');
-    }
-
-    // Handle socket typing state
-    if (socket) {
-      socket.emit('typing', { connectionId: currentConnId, isTyping: true });
-      clearTimeout(typingTimeout);
-      typingTimeout = setTimeout(() => {
-        socket.emit('typing', { connectionId: currentConnId, isTyping: false });
-      }, 1500);
+      notifyTypingState(false);
     }
   };
 
   chatInput.onblur = () => {
-    if (socket) {
-      socket.emit('typing', { connectionId: currentConnId, isTyping: false });
-    }
+    notifyTypingState(false);
   };
 
   chatForm.onsubmit = async (e) => {
@@ -798,6 +802,7 @@ async function initializeChat() {
     const content = chatInput.value.trim();
     if (!content) return;
     
+    notifyTypingState(false);
     const tempId = 'temp-' + Date.now();
 
     // Clear input & buttons instantly
@@ -1182,13 +1187,49 @@ function scrollToBottom(smooth = false) {
   }
 }
 
+let isPartnerOnline = false;
+let otherTypingTimer = null;
+let lastTypingStateSent = false;
+let typingThrottleTimer = null;
+
+function handlePresenceChange(isOnline) {
+  isPartnerOnline = isOnline;
+  updatePresenceDisplay(isOnline);
+}
+
+function handleOtherUserTyping(isTyping) {
+  const statusEl = document.getElementById('chat-status');
+  if (!statusEl) return;
+
+  if (otherTypingTimer) clearTimeout(otherTypingTimer);
+
+  if (isTyping) {
+    statusEl.innerHTML = `<span class="flex items-center gap-1.5 text-primary font-semibold italic animate-pulse"><span class="material-symbols-outlined text-[14px]">edit</span> typing...</span>`;
+    otherTypingTimer = setTimeout(() => {
+      updatePresenceDisplay(isPartnerOnline);
+    }, 3500);
+  } else {
+    updatePresenceDisplay(isPartnerOnline);
+  }
+}
+
 // ===== Presence Display =====
 function updatePresenceDisplay(isOnline) {
   const statusEl = document.getElementById('chat-status');
   if (!statusEl) return;
   if (isOnline) {
-    statusEl.innerHTML = `<span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-green-500 inline-block"></span> Online</span>`;
+    statusEl.innerHTML = `<span class="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-medium"><span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> Online</span>`;
+  } else {
+    statusEl.innerHTML = `<span class="flex items-center gap-1.5 text-on-surface-variant/70"><span class="w-2 h-2 rounded-full bg-outline-variant/60"></span> Offline</span>`;
   }
+}
+
+function notifyTypingState(isTyping) {
+  if (!currentConnId) return;
+  if (lastTypingStateSent === isTyping) return;
+  lastTypingStateSent = isTyping;
+
+  apiCall(`/api/connections/${currentConnId}/typing`, 'POST', { isTyping: !!isTyping }).catch(() => {});
 }
 
 // ===== Modal Event Delegation (setup outside initializeChat so it works even if init fails) =====

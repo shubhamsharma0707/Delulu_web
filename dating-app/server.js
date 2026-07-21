@@ -1099,7 +1099,42 @@ app.get('/api/connections/:id', requireAuth, async (req, res) => {
   });
 });
 
-// SSE Endpoint for real-time game/status updates
+// ===== In-Memory Presence & Typing Tracking (0% DB cost) =====
+const activeRoomUsers = new Map(); // connectionId -> Set<userId>
+
+function addRoomPresence(connectionId, userId) {
+  const roomKey = String(connectionId);
+  const set = activeRoomUsers.get(roomKey) || new Set();
+  set.add(Number(userId));
+  activeRoomUsers.set(roomKey, set);
+
+  // Broadcast presence event to connection stream
+  connectionEmitter.emit(`update:${connectionId}`, {
+    type: 'presence',
+    userId: Number(userId),
+    status: 'online',
+    onlineUserIds: Array.from(set)
+  });
+}
+
+function removeRoomPresence(connectionId, userId) {
+  const roomKey = String(connectionId);
+  const set = activeRoomUsers.get(roomKey);
+  if (!set) return;
+  set.delete(Number(userId));
+  if (set.size === 0) {
+    activeRoomUsers.delete(roomKey);
+  }
+
+  connectionEmitter.emit(`update:${connectionId}`, {
+    type: 'presence',
+    userId: Number(userId),
+    status: 'offline',
+    onlineUserIds: Array.from(set || [])
+  });
+}
+
+// SSE Endpoint for real-time game/status/typing/presence updates
 app.get('/api/connections/:id/stream', requireAuth, async (req, res) => {
   const connectionId = req.params.id;
   const userId = req.session.userId;
@@ -1121,6 +1156,9 @@ app.get('/api/connections/:id/stream', requireAuth, async (req, res) => {
   // Send initial connection verification comment
   res.write(': ok\n\n');
 
+  // Register in-memory room presence (0 DB cost)
+  addRoomPresence(connectionId, userId);
+
   // Define listener callback
   const onUpdate = (event) => {
     const payload = event && Object.keys(event).length > 1
@@ -1138,12 +1176,28 @@ app.get('/api/connections/:id/stream', requireAuth, async (req, res) => {
     res.write(': heartbeat\n\n');
   }, 25000);
 
-  // Clean up subscription and interval when connection closes
+  // Clean up subscription, room presence, and interval when connection closes
   req.on('close', () => {
+    removeRoomPresence(connectionId, userId);
     connectionEmitter.off(eventName, onUpdate);
     clearInterval(heartbeatInterval);
     res.end();
   });
+});
+
+// Typing indicator endpoint (100% in-memory, 0 DB calls)
+app.post('/api/connections/:id/typing', requireAuth, (req, res) => {
+  const connectionId = req.params.id;
+  const userId = Number(req.session.userId);
+  const { isTyping } = req.body;
+
+  connectionEmitter.emit(`update:${connectionId}`, {
+    type: 'typing',
+    userId,
+    isTyping: !!isTyping
+  });
+
+  res.json({ success: true });
 });
 
 // ── Per-User SSE Stream (powers messages list real-time updates) ─────────────
