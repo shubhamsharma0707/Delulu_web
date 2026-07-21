@@ -192,17 +192,23 @@
       <button data-action="close" class="w-full text-outline font-semibold text-sm py-2 hover:text-on-surface transition-colors">Send them a message first</button>
     </div>
 
-    <!-- Google Meet Modal -->
+    <!-- Video Meeting Modal -->
     <div id="modal-google-meet" class="bg-surface rounded-3xl p-6 w-full max-w-sm ambient-shadow hidden transform scale-95 transition-all text-center">
       <div class="w-20 h-20 bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded-full flex items-center justify-center mx-auto mb-4">
         <span class="material-symbols-outlined text-4xl material-fill">video_call</span>
       </div>
-      <h3 class="text-2xl font-bold text-primary mb-2">Meeting Ready!</h3>
-      <p class="text-on-surface-variant text-sm mb-2">Your Google Meet link is ready! Click below to join the video call.</p>
-      <p class="text-on-surface-variant text-xs mb-6">You can continue chatting here after the call too!</p>
-      <a id="meet-link-btn" href="#" target="_blank" rel="noopener noreferrer" class="block w-full py-3 bg-gradient-to-r from-green-500 to-green-600 text-white font-bold rounded-xl hover:shadow-md hover:opacity-90 transition-all mb-3">
-        <span class="material-symbols-outlined text-sm align-middle mr-1">open_in_new</span> Join Google Meet
-      </a>
+      <h3 class="text-2xl font-bold text-primary mb-2">Video Call Ready!</h3>
+      <p class="text-on-surface-variant text-sm mb-2">Your private video call room is ready. Both of you will connect instantly!</p>
+      <p class="text-on-surface-variant text-xs mb-6">Works on mobile and desktop without any login required.</p>
+      <button id="meet-link-btn" class="w-full py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-bold rounded-xl hover:shadow-md hover:opacity-90 transition-all mb-2.5 flex items-center justify-center gap-2">
+        <span class="material-symbols-outlined text-xl">videocam</span> Join Video Call
+      </button>
+      <button id="meet-google-btn" class="w-full py-2.5 bg-surface-variant text-on-surface-variant font-semibold text-sm rounded-xl hover:bg-surface-dim transition-all mb-2.5 flex items-center justify-center gap-2">
+        <span class="material-symbols-outlined text-lg">open_in_new</span> Open Google Meet
+      </button>
+      <button id="meet-copy-btn" class="w-full py-2 text-primary font-medium text-xs hover:underline transition-all mb-2 flex items-center justify-center gap-1">
+        <span class="material-symbols-outlined text-sm">content_copy</span> Copy Meeting Link
+      </button>
       <button data-action="close" class="w-full text-outline font-semibold text-sm py-2 hover:text-on-surface transition-colors">Close</button>
     </div>
 

@@ -2079,11 +2079,55 @@ async function disconnectAfterDecline() {
   } catch(err) { showToast(err.message, 'error'); }
 }
 
+function openExternalUrl(url) {
+  if (!url) return;
+  try {
+    if (window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform()) {
+      window.open(url, '_system');
+    } else {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
+  } catch (err) {
+    window.location.href = url;
+  }
+}
+
 function showMeetingModal(meetingCode) {
+  const cleanCode = (meetingCode || '').replace(/[^a-zA-Z0-9-]/g, '').toLowerCase() || 'delulu-room';
+  
+  // Instant direct 1-click working video room (Jitsi Meet — 100% free, no login, camera & mic work)
+  const videoCallUrl = `https://meet.jit.si/Delulu-Meet-${cleanCode}`;
+  const googleMeetUrl = `https://meet.google.com/new`;
+
   const linkBtn = document.getElementById('meet-link-btn');
   if (linkBtn) {
-    linkBtn.href = `https://meet.google.com/${meetingCode}`;
+    linkBtn.onclick = () => {
+      openExternalUrl(videoCallUrl);
+    };
   }
+
+  const googleBtn = document.getElementById('meet-google-btn');
+  if (googleBtn) {
+    googleBtn.onclick = () => {
+      openExternalUrl(googleMeetUrl);
+    };
+  }
+
+  const copyBtn = document.getElementById('meet-copy-btn');
+  if (copyBtn) {
+    copyBtn.onclick = () => {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(videoCallUrl).then(() => {
+          showToast('Meeting link copied!');
+        }).catch(() => {
+          showToast(`Link: ${videoCallUrl}`, 'info');
+        });
+      } else {
+        showToast(`Link: ${videoCallUrl}`, 'info');
+      }
+    };
+  }
+
   openModal('modal-google-meet');
 }
 
