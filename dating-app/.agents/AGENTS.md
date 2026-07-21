@@ -444,6 +444,7 @@ Cache invalidation via `evictConnection()` / `invalidateUserCache()` on every wr
 8. **Run `npx cap sync android`** before building APK after any web change
 9. **APK is gitignored** — 126MB, distribute manually
 10. **`SUPABASE_DB_URL` required for persistent sessions** — without it, users log out on every Render restart
+11. **Strict Anonymity & Privacy** — No in-chat photo sharing or selfie photo verification. Identities remain 100% anonymous until mutual Day 7 / Day 10 consent.
 
 ---
 
