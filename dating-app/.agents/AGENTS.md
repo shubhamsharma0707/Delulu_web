@@ -265,7 +265,8 @@ E2EE is opt-in and only active when both users have public keys. Plain-text fall
 - Event types:
   - `message` — new message; **contains full `msg` object** (zero extra fetch needed)
   - `read` — other user read messages; `readAt` timestamp included
-  - `messages` — reload messages (fallback)
+  - `typing` — 100% in-memory typing indicator (`isTyping: true/false`, 0 DB cost)
+  - `presence` — 100% in-memory live online/offline status (`status: 'online'/'offline'`, 0 DB cost)
   - `game` — game state changed
   - `info` — chat info refresh
   - `ended` — chat ended by other user
