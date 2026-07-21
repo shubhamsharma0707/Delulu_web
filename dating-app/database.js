@@ -123,7 +123,7 @@ async function seedDemoUsers() {
 
 // In-memory cache for user lookups to reduce Firestore reads
 const userByIdCache = new Map();
-const USER_CACHE_TTL = 15 * 1000; // 15 seconds
+const USER_CACHE_TTL = 10 * 60 * 1000; // 10 minutes (profile edits invalidate cache explicitly)
 
 function getCachedUserById(id) {
   const cached = userByIdCache.get(id);
@@ -701,12 +701,14 @@ const connectionOps = {
       _indexCacheKey(connectionId, cacheKey); // maintain reverse index
     }
 
-    // ── Always fetch user profiles fresh (userOps has its own TTL cache) ──────
+    // ── Always fetch user profiles (userOps has its own 10-min TTL cache) ──────
     const otherId = conn.from_user_id === Number(userId) ? conn.to_user_id : conn.from_user_id;
     const myId    = conn.from_user_id === Number(userId) ? conn.from_user_id : conn.to_user_id;
 
-    const otherUser = await userOps.getById(otherId);
-    const myUser    = await userOps.getById(myId);
+    const [otherUser, myUser] = await Promise.all([
+      userOps.getById(otherId),
+      userOps.getById(myId)
+    ]);
 
     if (!otherUser || !myUser) {
       console.error(`getConnection: connection ${connectionId} exists but user lookup failed — otherId=${otherId} found=${!!otherUser}, myId=${myId} found=${!!myUser}`);

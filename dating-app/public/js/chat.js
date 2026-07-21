@@ -1145,23 +1145,30 @@ function cleanupChatResources() {
 
 window.addEventListener('beforeunload', cleanupChatResources);
 
-// ===== Mark Messages as Read =====
+let _readInFlight = false;
+let _pendingReadMark = false;
+
 function markMessagesAsRead() {
-  if (hasReadMessagesInView || !currentConnId || !hasUnreadMessagesInView) return;
-  hasReadMessagesInView = true;
-  hasUnreadMessagesInView = false;
-  if (socket && !socket.isMock && socket.connected) {
-    socket.emit('mark-read', { connectionId: currentConnId });
+  if (!currentConnId || document.hidden) return;
+  if (_readInFlight) {
+    _pendingReadMark = true;
     return;
   }
+  _readInFlight = true;
 
   apiCall(`/api/messages/${currentConnId}/read`, 'POST')
     .then((data) => {
-      myLastReadAt = data.readAt || new Date().toISOString();
+      if (data && data.readAt) {
+        myLastReadAt = data.readAt;
+      }
     })
-    .catch(() => {
-      hasReadMessagesInView = false;
-      hasUnreadMessagesInView = true;
+    .catch(() => {})
+    .finally(() => {
+      _readInFlight = false;
+      if (_pendingReadMark) {
+        _pendingReadMark = false;
+        setTimeout(markMessagesAsRead, 100);
+      }
     });
 }
 

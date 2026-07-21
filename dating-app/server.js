@@ -1400,25 +1400,26 @@ app.post('/api/messages/:connectionId/read', requireAuth, async (req, res) => {
   }
   if (!conn) return res.status(404).json({ error: 'Connection not found' });
 
-  const result = await messageOps.markAsRead(req.params.connectionId, req.session.userId, conn);
-  const readAt = result.readAt || new Date().toISOString();
+  const readAt = new Date().toISOString();
 
-  // Instantly notify the OTHER user's SSE stream that their messages were seen
-  const otherUserId = Number(conn.from_user_id) === Number(req.session.userId)
-    ? conn.to_user_id
-    : conn.from_user_id;
+  // Instantly notify the OTHER user's SSE stream (<5ms) so seen ticks turn blue immediately
   connectionEmitter.emit(`update:${req.params.connectionId}`, {
     type: 'read',
     readAt,
     connectionId: Number(req.params.connectionId)
   });
-  // Also notify via socket for users in the chat room
   io.to(`chat:${req.params.connectionId}`).emit('messages-read', {
     connectionId: req.params.connectionId,
     readAt
   });
 
-  res.json({ success: true, readAt, count: result.count || 0 });
+  // Return HTTP response IMMEDIATELY without waiting for DB writes
+  res.json({ success: true, readAt });
+
+  // DB updates handled in background
+  messageOps.markAsRead(req.params.connectionId, req.session.userId, conn).catch(err => {
+    console.error('Background markAsRead error:', err.message);
+  });
 });
 
 // Send normal text message
