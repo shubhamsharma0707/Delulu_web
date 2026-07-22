@@ -42,11 +42,28 @@ async function getNextId(collectionName) {
 
 // Ecosystem mapping based on email domain
 function getEcosystem(email) {
-  if (!email) return 'rishihood'; // Default fallback
-  const domain = email.toLowerCase().trim().split('@')[1];
-  if (domain === 'vitbhopal.ac.in') {
+  if (!email) return 'rishihood';
+  const domain = email.toLowerCase().trim().split('@')[1] || '';
+  
+  if (domain.includes('vitbhopal')) {
     return 'vitbhopal';
+  } else if (domain.includes('rishihood')) {
+    return 'rishihood';
+  } else if (domain.includes('amity')) {
+    return 'amity';
+  } else if (domain.includes('cuchd') || domain.includes('cumail') || domain.includes('chandigarh')) {
+    return 'chandigarh';
   }
+  
+  // Extract organization name from domain (e.g. lpu.in -> lpu, du.ac.in -> du)
+  const parts = domain.split('.');
+  if (parts.length >= 2) {
+    const org = parts[parts.length - 2];
+    if (org && !['gmail', 'yahoo', 'outlook', 'hotmail', 'icloud'].includes(org)) {
+      return org;
+    }
+  }
+  
   return 'rishihood';
 }
 

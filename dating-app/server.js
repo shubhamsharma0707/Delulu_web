@@ -654,7 +654,6 @@ app.post('/api/auth/send-verification-email', otpLimiter, async (req, res) => {
   }
 
   const cleanEmail = email.toLowerCase().trim();
-  const domain = cleanEmail.split('@')[1];
   const allowedDomains = [
     'rishihood.edu.in', 
     'vitbhopal.ac.in', 
@@ -666,11 +665,19 @@ app.post('/api/auth/send-verification-email', otpLimiter, async (req, res) => {
     // Chandigarh University
     'cuchd.in',
     'cumail.in',
+    'chandigarhuniversity.ac.in',
     // Amity University
-    's.amity.edu'
+    'amity.edu',
+    's.amity.edu',
+    'amity.in',
+    // LPU
+    'lpu.in',
+    'lpu.co.in'
   ];
   
-  if (!domain || !allowedDomains.includes(domain)) {
+  const isAllowed = allowedDomains.some(d => domain === d || domain.endsWith('.' + d) || domain.includes('amity') || domain.includes('cuchd') || domain.includes('cumail') || domain.includes('rishihood') || domain.includes('vitbhopal') || domain.endsWith('.edu.in') || domain.endsWith('.ac.in'));
+
+  if (!domain || !isAllowed) {
     return res.status(400).json({ error: 'Only authorized university emails are allowed' });
   }
 
