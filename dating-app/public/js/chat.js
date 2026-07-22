@@ -2471,6 +2471,11 @@ function syncActiveGame(c) {
   console.log("[syncActiveGame] connection info:", `from=${c.from_user_id}, to=${c.to_user_id}`);
   const existingGame = document.querySelector('[id^="game-"]');
   if (!c.active_game) {
+    // If the game card is currently displaying the match result to the user,
+    // let its fade-out timer finish so the user actually sees "You matched!" or "Different picks"
+    if (existingGame && existingGame.dataset.clearScheduled === '1') {
+      return;
+    }
     // Minimum lifetime guard: don't remove game cards that were created within
     // the last GAME_CARD_MIN_LIFETIME ms. This prevents transient Firestore
     // snapshot races or connection-refetch issues from removing a card that
@@ -2666,20 +2671,19 @@ function handleBothAnswered(gameEl, myAns, otherAns) {
   const createdAtForClear = gameEl.dataset.gameCreatedAt || null;
   
   setTimeout(async () => {
-    // Guard: if the card was already removed by syncActiveGame (via a
-    // clear-game socket event arriving before this timeout), skip the
-    // fade-out and avoid a wasted clear-game API call.
+    // Guard: if the card was already removed by syncActiveGame, skip fade-out
     if (!gameEl.isConnected) return;
     
-    gameEl.classList.add('transition-opacity', 'duration-500', 'opacity-0');
+    gameEl.classList.add('transition-opacity', 'duration-300', 'opacity-0');
     setTimeout(() => {
       if (gameEl.isConnected) gameEl.remove();
-    }, 500);
+      if (currentGame && currentGame.domId === gameEl.id) currentGame = null;
+    }, 300);
     
     try {
       await apiCall(`/api/connections/${currentConnId}/clear-game`, 'POST', { game_created_at: createdAtForClear });
     } catch (e) {}
-  }, 2000);
+  }, 1000);
 }
 
 // ===== Report & Block =====
