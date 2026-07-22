@@ -731,21 +731,31 @@ body.discover-page #app-root, body.profile-page #app-root {
 }
 
 /* ===== Unified Design System Utility Classes (DesignMeter.ai Fixes) ===== */
-.btn-primary {
+.btn-primary,
+#btn-discover-connect,
+#btn-login,
+#btn-send-otp,
+#btn-verify-otp,
+#btn-save-profile,
+#btn-identity-reveal,
+#btn-face-reveal {
   background-color: #a53b29 !important;
   background-image: linear-gradient(135deg, #a53b29 0%, #d94828 100%) !important;
   color: #ffffff !important;
   font-weight: 700 !important;
-  box-shadow: 0 4px 14px rgba(165, 59, 41, 0.35) !important;
+  box-shadow: 0 4px 14px rgba(165, 59, 41, 0.4) !important;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
-.btn-primary:hover {
-  opacity: 0.95 !important;
-  box-shadow: 0 6px 20px rgba(184, 56, 30, 0.4) !important;
-  transform: translateY(-1px);
+.btn-primary *,
+#btn-discover-connect *,
+#btn-login * {
+  color: #ffffff !important;
 }
-.btn-primary:active {
-  transform: scale(0.98);
+.btn-primary:hover,
+#btn-discover-connect:hover,
+#btn-login:hover {
+  opacity: 0.95 !important;
+  box-shadow: 0 6px 20px rgba(165, 59, 41, 0.5) !important;
 }
 
 .btn-secondary {
