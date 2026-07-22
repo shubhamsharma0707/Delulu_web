@@ -931,15 +931,20 @@ app.put('/api/users/me', requireAuth, async (req, res) => {
 });
 
 // Discover profiles
-// Discover profiles
 app.get('/api/discover', requireAuth, async (req, res) => {
   const user = await userOps.getById(req.session.userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
 
   // Get IDs of users already connected with
   const excludeIds = await connectionOps.getConnectedUserIds(req.session.userId);
-  const profiles = await userOps.getDiscoverable(req.session.userId, user.gender, excludeIds);
+  const result = await userOps.getDiscoverable(req.session.userId, user.gender, excludeIds);
   
+  if (result.hasActiveConnection) {
+    return res.json({ profiles: [], hasActiveConnection: true });
+  }
+
+  const profiles = result.profiles || [];
+
   // Map profiles and calculate hobby matches (case-insensitive)
   const userHobbies = Array.isArray(user.hobbies) ? user.hobbies : JSON.parse(user.hobbies || '[]');
   const userHobbiesLower = userHobbies.map(h => String(h).toLowerCase());
@@ -986,7 +991,7 @@ app.get('/api/discover', requireAuth, async (req, res) => {
   // Sort by match count descending (most matching hobbies first)
   mappedProfiles.sort((a, b) => b.match_count - a.match_count);
 
-  res.json({ profiles: mappedProfiles });
+  res.json({ profiles: mappedProfiles, hasActiveConnection: false });
 });
 
 // Send connection request
@@ -1256,33 +1261,20 @@ app.post('/api/connections/end', requireAuth, async (req, res) => {
   const result = await connectionOps.endConnection(connection_id, req.session.userId);
   if (result.error) return res.status(400).json(result);
 
-  if (result.ended && result.otherId) {
-    io.to(`user:${result.otherId}`).emit('connection-ended', {
-      connectionId: connection_id,
-      message: "😔 Your chat partner wasn't feeling the vibe. This chat has ended. You'll be redirected to the discover page."
-    });
-    io.to(`chat:${connection_id}`).emit('status_change', { connection_id });
+  // Automatically delete all messages for this connection from Supabase Postgres
+  const { getSupabase } = require('./db/supabase');
+  try {
+    await getSupabase().from('messages').delete().eq('connection_id', Number(connection_id));
+  } catch (e) {
+    console.error('Failed to clean up messages on chat end:', e);
   }
 
-  connectionEmitter.emit(`update:${connection_id}`, { type: 'ended' });
-  res.json(result);
-});
+  connectionEmitter.emit(`update:${connection_id}`, {
+    type: 'ended',
+    reason: 'not_vibing',
+    message: 'Oops! Bad Luck... The other person was not vibing or ended the chat. This chat has ended and messages have been cleared.'
+  });
 
-// Submit identity reveal (Day 7)
-app.post('/api/connections/identity-reveal', requireAuth, async (req, res) => {
-  const { connection_id } = req.body;
-  if (!connection_id) return res.status(400).json({ error: 'Missing connection id' });
-  const result = await connectionOps.submitIdentityReveal(connection_id, req.session.userId);
-  if (result.error) return res.status(400).json(result);
-  
-  if (result.bothRevealed) {
-    io.to(`chat:${connection_id}`).emit('identity-revealed', { 
-      connection_id, 
-      meeting_code: result.meeting_code 
-    });
-  }
-  
-  connectionEmitter.emit(`update:${connection_id}`, { type: 'game' });
   res.json(result);
 });
 
@@ -1294,13 +1286,14 @@ app.post('/api/connections/face-reveal', requireAuth, async (req, res) => {
   if (result.error) return res.status(400).json(result);
   
   if (result.bothRevealed) {
-    io.to(`chat:${connection_id}`).emit('face-revealed', { 
-      connection_id, 
+    connectionEmitter.emit(`update:${connection_id}`, { 
+      type: 'revealed', 
       meeting_code: result.meeting_code 
     });
+  } else {
+    connectionEmitter.emit(`update:${connection_id}`, { type: 'game' });
   }
 
-  connectionEmitter.emit(`update:${connection_id}`, { type: 'game' });
   res.json(result);
 });
 
@@ -1311,13 +1304,18 @@ app.post('/api/connections/decline-face-reveal', requireAuth, async (req, res) =
   const result = await connectionOps.declineFaceReveal(connection_id, req.session.userId);
   if (result.error) return res.status(400).json(result);
   
-  if (result.declined && result.otherId) {
-    io.to(`user:${result.otherId}`).emit('face-reveal-declined', {
-      connectionId: connection_id
-    });
-  }
+  // Automatically delete all messages for this connection from Supabase Postgres
+  const { getSupabase } = require('./db/supabase');
+  try {
+    await getSupabase().from('messages').delete().eq('connection_id', Number(connection_id));
+  } catch (e) {}
 
-  connectionEmitter.emit(`update:${connection_id}`, { type: 'game' });
+  connectionEmitter.emit(`update:${connection_id}`, {
+    type: 'ended',
+    reason: 'declined',
+    message: 'Oops! Bad Luck... The other person chose not to reveal. This chat has ended and messages have been cleared.'
+  });
+
   res.json(result);
 });
 

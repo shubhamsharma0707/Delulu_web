@@ -1406,92 +1406,67 @@ function updateChatStatus(c) {
     const chatStarted = new Date(c.chat_started_at).getTime();
     const daysSinceChatStarted = Math.floor((now - chatStarted) / (24 * 60 * 60 * 1000));
     
-    const isIdentityRevealDue = c.identity_reveal_available_at ? now >= new Date(c.identity_reveal_available_at) : false;
-    const isFaceRevealDue = c.face_reveal_available_at ? now >= new Date(c.face_reveal_available_at) : false;
+    const revealTarget = c.face_reveal_available_at || c.identity_reveal_available_at;
+    const isRevealDue = revealTarget ? now >= new Date(revealTarget) : false;
     
     // Show Not Vibing button always (for accepted connections)
     if (notVibingBtn) notVibingBtn.classList.remove('hidden');
     
-    if (isFaceRevealDue) {
-      // Day 14+: Face Reveal phase
-      if (c.both_face_revealed) {
-        // Both agreed - show the Google Meet modal
+    if (isRevealDue || c.both_face_revealed || c.both_identity_revealed) {
+      if (c.both_face_revealed || c.both_identity_revealed) {
+        // Both agreed - show the Video Call modal & status link
         if (c.meeting_code && !document.getElementById('modal-google-meet').classList.contains('scale-100')) {
           showMeetingModal(c.meeting_code);
         }
         if (statusEl) {
-          statusEl.innerHTML = `<span class="flex items-center gap-1 text-green-600"><span class="material-symbols-outlined text-[14px]">videocam</span> Ready to meet! <a href="#" onclick="showMeetingModal('${c.meeting_code}'); return false;" class="underline font-semibold">Join</a></span>`;
-        }
-      } else if (c.face_reveal_declined_by_other) {
-        // Other person declined face reveal - show popup
-        if (statusEl) {
-          statusEl.textContent = 'Face reveal was declined.';
-        }
-        if (!document.getElementById('modal-face-declined').classList.contains('scale-100')) {
-          openModal('modal-face-declined');
+          statusEl.innerHTML = `<span class="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold"><span class="material-symbols-outlined text-[14px]">videocam</span> Meeting ready! <a href="#" onclick="showMeetingModal('${c.meeting_code}'); return false;" class="underline font-bold">Join</a></span>`;
         }
       } else {
-        // Show face reveal button
-        if (faceRevealBtn) {
-          faceRevealBtn.classList.remove('hidden');
-          faceRevealBtn.textContent = c.my_face_reveal === 0 ? "Let's Meet" : 'Waiting for them...';
-          faceRevealBtn.disabled = c.my_face_reveal === 1;
+        // Show Reveal button
+        const btnToUse = faceRevealBtn || identityRevealBtn;
+        if (btnToUse) {
+          btnToUse.classList.remove('hidden');
+          btnToUse.textContent = (c.my_face_reveal === 0 && c.my_identity_reveal === 0) ? "Reveal" : 'Waiting...';
+          btnToUse.disabled = (c.my_face_reveal === 1 || c.my_identity_reveal === 1);
         }
-        if (c.my_face_reveal === 0) {
-          // Auto-show the face reveal modal
-          const faceModal = document.getElementById('modal-face-reveal');
+        if (c.my_face_reveal === 0 && c.my_identity_reveal === 0) {
+          const faceModal = document.getElementById('modal-face-reveal') || document.getElementById('modal-identity-reveal');
           if (faceModal && !faceModal.classList.contains('scale-100')) {
-            openModal('modal-face-reveal');
+            openModal(faceModal.id);
           }
         }
         if (statusEl) {
-          statusEl.textContent = c.my_face_reveal === 1 
-            ? 'Waiting for them to agree to face reveal...' 
-            : `Day ${daysSinceChatStarted} - Face reveal available!`;
-        }
-      }
-    } else if (isIdentityRevealDue) {
-      // Day 7-13: Identity Reveal phase
-      if (c.both_identity_revealed) {
-        // Both have revealed - show meeting
-        if (c.meeting_code && !document.getElementById('modal-google-meet').classList.contains('scale-100')) {
-          showMeetingModal(c.meeting_code);
-        }
-        if (statusEl) {
-          statusEl.innerHTML = `<span class="flex items-center gap-1 text-green-600"><span class="material-symbols-outlined text-[14px]">videocam</span> Meeting ready! <a href="#" onclick="showMeetingModal('${c.meeting_code}'); return false;" class="underline font-semibold">Join</a></span>`;
-        }
-      } else {
-        // Show identity reveal button
-        if (identityRevealBtn) {
-          identityRevealBtn.classList.remove('hidden');
-          identityRevealBtn.textContent = c.my_identity_reveal === 0 ? 'Reveal' : 'Waiting...';
-          identityRevealBtn.disabled = c.my_identity_reveal === 1;
-        }
-        if (c.my_identity_reveal === 0) {
-          // Auto-show the identity reveal modal
-          const idModal = document.getElementById('modal-identity-reveal');
-          if (idModal && !idModal.classList.contains('scale-100')) {
-            openModal('modal-identity-reveal');
-          }
-        }
-        if (statusEl) {
-          statusEl.textContent = c.my_identity_reveal === 1 
-            ? 'Waiting for them to reveal too...' 
-            : `Day ${daysSinceChatStarted} - Identity reveal available!`;
+          statusEl.textContent = (c.my_face_reveal === 1 || c.my_identity_reveal === 1) 
+            ? 'Waiting for partner to reveal...' 
+            : `Day ${daysSinceChatStarted} - Reveal available!`;
         }
       }
     } else {
-      // Before Day 7: Just chatting
-      const daysUntilIdentity = Math.ceil((new Date(c.identity_reveal_available_at) - now) / (24 * 60 * 60 * 1000));
-      if (statusEl) {
-        statusEl.innerHTML = `<span class="text-on-surface-variant">Identity reveal in ${daysUntilIdentity}d</span>`;
+      // Before Day 10: Chatting period
+      const daysUntilReveal = revealTarget ? Math.ceil((new Date(revealTarget) - now) / (24 * 60 * 60 * 1000)) : 10;
+      if (statusEl && !isPartnerOnline) {
+        statusEl.innerHTML = `<span class="text-on-surface-variant/80">Reveal in ${daysUntilReveal}d</span>`;
       }
     }
   } else if (c.status === 'revealed') {
-    if (statusEl) statusEl.innerHTML = `<span class="flex items-center gap-1"><span class="material-symbols-outlined text-[12px]">lock_open</span> Identities Revealed</span>`;
+    if (statusEl) statusEl.innerHTML = `<span class="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold"><span class="material-symbols-outlined text-[14px]">videocam</span> Meeting ready! <a href="#" onclick="showMeetingModal('${c.meeting_code}'); return false;" class="underline font-bold">Join</a></span>`;
   } else {
     if (statusEl) statusEl.textContent = c.status;
   }
+}
+
+function showBadLuckModal(msg) {
+  const msgEl = document.getElementById('bad-luck-message');
+  if (msgEl) {
+    msgEl.textContent = msg || 'Oops! Bad Luck... The other person chose not to reveal or ended the chat. This chat has ended and messages have been cleared.';
+  }
+  const disconnectBtn = document.getElementById('face-declined-disconnect');
+  if (disconnectBtn) {
+    disconnectBtn.onclick = () => {
+      window.location.href = 'discover.html';
+    };
+  }
+  openModal('modal-face-declined');
 }
 
 function showChatSkeleton() {

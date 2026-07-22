@@ -88,6 +88,13 @@ async function loadRequests(type = 'incoming') {
 window.respondReq = async (id, action) => {
   try {
     await apiCall('/api/connections/respond', 'POST', { connection_id: id, action });
+    if (action === 'accept') {
+      showToast('Accepted! Opening chat...', 'success');
+      setTimeout(() => {
+        window.location.href = `chat.html?id=${id}`;
+      }, 300);
+      return;
+    }
     loadRequests('incoming');
   } catch(err) { showToast(err.message, 'error'); }
 };

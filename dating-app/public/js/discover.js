@@ -195,12 +195,32 @@ async function loadDiscovery(options = {}) {
   try {
     const data = await apiCall('/api/discover');
     lastDiscoveryLoadAt = Date.now();
-    discoverProfiles = data.profiles;
+
+    if (data.hasActiveConnection) {
+      discoverProfiles = [];
+      const empty = document.getElementById('discovery-empty');
+      if (empty) {
+        empty.innerHTML = `
+          <div class="p-8 text-center text-on-surface-variant max-w-sm mx-auto flex flex-col items-center">
+            <div class="w-16 h-16 rounded-full bg-primary/10 text-primary flex items-center justify-center mb-4">
+              <span class="material-symbols-outlined text-3xl">forum</span>
+            </div>
+            <h3 class="text-xl font-bold text-on-surface mb-2">Active Chat in Progress</h3>
+            <p class="text-sm text-on-surface-variant mb-6">You're currently in an active 10-day chat! Finish your current chat or tap "Not Vibing" before connecting with someone new.</p>
+            <a href="messages.html" class="px-6 py-3 bg-gradient-to-r from-primary to-primary-container text-white font-bold rounded-xl shadow-md hover:opacity-90 transition-all">Go to Messages</a>
+          </div>
+        `;
+      }
+      checkEmptyState();
+      return;
+    }
+
+    discoverProfiles = data.profiles || [];
     
     // Cache profiles for instant zero-latency loading
     try {
-      sessionStorage.setItem('discover_profiles', JSON.stringify(data.profiles));
-      localStorage.setItem('discover_profiles', JSON.stringify(data.profiles));
+      sessionStorage.setItem('discover_profiles', JSON.stringify(discoverProfiles));
+      localStorage.setItem('discover_profiles', JSON.stringify(discoverProfiles));
     } catch (e) {}
     
     // Show profile overlay immediately

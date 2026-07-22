@@ -258,6 +258,12 @@ const userOps = {
     const userDoc = await this.getById(userId);
     const userEcosystem = userDoc?.ecosystem || 'rishihood';
     
+    // If user is currently in an active 10-day chat, block discovery cards
+    const isUserActive = await connectionOps.hasActiveConnection(userId);
+    if (isUserActive) {
+      return { profiles: [], hasActiveConnection: true };
+    }
+    
     // Fetch blocked users involving this user
     const blockedSnapshotFrom = await firestore.collection('blocked_users').where('from_user_id', '==', Number(userId)).get();
     const blockedSnapshotTo = await firestore.collection('blocked_users').where('to_user_id', '==', Number(userId)).get();
@@ -344,7 +350,8 @@ const userOps = {
     });
 
     // Sort profiles descending by compatibility score
-    return discoverable.sort((a, b) => (b.compatibilityScore || 0) - (a.compatibilityScore || 0));
+    const sorted = discoverable.sort((a, b) => (b.compatibilityScore || 0) - (a.compatibilityScore || 0));
+    return { profiles: sorted, hasActiveConnection: false };
   }
 };
 
@@ -460,10 +467,38 @@ async function mapWithConcurrency(items, limit, mapper) {
 }
 
 // Connection operations
-const connectionOps = {
+  async hasActiveConnection(userId) {
+    const firestore = getDB();
+    const activeStatuses = ['accepted', 'active', 'revealed'];
+    const [snap1, snap2] = await Promise.all([
+      firestore.collection('connections')
+        .where('from_user_id', '==', Number(userId))
+        .where('status', 'in', activeStatuses)
+        .limit(1).get(),
+      firestore.collection('connections')
+        .where('to_user_id', '==', Number(userId))
+        .where('status', 'in', activeStatuses)
+        .limit(1).get()
+    ]);
+    return !snap1.empty || !snap2.empty;
+  },
+
   async sendRequest(fromId, toId) {
     const firestore = getDB();
     
+    // Check if either user already has an active connection (Exclusive 1-to-1 Pairing Rule)
+    const [fromActive, toActive] = await Promise.all([
+      this.hasActiveConnection(fromId),
+      this.hasActiveConnection(toId)
+    ]);
+
+    if (fromActive) {
+      return { error: 'You are currently in an active 10-day chat! Finish your chat or tap Not Vibing before connecting with someone new.' };
+    }
+    if (toActive) {
+      return { error: 'This student is currently in an active 10-day chat with someone else.' };
+    }
+
     // Check if connection already exists in parallel
     const [snap1, snap2] = await Promise.all([
       firestore.collection('connections')
@@ -487,17 +522,18 @@ const connectionOps = {
       from_user_id: Number(fromId),
       to_user_id: Number(toId),
       status: 'pending',
-      created_at: new Date().toISOString(),      chat_started_at: null,
-          identity_reveal_available_at: null,
-          face_reveal_available_at: null,
-          from_identity_reveal: 0,
-          to_identity_reveal: 0,
-          from_face_reveal: 0,
-          to_face_reveal: 0,
-          meeting_code: null,
-          from_last_read_at: null,
-          to_last_read_at: null
-        });
+      created_at: new Date().toISOString(),
+      chat_started_at: null,
+      identity_reveal_available_at: null,
+      face_reveal_available_at: null,
+      from_identity_reveal: 0,
+      to_identity_reveal: 0,
+      from_face_reveal: 0,
+      to_face_reveal: 0,
+      meeting_code: null,
+      from_last_read_at: null,
+      to_last_read_at: null
+    });
     
     return { success: true };
   },
