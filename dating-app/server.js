@@ -938,12 +938,8 @@ app.get('/api/discover', requireAuth, async (req, res) => {
   // Get IDs of users already connected with
   const excludeIds = await connectionOps.getConnectedUserIds(req.session.userId);
   const result = await userOps.getDiscoverable(req.session.userId, user.gender, excludeIds);
-  
-  if (result.hasActiveConnection) {
-    return res.json({ profiles: [], hasActiveConnection: true });
-  }
-
   const profiles = result.profiles || [];
+  const hasActiveConnection = !!result.hasActiveConnection;
 
   // Map profiles and calculate hobby matches (case-insensitive)
   const userHobbies = Array.isArray(user.hobbies) ? user.hobbies : JSON.parse(user.hobbies || '[]');
@@ -991,7 +987,7 @@ app.get('/api/discover', requireAuth, async (req, res) => {
   // Sort by match count descending (most matching hobbies first)
   mappedProfiles.sort((a, b) => b.match_count - a.match_count);
 
-  res.json({ profiles: mappedProfiles, hasActiveConnection: false });
+  res.json({ profiles: mappedProfiles, hasActiveConnection });
 });
 
 // Send connection request

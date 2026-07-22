@@ -258,11 +258,7 @@ const userOps = {
     const userDoc = await this.getById(userId);
     const userEcosystem = userDoc?.ecosystem || 'rishihood';
     
-    // If user is currently in an active 10-day chat, block discovery cards
     const isUserActive = await connectionOps.hasActiveConnection(userId);
-    if (isUserActive) {
-      return { profiles: [], hasActiveConnection: true };
-    }
     
     // Fetch blocked users involving this user
     const blockedSnapshotFrom = await firestore.collection('blocked_users').where('from_user_id', '==', Number(userId)).get();
@@ -351,7 +347,7 @@ const userOps = {
 
     // Sort profiles descending by compatibility score
     const sorted = discoverable.sort((a, b) => (b.compatibilityScore || 0) - (a.compatibilityScore || 0));
-    return { profiles: sorted, hasActiveConnection: false };
+    return { profiles: sorted, hasActiveConnection: isUserActive };
   }
 };
 
