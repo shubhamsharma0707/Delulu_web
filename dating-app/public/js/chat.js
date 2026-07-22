@@ -1534,6 +1534,7 @@ async function loadMessages(isInitial = false, forceFull = false) {
         const existingGames = cont.querySelectorAll('[id^="game-"]');
         cont.innerHTML = '';
         lastMessageDate = null;
+        lastSenderId = null;
         for (const m of cached) {
           if (isUnreadFromOther(m)) {
             hasUnreadMessagesInView = true;
@@ -1755,6 +1756,7 @@ function showMessageMenu(e, msg, bubbleEl) {
 }
 
 let lastMessageDate = null;
+let lastSenderId = null;
 
 async function appendMessage(m, scrollToBottom = true) {
   const cont = document.getElementById('chat-messages');
@@ -1782,8 +1784,11 @@ async function appendMessage(m, scrollToBottom = true) {
     }
   }
   
+  const isSenderChange = lastSenderId !== null && Number(lastSenderId) !== Number(m.sender_id);
+  lastSenderId = m.sender_id;
+
   const div = document.createElement('div');
-  div.className = `flex group items-end gap-2 ${isMe ? 'justify-end' : 'justify-start'} w-full fade-in mb-1`;
+  div.className = `flex group items-end gap-2 ${isMe ? 'justify-end pl-10' : 'justify-start pr-10'} w-full fade-in ${isSenderChange ? 'mt-3.5 mb-1' : 'mt-1 mb-0.5'}`;
   if (m.id) div.setAttribute('data-msg-id', m.id);
   if (m.tempId) div.id = m.tempId;
   if (m.is_sending) div.classList.add('opacity-60');
