@@ -1217,7 +1217,6 @@ const messageOps = {
         .single();
 
       if (fetchErr || !msg) return { error: 'Message not found' };
-      if (msg.sender_id !== Number(userId)) return { error: 'Not authorized to delete this message' };
       if (msg.deleted_at) return { error: 'Message already deleted' };
       if (connectionId && Number(msg.connection_id) !== Number(connectionId)) return { error: 'Message does not belong to this connection' };
 
