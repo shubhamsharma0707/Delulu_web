@@ -467,6 +467,7 @@ async function mapWithConcurrency(items, limit, mapper) {
 }
 
 // Connection operations
+const connectionOps = {
   async hasActiveConnection(userId) {
     const firestore = getDB();
     const activeStatuses = ['accepted', 'active', 'revealed'];
