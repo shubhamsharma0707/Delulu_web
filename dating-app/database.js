@@ -512,8 +512,10 @@ const connectionOps = {
 
   async getConnectedUserIds(userId) {
     const firestore = getDB();
-    const snap1 = await firestore.collection('connections').where('from_user_id', '==', Number(userId)).get();
-    const snap2 = await firestore.collection('connections').where('to_user_id', '==', Number(userId)).get();
+    const [snap1, snap2] = await Promise.all([
+      firestore.collection('connections').where('from_user_id', '==', Number(userId)).get(),
+      firestore.collection('connections').where('to_user_id', '==', Number(userId)).get()
+    ]);
     
     const ids = [];
     snap1.forEach(doc => ids.push(doc.data().to_user_id));
@@ -527,21 +529,20 @@ const connectionOps = {
       .where('status', '==', 'pending')
       .get();
       
-    const connections = [];
-    for (const doc of snapshot.docs) {
+    const connections = (await Promise.all(snapshot.docs.map(async (doc) => {
       const conn = doc.data();
       const sender = await userOps.getById(conn.from_user_id);
-      if (sender) {
-        connections.push({
-          ...conn,
-          username: sender.username,
-          bio: sender.bio,
-          hobbies: sender.hobbies,
-          avatar: sender.avatar,
-          gender: sender.gender
-        });
-      }
-    }
+      if (!sender) return null;
+      return {
+        ...conn,
+        username: sender.username,
+        bio: sender.bio,
+        hobbies: sender.hobbies,
+        avatar: sender.avatar,
+        gender: sender.gender
+      };
+    }))).filter(Boolean);
+
     return connections.sort((a, b) => b.created_at.localeCompare(a.created_at));
   },
 
@@ -551,21 +552,20 @@ const connectionOps = {
       .where('status', '==', 'pending')
       .get();
       
-    const connections = [];
-    for (const doc of snapshot.docs) {
+    const connections = (await Promise.all(snapshot.docs.map(async (doc) => {
       const conn = doc.data();
       const receiver = await userOps.getById(conn.to_user_id);
-      if (receiver) {
-        connections.push({
-          ...conn,
-          username: receiver.username,
-          bio: receiver.bio,
-          hobbies: receiver.hobbies,
-          avatar: receiver.avatar,
-          gender: receiver.gender
-        });
-      }
-    }
+      if (!receiver) return null;
+      return {
+        ...conn,
+        username: receiver.username,
+        bio: receiver.bio,
+        hobbies: receiver.hobbies,
+        avatar: receiver.avatar,
+        gender: receiver.gender
+      };
+    }))).filter(Boolean);
+
     return connections.sort((a, b) => b.created_at.localeCompare(a.created_at));
   },
 
