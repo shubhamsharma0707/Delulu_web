@@ -729,3 +729,61 @@ body.discover-page #app-root, body.profile-page #app-root {
     height: 100% !important;
   }
 }
+
+/* ===== Unified Design System Utility Classes (DesignMeter.ai Fixes) ===== */
+.btn-primary {
+  background: linear-gradient(135deg, #b8381e 0%, #d94828 100%) !important;
+  color: #ffffff !important;
+  font-weight: 700 !important;
+  box-shadow: 0 4px 14px rgba(184, 56, 30, 0.3) !important;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+.btn-primary:hover {
+  opacity: 0.95 !important;
+  box-shadow: 0 6px 20px rgba(184, 56, 30, 0.4) !important;
+  transform: translateY(-1px);
+}
+.btn-primary:active {
+  transform: scale(0.98);
+}
+
+.btn-secondary {
+  background-color: rgba(184, 56, 30, 0.08) !important;
+  color: #b8381e !important;
+  border: 1.5px solid rgba(184, 56, 30, 0.3) !important;
+  font-weight: 700 !important;
+  transition: all 0.2s ease !important;
+}
+.btn-secondary:hover {
+  background-color: rgba(184, 56, 30, 0.15) !important;
+  border-color: rgba(184, 56, 30, 0.5) !important;
+}
+
+.btn-ghost {
+  background-color: transparent !important;
+  color: var(--on-surface-variant, #4a4645) !important;
+  transition: all 0.2s ease !important;
+}
+.btn-ghost:hover {
+  background-color: rgba(184, 56, 30, 0.1) !important;
+  color: #b8381e !important;
+}
+
+/* Enhanced Contrast Ratios (WCAG AAA Compliance) */
+body:not(.dark) .text-on-surface-variant {
+  color: #4a4645 !important; /* WCAG 4.5+:1 ratio against light background */
+}
+body.dark .text-on-surface-variant {
+  color: #e2e0dc !important; /* WCAG 4.5+:1 ratio against dark background */
+}
+
+/* Focus Visible Accessibility Rings */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid #b8381e !important;
+  outline-offset: 2px !important;
+}
+

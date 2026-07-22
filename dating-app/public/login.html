@@ -93,27 +93,36 @@
       <div class="step-dot" id="step-dot-3"></div>
     </div>
 
-    <div class="text-center mb-6">
-      <img src="logo.png" class="w-20 h-20 rounded-2xl mx-auto mb-3 shadow-sm object-cover border border-outline-variant/20" alt="Delulu Logo">
-      <h1 class="text-4xl font-bold text-primary mb-1">Delulu</h1>
-      <p class="text-on-surface-variant text-sm font-semibold">Make The First Move Feel Easier.</p>
+    <div class="text-center mb-6 max-w-sm">
+      <img src="logo.png" class="w-20 h-20 rounded-2xl mx-auto mb-3 shadow-md object-cover border border-outline-variant/30" alt="Delulu Logo">
+      <h1 class="text-4xl font-extrabold text-primary mb-1 tracking-tight">Delulu</h1>
+      <p class="text-on-surface font-bold text-base mb-1">College Slow Dating & Anonymous Chatting</p>
+      <p class="text-on-surface-variant text-xs leading-relaxed font-medium mb-3">Connect exclusively with verified classmates. Chat anonymously for 10 days before face reveal!</p>
+      
+      <!-- Trust Pillars Badges -->
+      <div class="flex items-center justify-center gap-1.5 flex-wrap text-[11px] font-bold text-primary">
+        <span class="px-2.5 py-1 bg-primary/10 rounded-full border border-primary/20 flex items-center gap-1">🛡️ Verified Email</span>
+        <span class="px-2.5 py-1 bg-primary/10 rounded-full border border-primary/20 flex items-center gap-1">🔒 100% Anonymous</span>
+        <span class="px-2.5 py-1 bg-primary/10 rounded-full border border-primary/20 flex items-center gap-1">🎥 10-Day Reveal</span>
+      </div>
     </div>
 
-    <div class="glass-panel rounded-3xl p-8 w-full max-w-md ambient-shadow mx-auto min-h-[320px]">
-
-      <!-- ===== STAGE 0: Login (Default) ===== -->
-      <div id="stage-login" class="stage-enter">
-        <h2 class="text-xl font-bold text-on-surface mb-1">Sign In</h2>
-        <p class="text-sm text-on-surface-variant mb-6">Enter your username or college email and password</p>
-
+    <!-- MAIN FORM CONTAINER -->
+    <div class="w-full max-w-sm glass-panel p-6 rounded-3xl ambient-shadow">
+      
+      <!-- ===== STAGE 0: Login (Default for returning users) ===== -->
+      <div id="stage-login">
+        <h2 class="text-xl font-bold text-on-surface mb-1">Welcome Back</h2>
+        <p class="text-sm text-on-surface-variant mb-6">Sign in to continue your conversations</p>
+        
         <form id="form-login" class="flex flex-col gap-4">
           <div class="relative">
             <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline text-lg">person</span>
             <input 
               id="login-username" 
               type="text" 
-              placeholder="Username or College Email" 
-              class="w-full bg-surface-container-low rounded-xl pl-10 pr-4 py-3 border-none focus:ring-2 focus:ring-primary/50 outline-none"
+              placeholder="College Email or Username" 
+              class="w-full bg-surface-container-low rounded-xl pl-10 pr-4 py-3 border-none focus:ring-2 focus:ring-primary/50 outline-none font-medium"
               required
             >
           </div>
@@ -123,7 +132,7 @@
               id="login-password" 
               type="password" 
               placeholder="Password" 
-              class="w-full bg-surface-container-low rounded-xl pl-10 pr-4 py-3 border-none focus:ring-2 focus:ring-primary/50 outline-none"
+              class="w-full bg-surface-container-low rounded-xl pl-10 pr-4 py-3 border-none focus:ring-2 focus:ring-primary/50 outline-none font-medium"
               required
             >
           </div>
@@ -131,12 +140,12 @@
           <button 
             type="submit" 
             id="btn-login"
-            class="w-full bg-gradient-to-r from-primary to-primary-container text-white font-bold py-3 rounded-xl shadow-md hover:shadow-lg transition-all"
+            class="w-full btn-primary py-3.5 rounded-xl text-white font-bold transition-all shadow-md"
           >
             Sign In
           </button>
           <div class="text-center mt-2">
-            <button type="button" id="btn-go-signup" class="text-sm text-primary hover:underline font-semibold">
+            <button type="button" id="btn-go-signup" class="text-sm text-primary hover:underline font-bold">
               New here? Join your college circle
             </button>
           </div>

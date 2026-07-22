@@ -28,6 +28,31 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 let _requestsLoading = false;
 
+function renderRequestItem(r, type) {
+  const isIncoming = type === 'incoming';
+  return `
+    <div class="glass-panel p-4 rounded-2xl flex items-center justify-between gap-3 shadow-sm border border-outline-variant/20">
+      <div class="flex items-center gap-3 min-w-0 flex-1">
+        <div class="w-12 h-12 rounded-full bg-primary-container text-white font-bold flex items-center justify-center overflow-hidden shrink-0 border border-outline-variant/30">
+          ${r.avatar ? `<img src="/avatars/${r.gender || 'male'}/${r.avatar}/idle.png" class="w-full h-full object-cover" alt="${escapeHtml(r.username)}">` : escapeHtml(r.username.charAt(0).toUpperCase())}
+        </div>
+        <div class="min-w-0 flex-1">
+          <h3 class="font-bold text-on-surface text-base capitalize truncate">${escapeHtml(r.username)}</h3>
+          <p class="text-xs text-on-surface-variant line-clamp-1 font-medium">${escapeHtml(r.bio || 'Classmate on Delulu')}</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 shrink-0">
+        ${isIncoming ? `
+          <button data-action="accept" data-id="${r.id}" class="px-4 py-2 btn-primary rounded-full text-xs font-bold shadow-sm" aria-label="Accept Request">Accept</button>
+          <button data-action="reject" data-id="${r.id}" class="px-3 py-2 btn-secondary rounded-full text-xs font-bold" aria-label="Decline Request">Decline</button>
+        ` : `
+          <button data-action="revoke" data-id="${r.id}" class="px-3.5 py-2 btn-ghost text-error rounded-full text-xs font-bold hover:bg-error/10" aria-label="Revoke Request">Cancel</button>
+        `}
+      </div>
+    </div>
+  `;
+}
+
 async function loadRequests(type = 'incoming') {
   if (_requestsLoading) return;
   _requestsLoading = true;
