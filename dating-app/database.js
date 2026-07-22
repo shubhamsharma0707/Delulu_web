@@ -314,8 +314,37 @@ const userOps = {
       }
     });
 
-    // Random shuffle
-    return discoverable.sort(() => Math.random() - 0.5);
+    // Smart Hobby Compatibility & Fairness Prioritization Algorithm
+    const currentUserHobbies = Array.isArray(userDoc?.hobbies)
+      ? userDoc.hobbies.map(h => String(h).toLowerCase().trim())
+      : String(userDoc?.hobbies || '').toLowerCase().split(',').map(h => h.trim()).filter(Boolean);
+
+    discoverable.forEach(profile => {
+      let score = 0;
+      const profileHobbies = Array.isArray(profile.hobbies)
+        ? profile.hobbies.map(h => String(h).toLowerCase().trim())
+        : String(profile.hobbies || '').toLowerCase().split(',').map(h => h.trim()).filter(Boolean);
+
+      // 1. Shared Hobbies Matching (+10 pts per matching hobby)
+      if (currentUserHobbies.length > 0 && profileHobbies.length > 0) {
+        const matches = profileHobbies.filter(h => currentUserHobbies.includes(h));
+        score += matches.length * 10;
+        profile.sharedHobbies = matches;
+      }
+
+      // 2. Bio completeness (+5 pts)
+      if (profile.bio && profile.bio.trim().length > 10) {
+        score += 5;
+      }
+
+      // 3. Fairness random jitter (+0-8 pts) so every classmate gets discovered
+      score += Math.random() * 8;
+
+      profile.compatibilityScore = Math.round(score);
+    });
+
+    // Sort profiles descending by compatibility score
+    return discoverable.sort((a, b) => (b.compatibilityScore || 0) - (a.compatibilityScore || 0));
   }
 };
 
