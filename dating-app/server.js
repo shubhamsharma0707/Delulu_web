@@ -219,11 +219,17 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// OTP endpoints: 3 per 15 minutes (stricter to prevent email bombing)
+// OTP endpoints: 10 per 15 minutes per email/IP
 const otpLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 3,
-  message: { error: 'Too many OTP requests. Please try again later.' },
+  max: 10,
+  keyGenerator: (req) => {
+    if (req.body && req.body.email) {
+      return req.body.email.toLowerCase().trim();
+    }
+    return req.ip;
+  },
+  message: { error: 'Too many OTP requests. Please try again in 15 minutes.' },
   standardHeaders: true,
   legacyHeaders: false,
 });
