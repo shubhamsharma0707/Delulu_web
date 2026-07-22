@@ -73,34 +73,34 @@
 
   <main class="flex-grow flex flex-col w-full px-0 md:px-6 h-[100dvh] md:h-[calc(100dvh-var(--header-h-md))] relative" id="app-root">
     <div class="flex flex-col w-full h-full md:rounded-2xl bg-surface-container-lowest shadow-sm border border-outline-variant/20 overflow-hidden relative">
-      <div class="flex items-center justify-between p-4 border-b border-outline-variant/10 glass-panel z-10 pt-safe bg-surface/90">
-        <div class="flex items-center gap-3">
-          <a href="messages.html" class="p-2 -ml-2 text-on-surface-variant hover:text-primary transition-colors">
-            <span class="material-symbols-outlined">arrow_back</span>
+      <div class="flex items-center justify-between p-3 md:p-4 border-b border-outline-variant/10 glass-panel z-10 pt-safe bg-surface/90 gap-2">
+        <div class="flex items-center gap-2 min-w-0 flex-1">
+          <a href="messages.html" class="p-1.5 -ml-1 text-on-surface-variant hover:text-primary transition-colors shrink-0">
+            <span class="material-symbols-outlined text-xl">arrow_back</span>
           </a>
-          <div id="chat-avatar" class="w-10 h-10 rounded-full flex items-center justify-center font-bold text-white bg-primary-container shadow-sm overflow-hidden border border-outline-variant/30"></div>
-          <div>
-            <h2 id="chat-name" class="font-bold text-on-surface capitalize cursor-pointer hover:underline hover:opacity-80 transition-opacity">...</h2>
-            <p id="chat-status" class="text-xs text-primary font-medium flex items-center gap-1"></p>
+          <div id="chat-avatar" class="w-9 h-9 md:w-10 md:h-10 rounded-full flex items-center justify-center font-bold text-white bg-primary-container shadow-sm overflow-hidden border border-outline-variant/30 shrink-0"></div>
+          <div class="min-w-0 flex-1">
+            <h2 id="chat-name" class="font-bold text-on-surface text-sm md:text-base capitalize cursor-pointer hover:underline hover:opacity-80 transition-opacity truncate">...</h2>
+            <p id="chat-status" class="text-[11px] md:text-xs text-primary font-medium flex items-center gap-1 truncate"></p>
           </div>
         </div>
-        <div class="flex items-center gap-2">
-          <button id="btn-icebreaker" class="px-2 py-1 bg-surface-variant text-on-surface-variant rounded-full text-xs font-bold hover:bg-surface-container-high transition-colors shadow-sm" title="Icebreaker Games">
-            <span class="material-symbols-outlined text-sm">casino</span>
+        <div class="flex items-center gap-1.5 shrink-0">
+          <button id="btn-icebreaker" class="p-1.5 bg-surface-variant text-on-surface-variant rounded-full text-xs font-bold hover:bg-surface-container-high transition-colors shadow-sm shrink-0 flex items-center justify-center" title="Icebreaker Games">
+            <span class="material-symbols-outlined text-base">casino</span>
           </button>
-          <button id="btn-not-vibing" class="px-3 py-1 bg-error/10 text-error rounded-full text-xs font-bold hover:bg-error/20 transition-colors shadow-sm hidden">
+          <button id="btn-not-vibing" class="px-2.5 py-1 bg-error/10 text-error rounded-full text-[11px] md:text-xs font-bold hover:bg-error/20 transition-colors shadow-sm hidden shrink-0">
             Not Vibing
           </button>
-          <button id="btn-identity-reveal" class="px-3 py-1 bg-primary text-white rounded-full text-xs font-bold hover:bg-primary/90 transition-colors shadow-sm hidden">
+          <button id="btn-identity-reveal" class="px-2.5 py-1 bg-primary text-white rounded-full text-[11px] md:text-xs font-bold hover:bg-primary/90 transition-colors shadow-sm hidden shrink-0">
             Reveal
           </button>
-          <button id="btn-face-reveal" class="px-3 py-1 bg-gradient-to-r from-primary to-primary-container text-white rounded-full text-xs font-bold hover:opacity-90 transition-all shadow-sm hidden">
+          <button id="btn-face-reveal" class="px-2.5 py-1 bg-gradient-to-r from-primary to-primary-container text-white rounded-full text-[11px] md:text-xs font-bold hover:opacity-90 transition-all shadow-sm hidden shrink-0">
             Let's Meet
           </button>
-          <button id="btn-theme-toggle-chat" class="p-1 text-on-surface-variant hover:text-primary transition-colors" title="Toggle theme">
+          <button id="btn-theme-toggle-chat" class="p-1 text-on-surface-variant hover:text-primary transition-colors shrink-0 flex items-center justify-center" title="Toggle theme">
             <span class="material-symbols-outlined text-lg">dark_mode</span>
           </button>
-          <button id="btn-chat-more" class="p-1 text-on-surface-variant hover:text-primary transition-colors" title="More">
+          <button id="btn-chat-more" class="p-1 text-on-surface-variant hover:text-primary transition-colors shrink-0 flex items-center justify-center" title="More">
             <span class="material-symbols-outlined text-lg">more_vert</span>
           </button>
         </div>
