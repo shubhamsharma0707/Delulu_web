@@ -290,7 +290,10 @@ function initRealtimeStream() {
         handleOtherUserTyping(streamEvent.isTyping);
       }
     } else if (streamEvent.type === 'presence') {
-      if (Number(streamEvent.userId) !== Number(currentUser.id)) {
+      if (Array.isArray(streamEvent.onlineUserIds)) {
+        const isOtherOnline = streamEvent.onlineUserIds.some(id => Number(id) !== Number(currentUser.id));
+        handlePresenceChange(isOtherOnline);
+      } else if (Number(streamEvent.userId) !== Number(currentUser.id)) {
         handlePresenceChange(streamEvent.status === 'online');
       }
     } else if (streamEvent.type === 'messages') {

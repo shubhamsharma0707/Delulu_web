@@ -464,16 +464,17 @@ const connectionOps = {
   async sendRequest(fromId, toId) {
     const firestore = getDB();
     
-    // Check if connection already exists
-    const snap1 = await firestore.collection('connections')
-      .where('from_user_id', '==', Number(fromId))
-      .where('to_user_id', '==', Number(toId))
-      .limit(1).get();
-      
-    const snap2 = await firestore.collection('connections')
-      .where('from_user_id', '==', Number(toId))
-      .where('to_user_id', '==', Number(fromId))
-      .limit(1).get();
+    // Check if connection already exists in parallel
+    const [snap1, snap2] = await Promise.all([
+      firestore.collection('connections')
+        .where('from_user_id', '==', Number(fromId))
+        .where('to_user_id', '==', Number(toId))
+        .limit(1).get(),
+      firestore.collection('connections')
+        .where('from_user_id', '==', Number(toId))
+        .where('to_user_id', '==', Number(fromId))
+        .limit(1).get()
+    ]);
       
     const doc = !snap1.empty ? snap1.docs[0].data() : (!snap2.empty ? snap2.docs[0].data() : null);
     if (doc) {
