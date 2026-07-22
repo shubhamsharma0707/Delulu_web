@@ -788,6 +788,24 @@ body.dark .text-on-surface-variant {
   color: #e2e0dc !important; /* WCAG 4.5+:1 ratio against dark background */
 }
 
+/* ===== Message Bubble Text Wrapping & Overflow Containment ===== */
+#chat-messages [data-msg-id] > div,
+#chat-messages .rounded-2xl {
+  max-width: 80% !important;
+  min-width: 0 !important;
+  word-wrap: break-word !important;
+  overflow-wrap: anywhere !important;
+  word-break: break-word !important;
+  box-sizing: border-box !important;
+}
+
+#chat-messages p {
+  word-wrap: break-word !important;
+  overflow-wrap: anywhere !important;
+  word-break: break-word !important;
+  white-space: pre-wrap !important;
+}
+
 /* Focus Visible Accessibility Rings */
 button:focus-visible,
 a:focus-visible,

@@ -1789,7 +1789,7 @@ async function appendMessage(m, scrollToBottom = true) {
   if (m.is_sending) div.classList.add('opacity-60');
   
   const inner = document.createElement('div');
-  inner.className = `max-w-[75%] rounded-2xl p-3 relative ${isMe ? 'bg-primary text-white rounded-tr-sm shadow-sm' : 'bg-surface-container-low text-on-surface rounded-tl-sm shadow-sm border border-outline-variant/10'}`;
+  inner.className = `max-w-[75%] min-w-0 break-words overflow-hidden rounded-2xl p-3 relative ${isMe ? 'bg-primary text-white rounded-tr-sm shadow-sm' : 'bg-surface-container-low text-on-surface rounded-tl-sm shadow-sm border border-outline-variant/10'}`;
   
   if (m.deleted_at !== null && m.deleted_at !== undefined) {
     const p = document.createElement('p');
@@ -1857,7 +1857,7 @@ async function appendMessage(m, scrollToBottom = true) {
     inner.appendChild(voiceContainer);
   } else {
     const p = document.createElement('p');
-    p.className = 'text-[15px] leading-relaxed break-words flex items-end gap-1.5';
+    p.className = 'text-[15px] leading-relaxed break-words [overflow-wrap:anywhere] [word-break:break-word] whitespace-pre-wrap';
     p.textContent = displayContent;
     if (isEncrypted) {
       p.innerHTML += ` <span class="material-symbols-outlined text-[12px] text-green-600 self-center" title="End-to-End Encrypted">lock</span>`;
