@@ -102,14 +102,40 @@ async function loadMessagesList(options = {}) {
   if (options.skipRecent && Date.now() - lastMessagesListLoadAt < 5000) return;
   _messagesListLoading = true;
   const list = document.getElementById('messages-list');
+
+  // Instant zero-latency render from local storage cache (eliminates skeleton waiting time)
   if (!chatListCache.length) {
-    showSkeleton('messages-list', 4, 'card');
+    try {
+      const cached = localStorage.getItem('cached_messages_list');
+      if (cached) {
+        chatListCache = JSON.parse(cached);
+        if (chatListCache.length > 0) {
+          list.innerHTML = chatListCache.map(c => {
+            const safeUsername = escapeHtml(c.other_username);
+            const isRevealed = c.status === 'revealed';
+            const lastMsg = renderLastMessage(c);
+            return renderChatListItem(c, safeUsername, isRevealed, lastMsg);
+          }).join('');
+        }
+      }
+    } catch (e) {}
+
+    // Only show skeleton if no cache exists at all
+    if (!chatListCache.length) {
+      showSkeleton('messages-list', 4, 'card');
+    }
   }
+
   try {
     const data = await apiCall('/api/connections/active');
     lastMessagesListLoadAt = Date.now();
     const conns = data.connections;
     chatListCache = conns;
+    
+    // Save to local cache for instant cold starts
+    try {
+      localStorage.setItem('cached_messages_list', JSON.stringify(conns));
+    } catch (e) {}
     
     if (!conns || conns.length === 0) {
       list.innerHTML = `<div class="p-8 text-center text-on-surface-variant flex flex-col items-center"><span class="material-symbols-outlined text-4xl mb-2">forum</span> No active chats yet.</div>`;
@@ -132,7 +158,9 @@ async function loadMessagesList(options = {}) {
       });
     }
   } catch (err) {
-    list.innerHTML = `<div class="p-4 text-error">${escapeHtml(err.message)}</div>`;
+    if (!chatListCache.length) {
+      list.innerHTML = `<div class="p-4 text-error">${escapeHtml(err.message)}</div>`;
+    }
   } finally {
     _messagesListLoading = false;
   }

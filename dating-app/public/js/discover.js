@@ -174,18 +174,36 @@ async function loadDiscovery(options = {}) {
   if (discoveryLoading) return;
   if (options.skipRecent && Date.now() - lastDiscoveryLoadAt < 5000) return;
 
+  // Instant zero-latency render from local cache (eliminates skeleton waiting time)
+  if (!discoverProfiles.length) {
+    try {
+      const cached = sessionStorage.getItem('discover_profiles') || localStorage.getItem('discover_profiles');
+      if (cached) {
+        discoverProfiles = JSON.parse(cached);
+        if (discoverProfiles.length > 0) {
+          const overlay = document.getElementById('profile-overlay');
+          if (overlay) overlay.classList.remove('hidden');
+          updateProfileOverlay(0);
+          updateNavButtons();
+          init3DScene();
+        }
+      }
+    } catch (e) {}
+  }
+
   discoveryLoading = true;
   try {
     const data = await apiCall('/api/discover');
     lastDiscoveryLoadAt = Date.now();
     discoverProfiles = data.profiles;
     
-    // Cache profiles in sessionStorage for instant back-navigation
+    // Cache profiles for instant zero-latency loading
     try {
       sessionStorage.setItem('discover_profiles', JSON.stringify(data.profiles));
+      localStorage.setItem('discover_profiles', JSON.stringify(data.profiles));
     } catch (e) {}
     
-    // Show profile overlay immediately — don't wait for Three.js
+    // Show profile overlay immediately
     if (discoverProfiles.length > 0) {
       const overlay = document.getElementById('profile-overlay');
       if (overlay) overlay.classList.remove('hidden');
@@ -196,15 +214,6 @@ async function loadDiscovery(options = {}) {
     
     init3DScene();
   } catch (err) {
-    // Try loading from cache if offline
-    try {
-      const cached = sessionStorage.getItem('discover_profiles');
-      if (cached) {
-        discoverProfiles = JSON.parse(cached);
-        init3DScene();
-        return;
-      }
-    } catch (e) {}
     console.error(err);
   } finally {
     discoveryLoading = false;
