@@ -2735,4 +2735,60 @@ async function blockUser() {
 }
 
 
-// Removed: handleVibeScoreUpdated - no longer needed with the new reveal system
+// ===== Screenshot & Screen Recording Protection =====
+function setupScreenshotProtection() {
+  const chatMessages = document.getElementById('chat-messages');
+
+  // 1. Intercept PrintScreen and common screenshot key shortcuts
+  window.addEventListener('keydown', (e) => {
+    const isPrintScreen = e.key === 'PrintScreen' || e.keyCode === 44;
+    const isCmdShift = (e.metaKey || e.ctrlKey) && e.shiftKey && ['3', '4', '5', 'S', 's', 'i', 'I'].includes(e.key);
+    const isCtrlP = (e.ctrlKey || e.metaKey) && (e.key === 'p' || e.key === 'P');
+
+    if (isPrintScreen || isCmdShift || isCtrlP) {
+      e.preventDefault();
+      e.stopPropagation();
+
+      if (chatMessages) {
+        chatMessages.style.filter = 'blur(30px)';
+        setTimeout(() => {
+          chatMessages.style.filter = 'none';
+        }, 1500);
+      }
+      if (typeof showToast === 'function') {
+        showToast('🔒 Screenshots are restricted in Delulu chats for privacy', 'warning');
+      }
+      return false;
+    }
+  });
+
+  // 2. Blur chat area when window loses focus (protects background capture & task switcher preview)
+  window.addEventListener('blur', () => {
+    if (chatMessages) chatMessages.style.filter = 'blur(25px)';
+  });
+  window.addEventListener('focus', () => {
+    if (chatMessages) chatMessages.style.filter = 'none';
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && chatMessages) {
+      chatMessages.style.filter = 'blur(25px)';
+    } else if (!document.hidden && chatMessages) {
+      chatMessages.style.filter = 'none';
+    }
+  });
+
+  // 3. Disable right-click context menu on chat view
+  const mainChatArea = document.getElementById('app-root') || document.body;
+  if (mainChatArea) {
+    mainChatArea.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      return false;
+    });
+  }
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', setupScreenshotProtection);
+} else {
+  setupScreenshotProtection();
+}
