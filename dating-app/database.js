@@ -1178,7 +1178,7 @@ const messageOps = {
         .single();
 
       if (fetchErr || !msg) return { error: 'Message not found' };
-      if (msg.connection_id !== Number(connectionId)) return { error: 'Mismatched connection' };
+      if (connectionId && Number(msg.connection_id) !== Number(connectionId)) return { error: 'Mismatched connection' };
 
       // Toggle userId in/out of the emoji's array (application-level, no extra table)
       const reactions = msg.reactions || {};
