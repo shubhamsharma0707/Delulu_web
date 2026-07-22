@@ -5,10 +5,12 @@
 }
 
 /* ===== Dark Mode ===== */
+html.dark,
+html.dark body,
 body.dark,
 body.dark .bg-background,
 body.dark .bg-surface,
-body.dark .bg-surface-bright { background-color: #1a1c1e !important; }
+body.dark .bg-surface-bright { background-color: #121313 !important; }
 body.dark .bg-surface-container-lowest { background-color: #1a1c1e !important; }
 body.dark .bg-surface-container-low { background-color: #2f3133 !important; }
 body.dark .bg-surface-container { background-color: #353739 !important; }

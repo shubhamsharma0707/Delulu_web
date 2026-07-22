@@ -230,23 +230,33 @@ function initHeartBackground() {
 // ===== Dark Mode =====
 function initDarkMode() {
   const saved = localStorage.getItem('delulu_theme');
-  if (saved === 'dark') {
+  const isDark = saved === 'dark';
+  
+  if (isDark) {
+    document.documentElement.classList.add('dark');
     document.body.classList.add('dark');
+    document.documentElement.style.backgroundColor = '#121313';
+  } else {
+    document.documentElement.classList.remove('dark');
+    document.body.classList.remove('dark');
+    document.documentElement.style.backgroundColor = '#fbf9f8';
   }
   
   const toggle = document.getElementById('theme-toggle');
   if (toggle) {
     toggle.onclick = () => {
-      document.body.classList.toggle('dark');
-      localStorage.setItem('delulu_theme', document.body.classList.contains('dark') ? 'dark' : 'light');
+      const active = document.body.classList.toggle('dark');
+      document.documentElement.classList.toggle('dark', active);
+      document.documentElement.style.backgroundColor = active ? '#121313' : '#fbf9f8';
+      localStorage.setItem('delulu_theme', active ? 'dark' : 'light');
       const icon = toggle.querySelector('.material-symbols-outlined');
       if (icon) {
-        icon.textContent = document.body.classList.contains('dark') ? 'light_mode' : 'dark_mode';
+        icon.textContent = active ? 'light_mode' : 'dark_mode';
       }
     };
     const icon = toggle.querySelector('.material-symbols-outlined');
     if (icon) {
-      icon.textContent = saved === 'dark' ? 'light_mode' : 'dark_mode';
+      icon.textContent = isDark ? 'light_mode' : 'dark_mode';
     }
   }
 }
