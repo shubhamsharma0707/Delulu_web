@@ -359,6 +359,16 @@ app.use((req, res, next) => {
   next();
 });
 
+// Serve release APK download outside public directory to keep asset bundle lightweight (16MB)
+app.get(['/delulu.apk', '/api/download-apk'], (req, res) => {
+  const apkPath = path.join(__dirname, 'builds', 'delulu.apk');
+  if (fs.existsSync(apkPath)) {
+    res.download(apkPath, 'delulu.apk');
+  } else {
+    res.status(404).send('APK build not available yet.');
+  }
+});
+
 // Protect user-uploaded files (voice notes, etc.) with authentication
 app.use('/uploads', requireAuth);
 
