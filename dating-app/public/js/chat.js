@@ -2145,19 +2145,11 @@ function showMeetingModal(meetingCode) {
   
   // Instant direct 1-click working video room (Jitsi Meet — 100% free, no login, camera & mic work)
   const videoCallUrl = `https://meet.jit.si/Delulu-Meet-${cleanCode}`;
-  const googleMeetUrl = `https://meet.google.com/new`;
 
   const linkBtn = document.getElementById('meet-link-btn');
   if (linkBtn) {
     linkBtn.onclick = () => {
       openExternalUrl(videoCallUrl);
-    };
-  }
-
-  const googleBtn = document.getElementById('meet-google-btn');
-  if (googleBtn) {
-    googleBtn.onclick = () => {
-      openExternalUrl(googleMeetUrl);
     };
   }
 
