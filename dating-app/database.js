@@ -1722,6 +1722,40 @@ const pushOps = {
     if (!snapshot.empty) {
       await snapshot.docs[0].ref.delete();
     }
+  },
+
+  async saveFCMToken(userId, fcmToken) {
+    if (!fcmToken) return;
+    const firestore = getDB();
+    const userRef = firestore.collection('users').doc(String(userId));
+    const doc = await userRef.get();
+    if (doc.exists) {
+      const existingTokens = doc.data().fcm_tokens || [];
+      if (!existingTokens.includes(fcmToken)) {
+        await userRef.update({
+          fcm_tokens: FieldValue.arrayUnion(fcmToken)
+        });
+      }
+    }
+  },
+
+  async getFCMTokens(userId) {
+    const firestore = getDB();
+    const userRef = firestore.collection('users').doc(String(userId));
+    const doc = await userRef.get();
+    if (doc.exists) {
+      return doc.data().fcm_tokens || [];
+    }
+    return [];
+  },
+
+  async removeFCMToken(userId, fcmToken) {
+    if (!fcmToken) return;
+    const firestore = getDB();
+    const userRef = firestore.collection('users').doc(String(userId));
+    await userRef.update({
+      fcm_tokens: FieldValue.arrayRemove(fcmToken)
+    }).catch(() => {});
   }
 };
 

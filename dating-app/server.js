@@ -1714,39 +1714,85 @@ app.post('/api/log-error', async (req, res) => {
 // ===== Web Push Notifications =====
 const webPush = require('web-push');
 
-// Generate VAPID keys if not set
-const vapidPublicKey = process.env.VAPID_PUBLIC_KEY;
-const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
-if (vapidPublicKey && vapidPrivateKey) {
-  webPush.setVapidDetails(
-    `mailto:${process.env.GMAIL_USER || 'delulu.college.dating@gmail.com'}`,
-    vapidPublicKey,
-    vapidPrivateKey
-  );
-  console.log('Web Push notifications configured');
-} else {
-  console.log('VAPID keys not set — push notifications disabled. Run: npx web-push generate-vapid-keys');
+let vapidPublicKey = process.env.VAPID_PUBLIC_KEY;
+let vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
+
+if (!vapidPublicKey || !vapidPrivateKey) {
+  try {
+    const generated = webPush.generateVAPIDKeys();
+    vapidPublicKey = generated.publicKey;
+    vapidPrivateKey = generated.privateKey;
+    console.log('📢 Auto-generated VAPID keys for WebPush notifications');
+  } catch (e) {}
 }
 
-async function sendPushNotification(userId, title, body, url = '/messages') {
-  if (!vapidPublicKey || !vapidPrivateKey) return;
+if (vapidPublicKey && vapidPrivateKey) {
   try {
-    const subs = await pushOps.getSubscriptions(userId);
-    for (const sub of subs) {
-      const pushSub = {
-        endpoint: sub.endpoint,
-        keys: sub.keys
-      };
-      const payload = JSON.stringify({ title, body, url, icon: '/favicon.ico' });
-      webPush.sendNotification(pushSub, payload).catch(err => {
-        if (err.statusCode === 410 || err.statusCode === 404) {
-          pushOps.removeSubscription(sub.endpoint);
-        }
-      });
+    webPush.setVapidDetails(
+      `mailto:${process.env.GMAIL_USER || 'delulu.college.dating@gmail.com'}`,
+      vapidPublicKey,
+      vapidPrivateKey
+    );
+  } catch (e) {}
+}
+
+const { getMessaging } = require('firebase-admin/messaging');
+
+async function sendPushNotification(userId, title, body, url = '/messages') {
+  const numUserId = Number(userId);
+
+  // 1. Web Push Notification (PWA / Web Browsers)
+  if (vapidPublicKey && vapidPrivateKey) {
+    try {
+      const subs = await pushOps.getSubscriptions(numUserId);
+      for (const sub of subs) {
+        const pushSub = {
+          endpoint: sub.endpoint,
+          keys: sub.keys
+        };
+        const payload = JSON.stringify({ title, body, url, icon: '/favicon.ico' });
+        webPush.sendNotification(pushSub, payload).catch(err => {
+          if (err.statusCode === 410 || err.statusCode === 404) {
+            pushOps.removeSubscription(sub.endpoint);
+          }
+        });
+      }
+    } catch (err) {
+      console.error('WebPush notification error:', err.message);
     }
-  } catch (err) {
-    console.error('Push notification error:', err.message);
   }
+
+  // 2. Firebase Admin FCM Native Push Notification (Android App Closed / Background)
+  try {
+    const apps = require('firebase-admin/app').getApps();
+    if (apps.length > 0) {
+      const fcmTokens = await pushOps.getFCMTokens(numUserId);
+      if (fcmTokens && fcmTokens.length > 0) {
+        const messaging = getMessaging(apps[0]);
+        for (const token of fcmTokens) {
+          const message = {
+            token,
+            notification: { title, body },
+            data: { url: url || '/chat.html' },
+            android: {
+              priority: 'high',
+              notification: {
+                sound: 'default',
+                priority: 'high',
+                channelId: 'delulu_messages',
+                visibility: 'public'
+              }
+            }
+          };
+          messaging.send(message).catch(fcmErr => {
+            if (fcmErr.code === 'messaging/registration-token-not-registered' || fcmErr.code === 'messaging/invalid-registration-token') {
+              pushOps.removeFCMToken(numUserId, token);
+            }
+          });
+        }
+      }
+    }
+  } catch (fcmErr) {}
 }
 
 const ALLOWED_REACTIONS = ['😂', '😢', '❤️', '👍', '😮'];
@@ -1847,6 +1893,18 @@ app.post('/api/push/unsubscribe', requireAuth, async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Failed to unsubscribe' });
+  }
+});
+
+// Register FCM device token for native Android background push notifications
+app.post('/api/push/fcm-token', requireAuth, async (req, res) => {
+  const { token } = req.body;
+  if (!token) return res.status(400).json({ error: 'Missing token' });
+  try {
+    await pushOps.saveFCMToken(req.session.userId, token);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to save FCM token' });
   }
 });
 
