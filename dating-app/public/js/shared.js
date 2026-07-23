@@ -430,47 +430,25 @@ function showSkeleton(containerId, count = 3, type = 'line') {
 
 // ===== Push & Native Local Notification Subscription =====
 async function initPushNotifications() {
-  // 1. Native Capacitor App FCM Push Notifications (Android / iOS)
-  if (window.Capacitor && window.Capacitor.isPluginAvailable('PushNotifications')) {
-    try {
-      const PushNotifications = window.Capacitor.Plugins.PushNotifications;
-      const permResult = await PushNotifications.requestPermissions();
-      if (permResult.receive === 'granted') {
-        await PushNotifications.register();
-      }
-      
-      if (!window.__capacitorPushListenerSet) {
-        window.__capacitorPushListenerSet = true;
-        PushNotifications.addListener('registration', (token) => {
-          console.log('[Capacitor] FCM token registered:', token.value);
-          apiCall('/api/push/fcm-token', 'POST', { token: token.value }).catch(() => {});
-        });
-        PushNotifications.addListener('pushNotificationActionPerformed', (notification) => {
-          const targetUrl = notification.notification.data?.url;
-          if (targetUrl) {
-            window.location.href = targetUrl;
-          }
-        });
-      }
-    } catch (e) {
-      console.warn('[Capacitor] FCM Push setup failed:', e.message);
-    }
-  }
-
-  if (window.Capacitor && window.Capacitor.isPluginAvailable('LocalNotifications')) {
+  // 1. Native Capacitor Local Notifications (Android / iOS native app)
+  if (window.Capacitor && window.Capacitor.isPluginAvailable && window.Capacitor.isPluginAvailable('LocalNotifications')) {
     try {
       const LocalNotifications = window.Capacitor.Plugins.LocalNotifications;
-      const permResult = await LocalNotifications.requestPermissions();
-      if (!window.__capacitorNotificationListenerSet) {
-        window.__capacitorNotificationListenerSet = true;
-        LocalNotifications.addListener('localNotificationActionPerformed', (action) => {
-          const targetUrl = action.notification.extra?.url;
-          if (targetUrl) {
-            window.location.href = targetUrl;
-          }
-        });
+      if (LocalNotifications && typeof LocalNotifications.requestPermissions === 'function') {
+        await LocalNotifications.requestPermissions().catch(() => {});
+        if (!window.__capacitorNotificationListenerSet) {
+          window.__capacitorNotificationListenerSet = true;
+          LocalNotifications.addListener('localNotificationActionPerformed', (action) => {
+            const targetUrl = action.notification?.extra?.url;
+            if (targetUrl) {
+              window.location.replace(targetUrl);
+            }
+          }).catch(() => {});
+        }
       }
-    } catch (e) {}
+    } catch (e) {
+      console.warn('[Capacitor] Local notifications setup safely bypassed:', e.message);
+    }
   }
 
   // 2. Web Browser (Web Push API fallback)
