@@ -49,6 +49,7 @@ const crypto = require('crypto');
 const bcrypt = require('bcrypt');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const { ipKeyGenerator } = rateLimit;
 const { initializeApp: firebaseInitializeApp, cert } = require('firebase-admin/app');
 const { getAuth: getFirebaseAuth } = require('firebase-admin/auth');
 const { getDB, seedDemoUsers, userOps, connectionOps, messageOps, otpOps, invalidateUserCache, reportOps, blockOps, pushOps } = require('./database');
@@ -227,7 +228,7 @@ const otpLimiter = rateLimit({
     if (req.body && req.body.email) {
       return req.body.email.toLowerCase().trim();
     }
-    return req.ip;
+    return req.ip || '127.0.0.1';
   },
   message: { error: 'Too many OTP requests. Please try again in 15 minutes.' },
   standardHeaders: true,
@@ -378,16 +379,16 @@ app.get(['/delulu.apk', '/api/download-apk'], (req, res) => {
 // Protect user-uploaded files (voice notes, etc.) with authentication
 app.use('/uploads', requireAuth);
 
-// Static files with aggressive Cache-Control headers
+// Static asset names are not fingerprinted, so a one-year immutable cache would
+// keep users on stale client code after a deploy. Keep a short browser cache.
 app.use(express.static(path.join(__dirname, 'public'), {
-  maxAge: '365d',
+  maxAge: '0',
   setHeaders: (res, filePath) => {
-    if (filePath.endsWith('.html')) {
-      // Never cache HTML files to ensure code updates are picked up instantly
+    if (filePath.endsWith('.html') || filePath.endsWith('.js') || filePath.endsWith('.css')) {
+      // Never cache HTML/JS/CSS files to ensure code updates are picked up instantly across deploys
       res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     } else {
-      // Cache-bustable static assets (JS, CSS, images, fonts) are cached aggressively for 1 year
-      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      res.setHeader('Cache-Control', 'public, max-age=86400, must-revalidate');
     }
   }
 }));
@@ -414,6 +415,8 @@ async function getConnectedUserIdsForPresence(userId) {
   }
 }
 
+const userSocketsMap = new Map();
+
 // Socket.io connections for chat
 io.on('connection', async (socket) => {
   const userId = socket.request.session?.userId;
@@ -423,11 +426,17 @@ io.on('connection', async (socket) => {
     return;
   }
 
+  const numUserId = Number(userId);
+  if (!userSocketsMap.has(numUserId)) {
+    userSocketsMap.set(numUserId, new Set());
+  }
+  userSocketsMap.get(numUserId).add(socket.id);
+
   console.log(`User ${userId} connected via socket`);
 
   // Presence: mark user as online
-  onlineUsers.set(Number(userId), { socketId: socket.id, lastSeen: Date.now() });
-  socket.broadcast.emit('user-online', { userId: Number(userId) });
+  onlineUsers.set(numUserId, { socketId: socket.id, lastSeen: Date.now() });
+  socket.broadcast.emit('user-online', { userId: numUserId });
 
   // Join user to their personal room
   socket.join(`user:${userId}`);
@@ -469,7 +478,7 @@ io.on('connection', async (socket) => {
 
     // Verify user is part of this connection
     const conn = await connectionOps.getConnection(connectionId, userId);
-    if (!conn || conn._dataIntegrityError) return;
+    if (!conn || conn._dataIntegrityError || !connectionOps.isActive(conn)) return;
 
     const msg = await messageOps.send(connectionId, userId, sanitizeText(content.trim()), 0, 0, Number(is_encrypted || 0), iv || null);
     // Emit to both users in the chat
@@ -498,7 +507,7 @@ io.on('connection', async (socket) => {
     if (!connectionId) return;
     try {
       const conn = await connectionOps.getConnection(connectionId, userId);
-      if (!conn || conn._dataIntegrityError) return;
+    if (!conn || conn._dataIntegrityError || !connectionOps.isActive(conn)) return;
       
       const result = await messageOps.markAsRead(connectionId, Number(userId), conn);
       if (result.count > 0) {
@@ -538,8 +547,16 @@ io.on('connection', async (socket) => {
 
   socket.on('disconnect', () => {
     console.log(`User ${userId} disconnected`);
-    onlineUsers.delete(Number(userId));
-    socket.broadcast.emit('user-offline', { userId: Number(userId), lastSeen: new Date().toISOString() });
+    const numUserId = Number(userId);
+    const userSockets = userSocketsMap.get(numUserId);
+    if (userSockets) {
+      userSockets.delete(socket.id);
+      if (userSockets.size === 0) {
+        userSocketsMap.delete(numUserId);
+        onlineUsers.delete(numUserId);
+        socket.broadcast.emit('user-offline', { userId: numUserId, lastSeen: new Date().toISOString() });
+      }
+    }
   });
 });
 
@@ -605,6 +622,14 @@ function sanitizeConnection(c, userId) {
       ? c.face_reveal_declined_by === c.to_user_id 
       : c.face_reveal_declined_by === c.from_user_id
   };
+}
+
+function requireActiveConnection(conn, res) {
+  if (!connectionOps.isActive(conn)) {
+    res.status(409).json({ error: 'This chat is no longer active.' });
+    return false;
+  }
+  return true;
 }
 
 // Check if user is logged in (with cache)
@@ -1000,7 +1025,7 @@ app.get('/api/discover', requireAuth, async (req, res) => {
 // Send connection request
 app.post('/api/connections/request', requireAuth, discoverLimiter, async (req, res) => {
   const { to_user_id } = req.body;
-  if (!to_user_id) return res.status(400).json({ error: 'Missing target user' });
+  if (!Number.isSafeInteger(Number(to_user_id)) || Number(to_user_id) < 1) return res.status(400).json({ error: 'Invalid target user' });
   if (Number(to_user_id) === req.session.userId) return res.status(400).json({ error: 'Cannot request yourself' });
 
   const user = await userOps.getById(req.session.userId);
@@ -1211,10 +1236,13 @@ app.get('/api/connections/:id/stream', requireAuth, async (req, res) => {
 });
 
 // Typing indicator endpoint (100% in-memory, 0 DB calls)
-app.post('/api/connections/:id/typing', requireAuth, (req, res) => {
+app.post('/api/connections/:id/typing', requireAuth, async (req, res) => {
   const connectionId = req.params.id;
   const userId = Number(req.session.userId);
   const { isTyping } = req.body;
+  const conn = await connectionOps.getConnection(connectionId, userId);
+  if (!conn || conn._dataIntegrityError) return res.status(404).json({ error: 'Connection not found' });
+  if (!requireActiveConnection(conn, res)) return;
 
   connectionEmitter.emit(`update:${connectionId}`, {
     type: 'typing',
@@ -1307,16 +1335,11 @@ app.post('/api/connections/decline-face-reveal', requireAuth, async (req, res) =
   const result = await connectionOps.declineFaceReveal(connection_id, req.session.userId);
   if (result.error) return res.status(400).json(result);
   
-  // Automatically delete all messages for this connection from Supabase Postgres
-  const { getSupabase } = require('./db/supabase');
-  try {
-    await getSupabase().from('messages').delete().eq('connection_id', Number(connection_id));
-  } catch (e) {}
-
+  // A decline is a decision, not an implicit chat deletion. The other person is
+  // notified and can explicitly choose to end the chat.
   connectionEmitter.emit(`update:${connection_id}`, {
-    type: 'ended',
-    reason: 'declined',
-    message: 'Oops! Bad Luck... The other person chose not to reveal. This chat has ended and messages have been cleared.'
+    type: 'face-declined',
+    declinedBy: Number(req.session.userId)
   });
 
   res.json(result);
@@ -1328,13 +1351,24 @@ app.post('/api/connections/end-after-decline', requireAuth, async (req, res) => 
   if (!connection_id) return res.status(400).json({ error: 'Missing connection id' });
   const result = await connectionOps.endAfterDecline(connection_id, req.session.userId);
   if (result.error) return res.status(400).json(result);
+
+  const { getSupabase } = require('./db/supabase');
+  try {
+    await getSupabase().from('messages').delete().eq('connection_id', Number(connection_id));
+  } catch (e) {
+    console.error('Failed to clean up messages after declined reveal:', e.message);
+  }
   
   io.to(`chat:${connection_id}`).emit('connection-ended', {
     connectionId: connection_id,
     message: "The other person decided to disconnect after the face reveal decline."
   });
 
-  connectionEmitter.emit(`update:${connection_id}`, { type: 'ended' });
+  connectionEmitter.emit(`update:${connection_id}`, {
+    type: 'ended',
+    reason: 'declined',
+    message: 'This chat ended after the face reveal was declined.'
+  });
   res.json(result);
 });
 
@@ -1345,6 +1379,7 @@ app.post('/api/connections/:id/start-game', requireAuth, async (req, res) => {
   try {
     const conn = await connectionOps.getConnection(req.params.id, req.session.userId);
     if (!conn || conn._dataIntegrityError) return res.status(404).json({ error: 'Connection not found' });
+    if (!requireActiveConnection(conn, res)) return;
     
     // Save to Firestore so clients receive it via real-time connection doc snapshot listener
     const payload = await connectionOps.startGame(req.params.id, game_type, question);
@@ -1379,6 +1414,7 @@ app.post('/api/connections/:id/answer-game', requireAuth, async (req, res) => {
   try {
     const conn = await connectionOps.getConnection(req.params.id, req.session.userId);
     if (!conn || conn._dataIntegrityError) return res.status(404).json({ error: 'Connection not found' });
+    if (!requireActiveConnection(conn, res)) return;
     
     // Save answer to Firestore connection doc
     const result = await connectionOps.submitGameAnswer(req.params.id, req.session.userId, answer);
@@ -1417,6 +1453,7 @@ app.post('/api/connections/:id/clear-game', requireAuth, async (req, res) => {
   try {
     const conn = await connectionOps.getConnection(req.params.id, req.session.userId);
     if (!conn || conn._dataIntegrityError) return res.status(404).json({ error: 'Connection not found' });
+    if (!requireActiveConnection(conn, res)) return;
     
     // Clear game in Firestore connection doc. Returns { cleared: true } if
     // the game was actually removed, { cleared: false } if the transaction was
@@ -1458,6 +1495,7 @@ app.get('/api/messages/:connectionId', requireAuth, async (req, res) => {
     return res.status(410).json({ error: 'This chat is no longer available — one of the accounts involved no longer exists.' });
   }
   if (!conn) return res.status(404).json({ error: 'Connection not found' });
+  if (!requireActiveConnection(conn, res)) return;
   
   const { since } = req.query;
   const messages = await messageOps.getRecentForConnection(req.params.connectionId, 50, since || null);
@@ -1471,6 +1509,7 @@ app.post('/api/messages/:connectionId/read', requireAuth, async (req, res) => {
     return res.status(410).json({ error: 'This chat is no longer available — one of the accounts involved no longer exists.' });
   }
   if (!conn) return res.status(404).json({ error: 'Connection not found' });
+  if (!requireActiveConnection(conn, res)) return;
 
   const readAt = new Date().toISOString();
 
@@ -1496,7 +1535,7 @@ app.post('/api/messages/:connectionId/read', requireAuth, async (req, res) => {
 
 // Send normal text message
 app.post('/api/messages/send', requireAuth, async (req, res) => {
-  const { connection_id, content, is_encrypted, iv } = req.body;
+  const { connection_id, content, is_encrypted, iv, client_uuid } = req.body;
   if (!connection_id || !content?.trim()) {
     return res.status(400).json({ error: 'Missing connection_id or content' });
   }
@@ -1506,6 +1545,7 @@ app.post('/api/messages/send', requireAuth, async (req, res) => {
     return res.status(410).json({ error: 'This chat is no longer available — one of the accounts involved no longer exists.' });
   }
   if (!conn) return res.status(404).json({ error: 'Connection not found' });
+  if (!requireActiveConnection(conn, res)) return;
 
   const msg = await messageOps.send(
     connection_id, 
@@ -1514,7 +1554,8 @@ app.post('/api/messages/send', requireAuth, async (req, res) => {
     0, 
     0, 
     is_encrypted || 0, 
-    iv || null
+    iv || null,
+    client_uuid || null
   );
 
   const senderId = Number(req.session.userId);
@@ -1581,6 +1622,7 @@ app.post('/api/messages/upload-voice', requireAuth, (req, res, next) => {
       return res.status(410).json({ error: 'This chat is no longer available — one of the accounts involved no longer exists.' });
     }
     if (!conn) return res.status(404).json({ error: 'Connection not found' });
+    if (!requireActiveConnection(conn, res)) return;
 
     // Store the file path relative to public/
     const content = `/uploads/voice/${req.file.filename}`;
@@ -1721,6 +1763,7 @@ app.post('/api/messages/:id/react', requireAuth, async (req, res) => {
     return res.status(410).json({ error: 'This chat is no longer available — one of the accounts involved no longer exists.' });
   }
   if (!conn) return res.status(404).json({ error: 'Connection not found' });
+  if (!requireActiveConnection(conn, res)) return;
 
   const result = await messageOps.toggleReaction(req.params.id, req.session.userId, connection_id, emoji);
   if (result.error) return res.status(400).json(result);
@@ -1838,6 +1881,11 @@ app.get('/api/push/vapid-key', (req, res) => {
 // Delete a message
 app.delete('/api/messages/:id', requireAuth, async (req, res) => {
   const { connection_id } = req.body;
+  if (!connection_id) return res.status(400).json({ error: 'Missing connection_id' });
+  const conn = await connectionOps.getConnection(connection_id, req.session.userId);
+  if (conn && conn._dataIntegrityError) return res.status(410).json({ error: 'This chat is no longer available.' });
+  if (!conn) return res.status(404).json({ error: 'Connection not found' });
+  if (!requireActiveConnection(conn, res)) return;
   const result = await messageOps.deleteMessage(req.params.id, req.session.userId, connection_id);
   if (result.error) return res.status(403).json(result);
 

@@ -1,4 +1,9 @@
-const API_BASE = 'https://delulu-college.onrender.com';
+const isLocalEnv = typeof window !== 'undefined' && (
+  window.location.hostname === 'localhost' || 
+  window.location.hostname === '127.0.0.1' || 
+  window.location.hostname.startsWith('192.168.')
+);
+const API_BASE = isLocalEnv ? window.location.origin : 'https://delulu-college.onrender.com';
 function resolveUrl(url) {
   if (!url) return '';
   if (url.startsWith('http') || url.startsWith('blob:') || url.startsWith('data:')) return url;

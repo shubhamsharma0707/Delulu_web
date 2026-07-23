@@ -463,10 +463,33 @@ async function mapWithConcurrency(items, limit, mapper) {
 }
 
 // Connection operations
+const ACTIVE_CONNECTION_STATUSES = ['accepted', 'revealed'];
+
+function activeConnectionLockRef(userId) {
+  return getDB().collection('active_connection_locks').doc(String(userId));
+}
+
+async function releaseActiveConnectionLocks(transaction, connection) {
+  const lockRefs = [
+    activeConnectionLockRef(connection.from_user_id),
+    activeConnectionLockRef(connection.to_user_id)
+  ];
+  const lockDocs = await Promise.all(lockRefs.map(ref => transaction.get(ref)));
+  lockDocs.forEach((lockDoc, index) => {
+    if (lockDoc.exists && Number(lockDoc.data().connection_id) === Number(connection.id)) {
+      transaction.delete(lockRefs[index]);
+    }
+  });
+}
+
 const connectionOps = {
+  isActive(connection) {
+    return !!connection && ACTIVE_CONNECTION_STATUSES.includes(connection.status);
+  },
+
   async hasActiveConnection(userId) {
     const firestore = getDB();
-    const activeStatuses = ['accepted', 'active', 'revealed'];
+    const activeStatuses = ACTIVE_CONNECTION_STATUSES;
     const [snap1, snap2] = await Promise.all([
       firestore.collection('connections')
         .where('from_user_id', '==', Number(userId))
@@ -482,6 +505,14 @@ const connectionOps = {
 
   async sendRequest(fromId, toId) {
     const firestore = getDB();
+
+    const [blocked1, blocked2] = await Promise.all([
+      blockOps.isBlocked(fromId, toId),
+      blockOps.isBlocked(toId, fromId)
+    ]);
+    if (blocked1 || blocked2) {
+      return { error: 'You cannot connect with this student.' };
+    }
     
     // Check if either user already has an active connection (Exclusive 1-to-1 Pairing Rule)
     const [fromActive, toActive] = await Promise.all([
@@ -521,10 +552,8 @@ const connectionOps = {
       status: 'pending',
       created_at: new Date().toISOString(),
       chat_started_at: null,
-      identity_reveal_available_at: null,
       face_reveal_available_at: null,
-      from_identity_reveal: 0,
-      to_identity_reveal: 0,
+      face_reveal_expires_at: null,
       from_face_reveal: 0,
       to_face_reveal: 0,
       meeting_code: null,
@@ -558,10 +587,8 @@ const connectionOps = {
         status: 'rejected',
         created_at: new Date().toISOString(),
         chat_started_at: null,
-        identity_reveal_available_at: null,
         face_reveal_available_at: null,
-        from_identity_reveal: 0,
-        to_identity_reveal: 0,
+        face_reveal_expires_at: null,
         from_face_reveal: 0,
         to_face_reveal: 0,
         meeting_code: null,
@@ -652,45 +679,105 @@ const connectionOps = {
   async respond(connectionId, userId, action) {
     const firestore = getDB();
     const connDocRef = firestore.collection('connections').doc(String(connectionId));
-    const doc = await connDocRef.get();
-    
-    if (!doc.exists) return { error: 'Connection not found' };
-    const conn = doc.data();
-    if (conn.to_user_id !== Number(userId)) return { error: 'Not authorized' };
-    if (conn.status !== 'pending') return { error: 'Already responded' };
-
     if (action === 'accept') {
+      // Existing pre-lock deployments may have active chats without a lock. This
+      // read prevents those users from accepting another pending request; new
+      // acceptances are protected against races by the transaction locks below.
+      const existingActive = await this.hasActiveConnection(userId);
+      if (existingActive) return { error: 'You are already in an active chat.' };
+    }
+    let result;
+    await firestore.runTransaction(async (transaction) => {
+      const doc = await transaction.get(connDocRef);
+      if (!doc.exists) {
+        result = { error: 'Connection not found' };
+        return;
+      }
+      const conn = doc.data();
+      if (conn.to_user_id !== Number(userId)) {
+        result = { error: 'Not authorized' };
+        return;
+      }
+      if (conn.status !== 'pending') {
+        result = { error: 'Already responded' };
+        return;
+      }
+
+      if (action === 'reject') {
+        transaction.update(connDocRef, { status: 'rejected' });
+        result = { success: true, status: 'rejected' };
+        return;
+      }
+
+      // Lock both participants in the same transaction. This is the durable
+      // one-active-chat invariant; a competing acceptance retries and then sees
+      // the lock instead of creating a second active chat.
+      const lockRefs = [activeConnectionLockRef(conn.from_user_id), activeConnectionLockRef(conn.to_user_id)];
+      const lockDocs = await Promise.all(lockRefs.map(ref => transaction.get(ref)));
+      if (lockDocs.some(lockDoc => lockDoc.exists)) {
+        result = { error: 'One of you is already in an active chat.' };
+        return;
+      }
+
       const now = new Date();
-      const identityRevealAvailable = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
       const faceRevealAvailable = new Date(now.getTime() + 10 * 24 * 60 * 60 * 1000).toISOString();
-      await connDocRef.update({
+      const faceRevealExpires = new Date(now.getTime() + 11 * 24 * 60 * 60 * 1000).toISOString();
+      transaction.update(connDocRef, {
         status: 'accepted',
         chat_started_at: now.toISOString(),
-        identity_reveal_available_at: identityRevealAvailable,
         face_reveal_available_at: faceRevealAvailable,
-        from_identity_reveal: 0,
-        to_identity_reveal: 0,
+        face_reveal_expires_at: faceRevealExpires,
         from_face_reveal: 0,
         to_face_reveal: 0,
+        face_reveal_declined_by: null,
         meeting_code: null
       });
-      evictConnection(connectionId); // cache invalidation — status changed to 'accepted'
-      return { 
-        success: true, 
-        chat_started_at: now.toISOString(), 
-        identity_reveal_available_at: identityRevealAvailable,
-        face_reveal_available_at: faceRevealAvailable
+      lockRefs.forEach(ref => transaction.set(ref, {
+        connection_id: Number(connectionId),
+        created_at: now.toISOString()
+      }));
+      result = {
+        success: true,
+        chat_started_at: now.toISOString(),
+        face_reveal_available_at: faceRevealAvailable,
+        face_reveal_expires_at: faceRevealExpires
       };
-    } else {
-      await connDocRef.update({ status: 'rejected' });
-      evictConnection(connectionId); // cache invalidation — status changed to 'rejected'
-      return { success: true, status: 'rejected' };
+    });
+    if (result?.success && action === 'accept') {
+      evictConnection(connectionId);
+      (async () => {
+        try {
+          const doc = await connDocRef.get();
+          if (doc.exists) {
+            const conn = doc.data();
+            const u1 = conn.from_user_id;
+            const u2 = conn.to_user_id;
+            const [pending1, pending2, pending3, pending4] = await Promise.all([
+              firestore.collection('connections').where('from_user_id', '==', u1).where('status', '==', 'pending').get(),
+              firestore.collection('connections').where('to_user_id', '==', u1).where('status', '==', 'pending').get(),
+              firestore.collection('connections').where('from_user_id', '==', u2).where('status', '==', 'pending').get(),
+              firestore.collection('connections').where('to_user_id', '==', u2).where('status', '==', 'pending').get()
+            ]);
+            const batch = firestore.batch();
+            const toReject = [...pending1.docs, ...pending2.docs, ...pending3.docs, ...pending4.docs];
+            toReject.forEach(d => {
+              if (Number(d.data().id) !== Number(connectionId)) {
+                batch.update(d.ref, { status: 'rejected', ended_reason: 'other_chat_accepted' });
+              }
+            });
+            await batch.commit();
+          }
+        } catch (e) {}
+      })();
+    } else if (result?.success) {
+      evictConnection(connectionId);
     }
+    return result || { error: 'Unable to respond to this request' };
   },
 
   async getActiveConnections(userId) {
     const firestore = getDB();
-    const activeStatuses = ['accepted', 'revealed'];
+    const activeStatuses = ACTIVE_CONNECTION_STATUSES;
     const [snap1, snap2] = await Promise.all([
       firestore.collection('connections')
         .where('from_user_id', '==', Number(userId))
@@ -828,11 +915,13 @@ const connectionOps = {
         const doc = await transaction.get(connDocRef);
         if (!doc.exists) return; // will result in ended=false, handled below
         const conn = doc.data();
-        if (conn.status !== 'accepted') return; // already ended
+        if (!ACTIVE_CONNECTION_STATUSES.includes(conn.status)) return; // already ended
+        if (conn.from_user_id !== Number(userId) && conn.to_user_id !== Number(userId)) return;
         
         const isFrom = conn.from_user_id === Number(userId);
         otherId = isFrom ? conn.to_user_id : conn.from_user_id;
         
+        await releaseActiveConnectionLocks(transaction, conn);
         transaction.update(connDocRef, { status: 'rejected', ended_reason: 'not_vibing' });
       });
     } catch (txErr) {
@@ -847,120 +936,132 @@ const connectionOps = {
     return { error: 'Connection not active' };
   },
 
-  // Identity Reveal (Day 7): User agrees to reveal identity via Google Meet
-  // Wrapped in a Firestore transaction to handle simultaneous submissions atomically.
-  // If both users submit at the same time, the transaction ensures only the second
-  // user sees bothRevealed=true and generates exactly one meeting code.
-  async submitIdentityReveal(connectionId, userId) {
-    const firestore = getDB();
-    const connDocRef = firestore.collection('connections').doc(String(connectionId));
-    
-    let bothRevealed = false;
-    let meetingCode = null;
-    
-    try {
-      await firestore.runTransaction(async (transaction) => {
-        const doc = await transaction.get(connDocRef);
-        if (!doc.exists) return; // connection was deleted
-        const conn = doc.data();
-        if (conn.status !== 'accepted') return; // already ended
-
-        const isFrom = conn.from_user_id === Number(userId);
-        const field = isFrom ? 'from_identity_reveal' : 'to_identity_reveal';
-        
-        transaction.update(connDocRef, { [field]: 1 });
-        
-        // Read updated values INSIDE the transaction to get atomic read-after-write
-        const otherVal = isFrom ? conn.to_identity_reveal : conn.from_identity_reveal;
-        
-        bothRevealed = otherVal === 1;
-        
-        if (bothRevealed) {
-          meetingCode = generateMeetingCode();
-          transaction.update(connDocRef, { meeting_code: meetingCode });
-        }
-      });
-    } catch (txErr) {
-      // Transaction aborted — return a clean error instead of 500
-      return { error: 'Failed to process identity reveal. Please try again.' };
-    }
-    
-    evictConnection(connectionId);
-    
-    if (bothRevealed) {
-      return { success: true, bothRevealed: true, meeting_code: meetingCode };
-    }
-    return { success: true, bothRevealed: false };
-  },
-
-  // Face Reveal (Day 10): User agrees to face reveal via Google Meet
-  // Wrapped in a Firestore transaction — same atomicity rationale as submitIdentityReveal.
+  // Day-10 mutual reveal. Both users must explicitly agree during the reveal window.
   async submitFaceReveal(connectionId, userId) {
     const firestore = getDB();
     const connDocRef = firestore.collection('connections').doc(String(connectionId));
     
-    let bothRevealed = false;
-    let meetingCode = null;
+    let result = null;
     
     try {
       await firestore.runTransaction(async (transaction) => {
         const doc = await transaction.get(connDocRef);
-        if (!doc.exists) return;
+        if (!doc.exists) {
+          result = { error: 'Connection not found' };
+          return;
+        }
         const conn = doc.data();
-        if (conn.status !== 'accepted') return;
+        if (conn.status !== 'accepted') {
+          result = { error: 'Connection is no longer active' };
+          return;
+        }
+        if (conn.from_user_id !== Number(userId) && conn.to_user_id !== Number(userId)) {
+          result = { error: 'Not authorized' };
+          return;
+        }
+        const now = Date.now();
+        if (!conn.face_reveal_available_at || now < new Date(conn.face_reveal_available_at).getTime()) {
+          result = { error: 'Face reveal is available on Day 10.' };
+          return;
+        }
+        const expiresAt = conn.face_reveal_expires_at
+          ? new Date(conn.face_reveal_expires_at).getTime()
+          : new Date(conn.face_reveal_available_at).getTime() + 24 * 60 * 60 * 1000;
+        if (now >= expiresAt) {
+          result = { error: 'The face reveal window has expired.' };
+          return;
+        }
 
         const isFrom = conn.from_user_id === Number(userId);
         const field = isFrom ? 'from_face_reveal' : 'to_face_reveal';
-        
-        transaction.update(connDocRef, { [field]: 1 });
-        
-        // Read updated values INSIDE the transaction
         const otherVal = isFrom ? conn.to_face_reveal : conn.from_face_reveal;
-        
-        bothRevealed = otherVal === 1;
-        
-        if (bothRevealed) {
-          meetingCode = generateMeetingCode();
-          transaction.update(connDocRef, { meeting_code: meetingCode });
-        }
+        const bothRevealed = otherVal === 1;
+        const meetingCode = bothRevealed ? (conn.meeting_code || generateMeetingCode()) : null;
+        transaction.update(connDocRef, bothRevealed
+          ? { [field]: 1, status: 'revealed', meeting_code: meetingCode }
+          : { [field]: 1 });
+        result = { success: true, bothRevealed, meeting_code: meetingCode };
       });
     } catch (txErr) {
       return { error: 'Failed to process face reveal. Please try again.' };
     }
     
-    evictConnection(connectionId);
-    
-    if (bothRevealed) {
-      return { success: true, bothRevealed: true, meeting_code: meetingCode };
-    }
-    return { success: true, bothRevealed: false };
+    if (result?.success) evictConnection(connectionId);
+    return result || { error: 'Failed to process face reveal. Please try again.' };
   },
 
   // Face Reveal Decline: One user said no to face reveal
   async declineFaceReveal(connectionId, userId) {
     const firestore = getDB();
     const connDocRef = firestore.collection('connections').doc(String(connectionId));
-    const doc = await connDocRef.get();
-    if (!doc.exists) return { error: 'Connection not found' };
-    const conn = doc.data();
-    if (conn.status !== 'accepted') return { error: 'Connection not active' };
+    let otherId = null;
+    let result = null;
+    await firestore.runTransaction(async (transaction) => {
+      const doc = await transaction.get(connDocRef);
+      if (!doc.exists) {
+        result = { error: 'Connection not found' };
+        return;
+      }
+      const conn = doc.data();
+      if (!ACTIVE_CONNECTION_STATUSES.includes(conn.status)) {
+        result = { error: 'Connection not active' };
+        return;
+      }
+      if (conn.from_user_id !== Number(userId) && conn.to_user_id !== Number(userId)) {
+        result = { error: 'Not authorized' };
+        return;
+      }
+      if (!conn.face_reveal_available_at || Date.now() < new Date(conn.face_reveal_available_at).getTime()) {
+        result = { error: 'Face reveal is available on Day 10.' };
+        return;
+      }
 
-    const isFrom = conn.from_user_id === Number(userId);
-    const otherId = isFrom ? conn.to_user_id : conn.from_user_id;
-    
-    // Mark that face reveal was declined so the other user gets a popup
-    await connDocRef.update({ face_reveal_declined_by: Number(userId) });
-    evictConnection(connectionId);
-    return { success: true, declined: true, otherId };
+      const isFrom = conn.from_user_id === Number(userId);
+      otherId = isFrom ? conn.to_user_id : conn.from_user_id;
+
+      await releaseActiveConnectionLocks(transaction, conn);
+      transaction.update(connDocRef, {
+        status: 'rejected',
+        ended_reason: 'face_reveal_declined',
+        face_reveal_declined_by: Number(userId)
+      });
+      result = { success: true, declined: true, otherId };
+    });
+
+    if (result?.success) evictConnection(connectionId);
+    return result || { error: 'Failed to decline face reveal' };
   },
 
   // End connection after face reveal decline (user chose to disconnect)
   async endAfterDecline(connectionId, userId) {
     const firestore = getDB();
     const connDocRef = firestore.collection('connections').doc(String(connectionId));
-    await connDocRef.update({ status: 'rejected', ended_reason: 'face_reveal_decline' });
-    evictConnection(connectionId);
-    return { success: true };
+    let result = null;
+    await firestore.runTransaction(async (transaction) => {
+      const doc = await transaction.get(connDocRef);
+      if (!doc.exists) {
+        result = { error: 'Connection not found' };
+        return;
+      }
+      const conn = doc.data();
+      if (conn.status !== 'accepted') {
+        result = { error: 'Connection is no longer active' };
+        return;
+      }
+      if (conn.from_user_id !== Number(userId) && conn.to_user_id !== Number(userId)) {
+        result = { error: 'Not authorized' };
+        return;
+      }
+      if (!conn.face_reveal_declined_by || Number(conn.face_reveal_declined_by) === Number(userId)) {
+        result = { error: 'Only the other participant can end a chat after a declined reveal.' };
+        return;
+      }
+      await releaseActiveConnectionLocks(transaction, conn);
+      transaction.update(connDocRef, { status: 'rejected', ended_reason: 'face_reveal_decline' });
+      result = { success: true };
+    });
+    if (result?.success) evictConnection(connectionId);
+    return result || { error: 'Failed to end connection' };
   },
 
   /**
@@ -1082,10 +1183,16 @@ const connectionOps = {
         lastDoc = doc; // Track for pagination
         const conn = doc.data();
         
-        // Sweep 1: Face reveal period expired without both users agreeing
-        if (conn.face_reveal_available_at && conn.face_reveal_available_at < now) {
+        // Face reveal opens on Day 10 and stays open for 24 hours. Older records
+        // without an explicit expiry use the same 24-hour compatibility window.
+        const faceExpiry = conn.face_reveal_expires_at || (conn.face_reveal_available_at
+          ? new Date(new Date(conn.face_reveal_available_at).getTime() + 24 * 60 * 60 * 1000).toISOString()
+          : null);
+        if (faceExpiry && faceExpiry < now) {
           if (conn.from_face_reveal === 0 || conn.to_face_reveal === 0) {
             batch.update(doc.ref, { status: 'expired', ended_reason: 'face_reveal_timeout' });
+            batch.delete(activeConnectionLockRef(conn.from_user_id));
+            batch.delete(activeConnectionLockRef(conn.to_user_id));
             allExpiredIds.push(conn.id);
             faceRevealsExpired++;
             pageChanged = true;
@@ -1093,15 +1200,6 @@ const connectionOps = {
           }
         }
         
-        // Sweep 2: Identity reveal period expired without both users agreeing
-        if (conn.identity_reveal_available_at && conn.identity_reveal_available_at < now) {
-          if (conn.from_identity_reveal === 0 && conn.to_identity_reveal === 0) {
-            batch.update(doc.ref, { status: 'expired', ended_reason: 'identity_reveal_timeout' });
-            allExpiredIds.push(conn.id);
-            identityRevealsExpired++;
-            pageChanged = true;
-          }
-        }
       }
       
       // Only commit if there were actual changes — avoid wasted Firestore writes
@@ -1132,29 +1230,56 @@ const messageOps = {
   //   created_at, deleted_at, deleted_by, is_voice (int), voice_duration (int),
   //   is_encrypted (int), iv (text), read_at (timestamptz)
   // All fields are now persisted directly in the INSERT — no merge-patching.
-  async send(connectionId, senderId, content, isVoice = 0, voiceDuration = 0, isEncrypted = 0, iv = null) {
+  async send(connectionId, senderId, content, isVoice = 0, voiceDuration = 0, isEncrypted = 0, iv = null, clientUuid = null) {
     try {
       const supabase = getSupabase();
+      if (clientUuid) {
+        try {
+          const { data: existing } = await supabase
+            .from('messages')
+            .select('*')
+            .eq('connection_id', Number(connectionId))
+            .eq('sender_id', Number(senderId))
+            .eq('client_uuid', clientUuid)
+            .maybeSingle();
+          if (existing) return existing;
+        } catch (e) {}
+      }
+
+      const payload = {
+        connection_id:  Number(connectionId),
+        sender_id:      Number(senderId),
+        content,
+        reactions:      {},
+        is_voice:       Number(isVoice),
+        voice_duration: Number(voiceDuration),
+        is_encrypted:   Number(isEncrypted),
+        iv:             iv || null
+      };
+      if (clientUuid) payload.client_uuid = clientUuid;
+
       const { data, error } = await supabase
         .from('messages')
-        .insert({
-          connection_id:  Number(connectionId),
-          sender_id:      Number(senderId),
-          content,
-          reactions:      {},
-          is_voice:       Number(isVoice),
-          voice_duration: Number(voiceDuration),
-          is_encrypted:   Number(isEncrypted),
-          iv:             iv || null
-        })
+        .insert(payload)
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        if (error.code === 'PGRST204' || (error.message && error.message.includes('client_uuid'))) {
+          delete payload.client_uuid;
+          const { data: retryData, error: retryErr } = await supabase
+            .from('messages')
+            .insert(payload)
+            .select()
+            .single();
+          if (retryErr) throw retryErr;
+          setCachedLastMessage(connectionId, retryData);
+          return retryData;
+        }
+        throw error;
+      }
 
       setCachedLastMessage(connectionId, data);
-
-      // Return the actual inserted row — all fields come directly from Supabase.
       return data;
     } catch (err) {
       console.error('messageOps.send error:', err.message);
@@ -1604,28 +1729,35 @@ const pushOps = {
 connectionOps.sweepExpiredRequests = async function() {
   const firestore = getDB();
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const snapshot = await firestore.collection('connections')
-    .where('status', '==', 'pending')
-    .limit(500)
-    .get();
+  let totalExpired = 0;
   
-  let expiredCount = 0;
-  const batch = firestore.batch();
-  const expiredIds = [];
-  
-  snapshot.forEach(doc => {
-    const conn = doc.data();
-    if (conn.created_at < cutoff) {
+  while (true) {
+    const snapshot = await firestore.collection('connections')
+      .where('status', '==', 'pending')
+      .limit(500)
+      .get();
+    
+    if (snapshot.empty) break;
+
+    const expiredDocs = [];
+    snapshot.forEach(doc => {
+      if (doc.data().created_at < cutoff) expiredDocs.push(doc);
+    });
+
+    if (expiredDocs.length === 0) break;
+
+    const batch = firestore.batch();
+    expiredDocs.forEach(doc => {
       batch.update(doc.ref, { status: 'expired', ended_reason: 'timeout' });
-      expiredIds.push(conn.id);
-      expiredCount++;
-    }
-  });
+      evictConnection(doc.data().id);
+    });
+
+    await batch.commit();
+    totalExpired += expiredDocs.length;
+    if (snapshot.size < 500) break;
+  }
   
-  await batch.commit();
-  // cache invalidation — evict all connections whose status just changed
-  for (const id of expiredIds) evictConnection(id);
-  return { expiredCount };
+  return { expiredCount: totalExpired };
 };
 
 connectionOps.getAllBetween = async function(userId1, userId2) {

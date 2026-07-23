@@ -210,7 +210,7 @@ function initRealtimeStream() {
   if (!currentConnId || eventSource) return;
 
   console.log('[SSE] Connecting to real-time event stream...');
-  eventSource = new EventSource(resolveUrl(`/api/connections/${currentConnId}/stream`));
+  eventSource = new EventSource(resolveUrl(`/api/connections/${currentConnId}/stream`), { withCredentials: true });
 
   eventSource.onopen = () => {
     console.log('[SSE] Connection established successfully.');
