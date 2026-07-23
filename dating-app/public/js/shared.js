@@ -150,16 +150,49 @@ async function apiCall(url, method = 'GET', body = null) {
     credentials: 'include'
   };
   if (body) options.body = JSON.stringify(body);
-  const res = await fetch(resolveUrl(url), options);
-  const data = await res.json();
+
+  const targetUrl = resolveUrl(url);
+  let res;
+  try {
+    res = await fetch(targetUrl, options);
+  } catch (netErr) {
+    throw new Error('Network connection error. Please check your internet connection.');
+  }
+
+  let data;
+  const contentType = res.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) {
+    try {
+      data = await res.json();
+    } catch (e) {
+      data = { error: 'Invalid response from server' };
+    }
+  } else {
+    const text = await res.text().catch(() => '');
+    if (!res.ok) {
+      if (res.status === 404) {
+        data = { error: 'API endpoint not found (404).' };
+      } else if (res.status === 502 || res.status === 503 || res.status === 504) {
+        data = { error: 'Server is updating or unavailable (502/503). Please try again in a moment.' };
+      } else {
+        data = { error: `Server error (${res.status})` };
+      }
+    } else {
+      data = { text };
+    }
+  }
+
   if (!res.ok) {
     if (res.status === 401) {
       window.localStorage.removeItem('cached_user');
       window.localStorage.removeItem('e2ee_private_key');
-      window.location.href = 'login.html';
-      return new Promise(() => {}); // Return pending promise to halt further execution while redirecting
+      const pathname = window.location.pathname;
+      if (!pathname.endsWith('login.html') && !pathname.endsWith('login')) {
+        window.location.href = 'login.html';
+        return new Promise(() => {}); // Return pending promise to halt further execution while redirecting
+      }
     }
-    throw new Error(data.error || 'API Error');
+    throw new Error(data?.error || `Server error (${res.status})`);
   }
   return data;
 }
