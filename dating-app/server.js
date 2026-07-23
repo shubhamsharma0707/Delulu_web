@@ -169,16 +169,17 @@ if (process.env.NODE_ENV === 'production') {
 // Custom CORS Middleware to handle credentials and Capacitor/Localhost origins
 app.use((req, res, next) => {
   const allowedOrigins = [
+    'http://localhost',
     'https://localhost',
-    'capacitor://localhost'
+    'http://localhost:8080',
+    'capacitor://localhost',
+    'http://127.0.0.1',
+    'https://127.0.0.1',
+    'http://localhost:3000'
   ];
-  if (process.env.NODE_ENV !== 'production') {
-    allowedOrigins.push('http://localhost');
-    allowedOrigins.push('http://localhost:3000');
-  }
   
   const origin = req.headers.origin;
-  if (allowedOrigins.includes(origin)) {
+  if (origin && (allowedOrigins.includes(origin) || origin.startsWith('http://localhost') || origin.startsWith('https://localhost') || origin.startsWith('capacitor://'))) {
     res.setHeader('Access-Control-Allow-Origin', origin);
   }
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -329,31 +330,41 @@ app.use('/api/', apiLimiter);
 app.use((req, res, next) => {
   if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) {
     const allowedOrigins = [
+      'http://localhost',
       'https://localhost',
-      'capacitor://localhost'
+      'http://localhost:8080',
+      'capacitor://localhost',
+      'http://127.0.0.1',
+      'https://127.0.0.1',
+      'http://localhost:3000',
+      'http://127.0.0.1:3000'
     ];
-    if (process.env.NODE_ENV !== 'production') {
-      allowedOrigins.push('http://localhost');
-      allowedOrigins.push('http://localhost:3000');
-    }
     
-    const requestOrigin = req.get('origin') || '';
-    if (allowedOrigins.includes(requestOrigin)) {
+    const requestOrigin = req.get('origin') || req.get('referer') || '';
+    let isNativeCapacitorOrigin = false;
+    if (requestOrigin) {
+      if (allowedOrigins.includes(requestOrigin) || 
+          requestOrigin.startsWith('http://localhost') || 
+          requestOrigin.startsWith('https://localhost') || 
+          requestOrigin.startsWith('capacitor://') ||
+          requestOrigin.startsWith('file://')) {
+        isNativeCapacitorOrigin = true;
+      }
+    }
+
+    if (isNativeCapacitorOrigin) {
       return next();
     }
 
     const secFetchSite = req.get('sec-fetch-site');
     // Block cross-site state-changing requests outright if sent by browser
-    if (secFetchSite === 'cross-site') {
+    if (secFetchSite === 'cross-site' && !isNativeCapacitorOrigin) {
       return res.status(403).json({ error: 'Cross-origin request blocked' });
     }
 
-    const origin = req.get('origin') || req.get('referer') || '';
-    if (origin) {
+    if (requestOrigin) {
       try {
-        const originHostname = new URL(origin).hostname;
-        // Compare against both req.hostname and the Host header to handle
-        // mismatches like localhost vs 127.0.0.1 in development
+        const originHostname = new URL(requestOrigin).hostname;
         const hostHeader = (req.headers.host || '').split(':')[0];
         if (originHostname !== req.hostname && originHostname !== hostHeader) {
           return res.status(403).json({ error: 'Cross-origin request blocked' });
