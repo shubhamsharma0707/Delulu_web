@@ -1,8 +1,15 @@
-const isLocalEnv = typeof window !== 'undefined' && (
-  window.location.hostname === 'localhost' || 
-  window.location.hostname === '127.0.0.1' || 
-  window.location.hostname.startsWith('192.168.')
+const isCapacitorNative = typeof window !== 'undefined' && (
+  (window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform()) ||
+  (window.Capacitor && window.Capacitor.isPluginAvailable) ||
+  window.location.protocol === 'capacitor:' || 
+  window.location.href.startsWith('capacitor://')
 );
+
+const isLocalEnv = !isCapacitorNative && typeof window !== 'undefined' && (
+  (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname.startsWith('192.168.')) &&
+  (window.location.port === '3000' || window.location.port === '5000' || window.location.port === '8080')
+);
+
 const API_BASE = isLocalEnv ? window.location.origin : 'https://delulu-college.onrender.com';
 function resolveUrl(url) {
   if (!url) return '';
