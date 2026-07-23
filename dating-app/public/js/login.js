@@ -84,6 +84,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       const data = await apiCall('/api/users/login', 'POST', { usernameOrEmail, password });
       if (data.success) {
         const user = data.user;
+        if (data.token) {
+          window.localStorage.setItem('auth_token', data.token);
+        }
         window.localStorage.setItem('cached_user', JSON.stringify(user));
         // If E2EE keys exist, decrypt and store the private key locally
         if (user.encrypted_private_key && user.email) {
@@ -185,6 +188,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       const data = await apiCall('/api/auth/verify-token', 'POST', { token, email: emailParam });
       if (data.success) {
         currentEmail = emailParam;
+        if (data.token) {
+          window.localStorage.setItem('auth_token', data.token);
+        }
+        if (data.user) {
+          window.localStorage.setItem('cached_user', JSON.stringify(data.user));
+        }
         if (data.isNewUser) {
           showStage(stageProfile);
           document.getElementById('profile-username').focus();
@@ -200,7 +209,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     } finally {
       if (verifyBtn) {
         verifyBtn.disabled = false;
-        verifyBtn.textContent = 'Verifying...';
+        verifyBtn.textContent = 'Verify Email';
       }
     }
   }
@@ -303,6 +312,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         encrypted_private_key: encryptedPrivateKey
       });
       if (data && data.user) {
+        if (data.token) {
+          window.localStorage.setItem('auth_token', data.token);
+        }
         window.localStorage.setItem('cached_user', JSON.stringify(data.user));
       }
       window.location.href = 'discover.html';

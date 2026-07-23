@@ -34,7 +34,7 @@ function renderRequestItem(r, type) {
     <div class="glass-panel p-4 rounded-2xl flex items-center justify-between gap-3 shadow-sm border border-outline-variant/20">
       <div class="flex items-center gap-3 min-w-0 flex-1">
         <div class="w-12 h-12 rounded-full bg-primary-container text-white font-bold flex items-center justify-center overflow-hidden shrink-0 border border-outline-variant/30">
-          ${r.avatar ? `<img src="/avatars/${r.gender || 'male'}/${r.avatar}/idle.png" class="w-full h-full object-cover" alt="${escapeHtml(r.username)}">` : escapeHtml(r.username.charAt(0).toUpperCase())}
+          ${r.avatar ? `<img src="/avatars/${r.avatar}.png" class="w-full h-full object-cover" alt="${escapeHtml(r.username)}">` : escapeHtml(r.username.charAt(0).toUpperCase())}
         </div>
         <div class="min-w-0 flex-1">
           <h3 class="font-bold text-on-surface text-base capitalize truncate">${escapeHtml(r.username)}</h3>

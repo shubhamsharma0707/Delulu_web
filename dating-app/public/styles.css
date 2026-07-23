@@ -818,3 +818,36 @@ textarea:focus-visible {
   outline-offset: 2px !important;
 }
 
+/* ===== Safe Area Inset Utilities (iOS notch / Android nav bar) ===== */
+.pb-safe { padding-bottom: env(safe-area-inset-bottom, 0px); }
+.pt-safe { padding-top: env(safe-area-inset-top, 0px); }
+.pl-safe { padding-left: env(safe-area-inset-left, 0px); }
+.pr-safe { padding-right: env(safe-area-inset-right, 0px); }
+.mb-safe { margin-bottom: env(safe-area-inset-bottom, 0px); }
+
+/* ===== Visual Viewport / Keyboard Adjustment ===== */
+/* Ensures chat layout uses dynamic viewport height so keyboard doesn't cover input */
+@supports (height: 100dvh) {
+  #app-root { height: 100dvh; }
+  .h-\\[100dvh\\] { height: 100dvh !important; }
+}
+
+/* ===== Fade-in Animation for Messages ===== */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.fade-in { animation: fadeInUp 0.18s ease-out both; }
+
+/* ===== Toast z-index — must be above modals and chat input ===== */
+.toast-container { z-index: 99999 !important; }
+
+/* ===== Icebreaker Game Card Transition ===== */
+[id^="game-"] { transition: opacity 0.3s ease; }
+
+/* ===== 3D Scene GPU Compositing Hint ===== */
+#discovery-3d-scene canvas,
+#profile-3d-preview canvas {
+  will-change: transform;
+  transform: translateZ(0);
+}

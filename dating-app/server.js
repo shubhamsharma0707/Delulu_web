@@ -229,7 +229,7 @@ const otpLimiter = rateLimit({
     if (req.body && req.body.email) {
       return req.body.email.toLowerCase().trim();
     }
-    return req.ip || '127.0.0.1';
+    return ipKeyGenerator(req);
   },
   message: { error: 'Too many OTP requests. Please try again in 15 minutes.' },
   standardHeaders: true,
@@ -318,6 +318,54 @@ const sessionMiddleware = session({
 });
 
 app.use(sessionMiddleware);
+
+// ===== Token-Based Session Fallback (for mobile WebViews & cross-site apps) =====
+function generateAuthToken(userId) {
+  const numUserId = Number(userId);
+  if (!numUserId) return null;
+  const timestamp = Date.now();
+  const data = `${numUserId}:${timestamp}`;
+  const hmac = crypto.createHmac('sha256', process.env.SESSION_SECRET).update(data).digest('hex');
+  return `${data}:${hmac}`;
+}
+
+function verifyAuthToken(tokenStr) {
+  if (!tokenStr || typeof tokenStr !== 'string') return null;
+  const parts = tokenStr.split(':');
+  if (parts.length !== 3) return null;
+  const [userIdStr, timestampStr, signature] = parts;
+  const userId = Number(userIdStr);
+  const timestamp = Number(timestampStr);
+  if (!userId || !timestamp || isNaN(userId) || isNaN(timestamp)) return null;
+
+  // Maximum token age: 30 days
+  const MAX_AGE = 30 * 24 * 60 * 60 * 1000;
+  if (Date.now() - timestamp > MAX_AGE) return null;
+
+  try {
+    const expectedHmac = crypto.createHmac('sha256', process.env.SESSION_SECRET).update(`${userIdStr}:${timestampStr}`).digest('hex');
+    if (crypto.timingSafeEqual(Buffer.from(signature, 'hex'), Buffer.from(expectedHmac, 'hex'))) {
+      return userId;
+    }
+  } catch (e) {}
+  return null;
+}
+
+// Token & Session Auth Bridge Middleware (populates req.session.userId from Authorization header if cookie missing)
+app.use((req, res, next) => {
+  if (!req.session?.userId) {
+    const authHeader = req.headers.authorization || req.headers['x-session-token'];
+    if (authHeader) {
+      const tokenStr = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : authHeader.trim();
+      const userId = verifyAuthToken(tokenStr);
+      if (userId) {
+        if (!req.session) req.session = {};
+        req.session.userId = userId;
+      }
+    }
+  }
+  next();
+});
 
 // Body parsing
 app.use(express.json());
@@ -645,15 +693,12 @@ function requireActiveConnection(conn, res) {
 
 // Check if user is logged in (with cache)
 app.get('/api/session', async (req, res) => {
-  if (req.session.user) {
-    return res.json({ authenticated: true, user: req.session.user });
-  }
   if (req.session.userId) {
-    // Check in-memory cache first
+    const token = generateAuthToken(req.session.userId);
     const cached = getCachedUser(req.session.userId);
     if (cached) {
       req.session.user = cached;
-      return res.json({ authenticated: true, user: cached });
+      return res.json({ authenticated: true, user: cached, token });
     }
     
     const user = await userOps.getById(req.session.userId);
@@ -661,7 +706,7 @@ app.get('/api/session', async (req, res) => {
       const safeUser = sanitizeUser(user);
       req.session.user = safeUser;
       setCachedUser(req.session.userId, safeUser);
-      return res.json({ authenticated: true, user: safeUser });
+      return res.json({ authenticated: true, user: safeUser, token });
     }
   }
   res.json({ authenticated: false });
@@ -682,115 +727,161 @@ async function sendBrevoEmail(email, subject, htmlContent) {
       'content-type': 'application/json'
     },
     body: JSON.stringify({
-      sender: {
-        name: 'Delulu',
-        email: process.env.GMAIL_USER || 'delulu.college.dating@gmail.com'
-      },
+      sender: { name: 'Delulu App', email: 'delulu.college.dating@gmail.com' },
       to: [{ email }],
-      subject: subject,
-      htmlContent: htmlContent
+      subject,
+      htmlContent
     })
   });
 
   if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`Brevo send failed: ${response.status} - ${errText}`);
+    const errData = await response.json().catch(() => ({}));
+    throw new Error(errData.message || `Brevo API error: ${response.status}`);
   }
+  return response.json();
 }
 
-// Generate secure verification token and send email via Brevo
+// ===== AUTH ROUTES =====
+
+// Send verification email with 6-digit OTP and secure link token
 app.post('/api/auth/send-verification-email', otpLimiter, async (req, res) => {
   const { email } = req.body;
-  if (!email) {
-    return res.status(400).json({ error: 'Email is required' });
+  if (!email || typeof email !== 'string') {
+    return res.status(400).json({ error: 'Email address is required' });
   }
 
-  const cleanEmail = email.toLowerCase().trim();
-  const domain = cleanEmail.split('@')[1] || '';
+  const cleanEmail = email.trim().toLowerCase();
+  const domain = cleanEmail.split('@')[1];
+
   const allowedDomains = [
     'rishihood.edu.in', 
     'vitbhopal.ac.in', 
     'nst.rishihood.edu.in', 
     'psy.rishihood.edu.in',
-    'csds.rishihood.edu.in',
-    'makers.rishihood.edu.in',
-    'design.rishihood.edu.in',
-    // Chandigarh University
-    'cuchd.in',
-    'cumail.in',
-    'chandigarhuniversity.ac.in',
-    // Amity University
-    'amity.edu',
-    's.amity.edu',
-    'amity.in',
-    // LPU
-    'lpu.in',
-    'lpu.co.in'
+    'som.rishihood.edu.in', 
+    'sod.rishihood.edu.in', 
+    'soh.rishihood.edu.in'
   ];
-  
-  const isAllowed = allowedDomains.some(d => domain === d || domain.endsWith('.' + d) || domain.includes('amity') || domain.includes('cuchd') || domain.includes('cumail') || domain.includes('rishihood') || domain.includes('vitbhopal') || domain.endsWith('.edu.in') || domain.endsWith('.ac.in'));
 
-  if (!domain || !isAllowed) {
-    return res.status(400).json({ error: 'Only authorized university emails are allowed' });
+  if (!domain || !allowedDomains.includes(domain)) {
+    return res.status(400).json({ 
+      error: `Only official college emails are allowed (${allowedDomains.join(', ')})` 
+    });
   }
 
   try {
-    const token = crypto.randomBytes(32).toString('hex');
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString(); // 15 mins
+    const otp = await otpOps.generate(cleanEmail);
     
-    await otpOps.create(cleanEmail, token, expiresAt);
+    // Generate a 1-hour verification token for direct link login
+    const tokenPayload = `${cleanEmail}:${Date.now() + 3600000}`;
+    const token = crypto.createHmac('sha256', process.env.SESSION_SECRET).update(tokenPayload).digest('hex');
+    const fullToken = Buffer.from(`${tokenPayload}:${token}`).toString('base64url');
 
-    const protocol = req.headers['x-forwarded-proto'] || 'http';
-    const host = req.headers.host;
-    const verifyLink = `${protocol}://${host}/login.html?token=${token}&email=${encodeURIComponent(cleanEmail)}`;
+    const appUrl = process.env.APP_URL || 'https://delulu-college.onrender.com';
+    const verifyLink = `${appUrl}/login.html?token=${encodeURIComponent(fullToken)}`;
 
     const htmlContent = `
-      <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; text-align: center; border: 1px solid #dec0ba; border-radius: 16px;">
-        <h2 style="color: #a53b29; font-size: 24px; margin-bottom: 8px;">Verify your college email</h2>
-        <p style="color: #57423e; font-size: 15px; margin-bottom: 24px;">Thank you for registering at Delulu! Click the button below to verify your email and set up your password.</p>
-        <a href="${verifyLink}" style="display: inline-block; padding: 14px 28px; background-color: #a53b29; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px;">Verify Email Address</a>
-        <p style="color: #8b716d; font-size: 12px; margin-top: 24px;">This link will expire in 15 minutes. If you did not request this, you can safely ignore this email.</p>
+      <div style="font-family: 'Plus Jakarta Sans', sans-serif, system-ui; max-width: 500px; margin: 0 auto; padding: 24px; background: #fbf9f8; border-radius: 20px; border: 1px solid #dec0ba;">
+        <div style="text-align: center; margin-bottom: 24px;">
+          <h1 style="color: #a53b29; margin: 0; font-size: 28px;">Delulu</h1>
+          <p style="color: #57423e; font-size: 14px; margin-top: 4px;">Verify your college email</p>
+        </div>
+        
+        <div style="background: #ffffff; padding: 24px; border-radius: 16px; border: 1px solid #e4e2e1; text-align: center;">
+          <p style="font-size: 14px; color: #1b1c1c; margin-top: 0;">Your 6-digit verification code is:</p>
+          <div style="font-size: 36px; font-weight: 800; letter-spacing: 8px; color: #a53b29; margin: 16px 0; font-family: monospace;">${otp}</div>
+          <p style="font-size: 12px; color: #8b716d;">Code expires in 10 minutes.</p>
+          
+          <hr style="border: none; border-top: 1px solid #e4e2e1; margin: 20px 0;" />
+          
+          <p style="font-size: 14px; color: #1b1c1c;">Or click the button below to verify instantly:</p>
+          <a href="${verifyLink}" style="display: inline-block; background: #a53b29; color: #ffffff; text-decoration: none; padding: 12px 28px; border-radius: 12px; font-weight: 700; font-size: 14px; margin-top: 8px;">Verify & Continue</a>
+        </div>
       </div>
     `;
 
-    await sendBrevoEmail(cleanEmail, 'Verify your email for Delulu', htmlContent);
-    res.json({ success: true });
+    await sendBrevoEmail(cleanEmail, `${otp} is your Delulu verification code`, htmlContent);
+    res.json({ success: true, message: 'Verification email sent' });
   } catch (err) {
-    console.error('Send verification email error:', err);
-    res.status(500).json({ error: err.message || 'Failed to send verification email' });
+    console.error('Brevo Email Error:', err);
+    res.status(500).json({ error: err.message || 'Failed to send verification email. Please try again.' });
   }
 });
 
-// Verify sign-up/login link token
-app.post('/api/auth/verify-token', authLimiter, async (req, res) => {
-  const { token, email } = req.body;
-  if (!token || !email) {
-    return res.status(400).json({ error: 'Token and email are required' });
+// Verify 6-digit OTP code
+app.post('/api/auth/verify-otp', otpLimiter, async (req, res) => {
+  const { email, otp } = req.body;
+  if (!email || !otp) {
+    return res.status(400).json({ error: 'Email and OTP are required' });
   }
 
-  const cleanEmail = email.toLowerCase().trim();
+  const cleanEmail = email.trim().toLowerCase();
+  const valid = await otpOps.verify(cleanEmail, String(otp).trim());
+  if (!valid) {
+    return res.status(400).json({ error: 'Invalid or expired OTP' });
+  }
+
+  // Save in session
+  req.session.pendingEmail = cleanEmail;
+  let token = null;
+
+  // Check if user already exists
+  const user = await userOps.getByEmail(cleanEmail);
+  if (user) {
+    req.session.userId = user.id;
+    req.session.user = sanitizeUser(user);
+    setCachedUser(user.id, req.session.user);
+    token = generateAuthToken(user.id);
+  }
+  await new Promise((resolve) => req.session.save(resolve));
+
+  res.json({
+    success: true,
+    isNewUser: !user,
+    user: req.session.user || null,
+    token,
+    email: cleanEmail
+  });
+});
+
+// Verify direct email link token
+app.post('/api/auth/verify-token', async (req, res) => {
+  const { token } = req.body;
+  if (!token) return res.status(400).json({ error: 'Token is required' });
+
   try {
-    const validOtp = await otpOps.getValidOTP(cleanEmail, token);
-    if (!validOtp) {
-      return res.status(400).json({ error: 'Invalid, expired, or already used verification token' });
+    const decoded = Buffer.from(token, 'base64url').toString('utf8');
+    const [cleanEmail, expiresStr, hmac] = decoded.split(':');
+    const expires = Number(expiresStr);
+
+    if (Date.now() > expires) {
+      return res.status(400).json({ error: 'Verification link has expired' });
     }
 
-    // Mark as used
-    await otpOps.markUsed(validOtp.id);
+    const expectedHmac = crypto.createHmac('sha256', process.env.SESSION_SECRET).update(`${cleanEmail}:${expiresStr}`).digest('hex');
+    if (hmac !== expectedHmac) {
+      return res.status(400).json({ error: 'Invalid verification link' });
+    }
 
     // Save in session
     req.session.pendingEmail = cleanEmail;
+    let authToken = null;
 
     // Check if user already exists
     const user = await userOps.getByEmail(cleanEmail);
     if (user) {
       req.session.userId = user.id;
       req.session.user = sanitizeUser(user);
+      setCachedUser(user.id, req.session.user);
+      authToken = generateAuthToken(user.id);
     }
+    await new Promise((resolve) => req.session.save(resolve));
 
     res.json({
       success: true,
       isNewUser: !user,
+      user: req.session.user || null,
+      token: authToken,
       email: cleanEmail
     });
   } catch (err) {
@@ -837,7 +928,10 @@ app.post('/api/users/login', authLimiter, async (req, res) => {
     req.session.userId = user.id;
     const safeUser = sanitizeUser(user);
     req.session.user = safeUser;
-    res.json({ success: true, user: safeUser });
+    setCachedUser(user.id, safeUser);
+    const token = generateAuthToken(user.id);
+    await new Promise((resolve) => req.session.save(resolve));
+    res.json({ success: true, user: safeUser, token });
   } catch (err) {
     console.error('Login error:', err);
     res.status(500).json({ error: 'Internal server error' });
@@ -908,7 +1002,10 @@ app.post('/api/auth/complete-profile', async (req, res) => {
     const user = await userOps.getById(userId);
     const safeUser = sanitizeUser(user);
     req.session.user = safeUser;
-    res.json({ success: true, user: safeUser });
+    setCachedUser(Number(userId), safeUser);
+    const token = generateAuthToken(userId);
+    await new Promise((resolve) => req.session.save(resolve));
+    res.json({ success: true, user: safeUser, token });
   } catch (err) {
     console.error('Complete profile error:', err);
     res.status(500).json({ error: 'Failed to create profile' });
@@ -1733,7 +1830,12 @@ if (!vapidPublicKey || !vapidPrivateKey) {
     const generated = webPush.generateVAPIDKeys();
     vapidPublicKey = generated.publicKey;
     vapidPrivateKey = generated.privateKey;
-    console.log('📢 Auto-generated VAPID keys for WebPush notifications');
+    // IMPORTANT: Temporary keys are generated on every restart — all push subscriptions
+    // will be invalidated when the server restarts. To persist notifications across restarts,
+    // add these to your .env file:
+    console.log('⚠️  VAPID keys not set — auto-generating temporary keys (push subscriptions will break on restart)');
+    console.log(`   Add to .env: VAPID_PUBLIC_KEY=${vapidPublicKey}`);
+    console.log(`   Add to .env: VAPID_PRIVATE_KEY=${vapidPrivateKey}`);
   } catch (e) {}
 }
 

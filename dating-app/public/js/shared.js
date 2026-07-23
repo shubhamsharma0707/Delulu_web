@@ -68,24 +68,29 @@ async function requireAuth() {
       
       // Perform session verification in background (non-blocking — page renders immediately with cached data)
       const safeTimeout = (ms) => new Promise(resolve => setTimeout(() => resolve(null), ms));
-      Promise.race([apiCall('/api/session'), safeTimeout(3000)]).then(result => {
-        if (!result) return; // timeout, keep cached data
-        if (result.authenticated) {
+      Promise.race([apiCall('/api/session'), safeTimeout(4000)]).then(result => {
+        if (!result) return; // timeout or network error, keep cached data
+        if (result.authenticated && result.user) {
           currentUser = result.user;
           window.localStorage.setItem('cached_user', JSON.stringify(result.user));
+          if (result.token) {
+            window.localStorage.setItem('auth_token', result.token);
+          }
           updateHeaderAvatar();
           // Init push notifications after auth confirmed
           setTimeout(initPushNotifications, 3000);
-        } else {
+        } else if (result.authenticated === false) {
           window.localStorage.removeItem('cached_user');
+          window.localStorage.removeItem('auth_token');
           window.localStorage.removeItem('e2ee_private_key');
           window.location.href = 'login.html';
         }
-      }).catch(() => {}); // suppress any unhandled rejections
+      }).catch(() => {}); // suppress any unhandled rejections — keep cached user if network fails
       
       return; // Resolve instantly!
     } catch (e) {
       window.localStorage.removeItem('cached_user');
+      window.localStorage.removeItem('auth_token');
     }
   }
 
@@ -94,28 +99,31 @@ async function requireAuth() {
     const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(null), 5000));
     const data = await Promise.race([apiCall('/api/session'), timeoutPromise]);
     
-    if (data && data.authenticated) {
+    if (data && data.authenticated && data.user) {
       currentUser = data.user;
       window.localStorage.setItem('cached_user', JSON.stringify(data.user));
+      if (data.token) {
+        window.localStorage.setItem('auth_token', data.token);
+      }
       initGlobalSocket();
       updateHeaderAvatar();
       // Init push notifications after auth confirmed
       setTimeout(initPushNotifications, 3000);
-    } else if (!data) {
+    } else if (data && data.authenticated === false) {
+      window.localStorage.removeItem('cached_user');
+      window.localStorage.removeItem('auth_token');
+      window.location.href = 'login.html';
+    } else {
       // Timeout occurred - wait for cached data or redirect
       if (!window.localStorage.getItem('cached_user')) {
         window.location.href = 'login.html';
       }
-      // else: silently keep cached data
-    } else {
-      window.location.href = 'login.html';
     }
   } catch (err) {
     // Only redirect if we don't have cached user data
     if (!window.localStorage.getItem('cached_user')) {
       window.location.href = 'login.html';
     } else {
-      // Use cached data as fallback
       console.warn('Session check failed, using cached user');
     }
   }
@@ -156,6 +164,12 @@ async function apiCall(url, method = 'GET', body = null) {
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include'
   };
+  
+  const token = window.localStorage.getItem('auth_token');
+  if (token) {
+    options.headers['Authorization'] = `Bearer ${token}`;
+  }
+
   if (body) options.body = JSON.stringify(body);
 
   const targetUrl = resolveUrl(url);
@@ -192,6 +206,7 @@ async function apiCall(url, method = 'GET', body = null) {
   if (!res.ok) {
     if (res.status === 401) {
       window.localStorage.removeItem('cached_user');
+      window.localStorage.removeItem('auth_token');
       window.localStorage.removeItem('e2ee_private_key');
       const pathname = window.location.pathname;
       if (!pathname.endsWith('login.html') && !pathname.endsWith('login')) {
@@ -248,8 +263,9 @@ function setupLogout() {
   if (btn) {
     btn.onclick = async () => {
       window.localStorage.removeItem('cached_user');
+      window.localStorage.removeItem('auth_token');
       window.localStorage.removeItem('e2ee_private_key');
-      await apiCall('/api/users/logout', 'POST');
+      await apiCall('/api/users/logout', 'POST').catch(() => {});
       if (socket) socket.disconnect();
       window.location.href = 'login.html';
     };
@@ -321,16 +337,27 @@ function hapticHeavy() {
 // Replaces alert() for all non-critical messages. Supports error/success/warning types.
 // Auto-dismisses after 2.5s (error) or 2s (success/info).
 function showToast(msg, type) {
+  // Deduplicate: don't show the same message twice in quick succession
+  const existing = document.querySelector('.delulu-toast');
+  if (existing && existing.textContent === msg) return;
+  
   const toast = document.createElement('div');
   const isError = type === 'error';
-  const bgClass = isError ? 'bg-error/90 text-white' : 'bg-surface-container-high text-on-surface';
-  toast.className = `fixed bottom-24 left-1/2 -translate-x-1/2 ${bgClass} px-6 py-3 rounded-2xl shadow-lg z-50 text-sm font-medium animate-slideUp max-w-[90vw] text-center`;
+  const isSuccess = type === 'success';
+  let bgClass = 'bg-surface-container-high text-on-surface';
+  if (isError) bgClass = 'bg-error/90 text-white';
+  else if (isSuccess) bgClass = 'bg-emerald-600/90 text-white';
+  
+  toast.className = `delulu-toast fixed bottom-24 left-1/2 -translate-x-1/2 ${bgClass} px-6 py-3 rounded-2xl shadow-lg z-[99999] text-sm font-medium max-w-[90vw] text-center transition-all duration-300`;
+  toast.style.transform = 'translateX(-50%) translateY(0)';
   toast.textContent = msg;
   document.body.appendChild(toast);
-  const duration = isError ? 2500 : 2000;
+  
+  // Error toasts show longer (4s) so users can read error messages
+  const duration = isError ? 4000 : 2500;
   setTimeout(() => {
     toast.style.opacity = '0';
-    toast.style.transform = 'translateY(20px)';
+    toast.style.transform = 'translateX(-50%) translateY(20px)';
     setTimeout(() => toast.remove(), 300);
   }, duration);
 }
@@ -443,22 +470,36 @@ async function initPushNotifications() {
       reg = await navigator.serviceWorker.ready;
     } else {
       reg = await navigator.serviceWorker.register('/sw.js');
+      await navigator.serviceWorker.ready;
+      reg = await navigator.serviceWorker.ready;
     }
     
     const keyRes = await fetch(resolveUrl('/api/push/vapid-key'), { credentials: 'include' });
     const keyData = await keyRes.json();
     if (!keyData.publicKey) return;
     
-    const existingSub = await reg.pushManager.getSubscription();
-    if (existingSub) return;
+    // Check if existing subscription is still valid for this VAPID key
+    let sub = await reg.pushManager.getSubscription();
     
-    const sub = await reg.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: keyData.publicKey
-    });
+    if (sub) {
+      // Re-register subscription with server on every init to handle VAPID key rotation.
+      // The server will update the record; if the subscription is stale, it will
+      // be removed when push delivery fails with a 410 Gone response.
+      await apiCall('/api/push/subscribe', 'POST', { subscription: sub.toJSON() }).catch(() => {
+        // If re-registration fails, unsubscribe and re-subscribe fresh
+        sub.unsubscribe();
+        sub = null;
+      });
+    }
     
-    await apiCall('/api/push/subscribe', 'POST', { subscription: sub.toJSON() });
-    console.log('Web Push notifications enabled');
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: keyData.publicKey
+      });
+      await apiCall('/api/push/subscribe', 'POST', { subscription: sub.toJSON() });
+      console.log('Web Push notifications enabled');
+    }
   } catch (err) {
     console.log('Push notification setup deferred:', err.message);
   }
