@@ -1,0 +1,181 @@
+{
+  "info": {
+    "name": "Delulu Dating App API Collection",
+    "description": "Comprehensive API collection for testing Delulu endpoints: Auth, Discover, Connections, Messaging, Icebreakers, and Security.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth - Send Verification Email / OTP",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"lakshit.24bce11263@vitbhopal.ac.in\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/auth/send-verification-email",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "auth", "send-verification-email"]
+        }
+      }
+    },
+    {
+      "name": "Auth - User Login",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"wanderlust_amy\",\n  \"password\": \"123456\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/users/login",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "users", "login"]
+        }
+      }
+    },
+    {
+      "name": "Auth - Get Current Session Profile",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/users/me",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "users", "me"]
+        }
+      }
+    },
+    {
+      "name": "Discover - Fetch Discoverable 3D Avatars",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/discover",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "discover"]
+        }
+      }
+    },
+    {
+      "name": "Connections - Send Invite Request",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"target_user_id\": 2\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/connections/request",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "connections", "request"]
+        }
+      }
+    },
+    {
+      "name": "Connections - Respond (Accept/Reject)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"connection_id\": 1,\n  \"action\": \"accept\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/connections/respond",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "connections", "respond"]
+        }
+      }
+    },
+    {
+      "name": "Icebreaker - Answer Game",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"answer\": \"A\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/connections/1/answer-game",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "connections", "1", "answer-game"]
+        }
+      }
+    },
+    {
+      "name": "Icebreaker - Clear Game Card",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"game_created_at\": \"2026-07-22T14:00:00.000Z\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/connections/1/clear-game",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "connections", "1", "clear-game"]
+        }
+      }
+    },
+    {
+      "name": "Messages - React to Message",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"connection_id\": 1,\n  \"emoji\": \"👍\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/messages/10/react",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "messages", "10", "react"]
+        }
+      }
+    },
+    {
+      "name": "Security - Report User",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"reported_user_id\": 2,\n  \"reason\": \"Inappropriate behavior\",\n  \"connection_id\": 1\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/users/report",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "users", "report"]
+        }
+      }
+    }
+  ]
+}

@@ -1646,6 +1646,7 @@ connectionOps.getAllBetween = async function(userId1, userId2) {
 
 module.exports = {
   getDB,
+  getEcosystem,
   seedDemoUsers,
   userOps,
   connectionOps,

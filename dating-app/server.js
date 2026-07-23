@@ -670,6 +670,7 @@ app.post('/api/auth/send-verification-email', otpLimiter, async (req, res) => {
   }
 
   const cleanEmail = email.toLowerCase().trim();
+  const domain = cleanEmail.split('@')[1] || '';
   const allowedDomains = [
     'rishihood.edu.in', 
     'vitbhopal.ac.in', 
@@ -1908,17 +1909,21 @@ setInterval(async () => {
 
 
 
-server.listen(PORT, '0.0.0.0', () => {
-  const scheme = process.env.NODE_ENV === 'production' ? 'https' : 'http';
-  console.log(`Delulu Dating App running at ${scheme}://localhost:${PORT}`);
-  console.log(`Open your browser to ${scheme}://localhost:${PORT}`);
-  console.log('');
-  if (!vapidPublicKey) {
-    console.log('📢 To enable push notifications, run: npx web-push generate-vapid-keys');
-    console.log('   Then set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY in your .env');
-  }
-  console.log('');
-  console.log('Demo users (passcode for all is 123456):');
-  console.log('  Female: wanderlust_amy, art_vibes, trailblazer, bookish_bee, melody_maker, spice_queen');
-  console.log('  Male:   stellar_jay, coffee_leo, pixel_wanderer, green_mind, ocean_soul, zen_master');
-});
+if (process.env.NODE_ENV !== 'test') {
+  server.listen(PORT, '0.0.0.0', () => {
+    const scheme = process.env.NODE_ENV === 'production' ? 'https' : 'http';
+    console.log(`Delulu Dating App running at ${scheme}://localhost:${PORT}`);
+    console.log(`Open your browser to ${scheme}://localhost:${PORT}`);
+    console.log('');
+    if (!vapidPublicKey) {
+      console.log('📢 To enable push notifications, run: npx web-push generate-vapid-keys');
+      console.log('   Then set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY in your .env');
+    }
+    console.log('');
+    console.log('Demo users (passcode for all is 123456):');
+    console.log('  Female: wanderlust_amy, art_vibes, trailblazer, bookish_bee, melody_maker, spice_queen');
+    console.log('  Male:   stellar_jay, coffee_leo, pixel_wanderer, green_mind, ocean_soul, zen_master');
+  });
+}
+
+module.exports = { app, server };
