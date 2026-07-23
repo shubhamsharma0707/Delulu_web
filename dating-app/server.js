@@ -157,7 +157,8 @@ app.set('trust proxy', 1);
 app.use(compression());
 
 // HTTP → HTTPS redirect in production (must run before helmet or any route)
-if (process.env.NODE_ENV === 'production') {
+// Skip redirect when testing with supertest (no x-forwarded-proto header expected)
+if (process.env.NODE_ENV === 'production' && !process.env.VITEST) {
   app.use((req, res, next) => {
     if (req.headers['x-forwarded-proto'] !== 'https') {
       return res.redirect('https://' + req.headers.host + req.url);
@@ -167,6 +168,7 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 // Custom CORS Middleware to handle credentials and Capacitor/Localhost origins
+// Critical for Android APK: Capacitor WebView loads from file:// which sends Origin: null
 app.use((req, res, next) => {
   const allowedOrigins = [
     'http://localhost',
@@ -179,7 +181,12 @@ app.use((req, res, next) => {
   ];
   
   const origin = req.headers.origin;
-  if (origin && (allowedOrigins.includes(origin) || origin.startsWith('http://localhost') || origin.startsWith('https://localhost') || origin.startsWith('capacitor://'))) {
+  if (origin && (allowedOrigins.includes(origin) || 
+      origin.startsWith('http://localhost') || 
+      origin.startsWith('https://localhost') || 
+      origin.startsWith('capacitor://') ||
+      origin.startsWith('file://') ||
+      origin === 'null')) {
     res.setHeader('Access-Control-Allow-Origin', origin);
   }
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -375,6 +382,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/api/', apiLimiter);
 
 // CSRF Sec-Fetch-Site / Origin check — defense-in-depth on top of sameSite: 'lax'
+// Android Capacitor APK sends Origin: null for file:// loads — must allow it
 app.use((req, res, next) => {
   if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) {
     const allowedOrigins = [
@@ -395,7 +403,8 @@ app.use((req, res, next) => {
           requestOrigin.startsWith('http://localhost') || 
           requestOrigin.startsWith('https://localhost') || 
           requestOrigin.startsWith('capacitor://') ||
-          requestOrigin.startsWith('file://')) {
+          requestOrigin.startsWith('file://') ||
+          requestOrigin === 'null') {
         isNativeCapacitorOrigin = true;
       }
     }
@@ -2128,7 +2137,7 @@ setInterval(async () => {
 
 
 
-if (process.env.NODE_ENV !== 'test') {
+if (process.env.NODE_ENV !== 'test' && !process.env.VITEST) {
   server.listen(PORT, '0.0.0.0', () => {
     const scheme = process.env.NODE_ENV === 'production' ? 'https' : 'http';
     console.log(`Delulu Dating App running at ${scheme}://localhost:${PORT}`);

@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import request from 'supertest';
+
+// vitest.config.js sets VITEST=true and NODE_ENV=development so HTTP→HTTPS redirect won't interfere
 const { app } = require('../server.js');
 
 describe('Delulu API Routes & Security Tests', () => {

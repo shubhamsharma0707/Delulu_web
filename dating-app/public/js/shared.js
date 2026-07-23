@@ -57,6 +57,9 @@ function escapeHtml(str) {
 }
 
 // Ensure we have user data on protected routes (Optimistic Session Cache)
+// For Capacitor APK: session cookies may not persist from file:// origin,
+// so we rely on the auth_token in localStorage sent via Authorization header.
+// CORS middleware on server now allows file:// and null origins.
 async function requireAuth() {
   const cachedUserStr = window.localStorage.getItem('cached_user');
   
@@ -67,8 +70,10 @@ async function requireAuth() {
       updateHeaderAvatar();
       
       // Perform session verification in background (non-blocking — page renders immediately with cached data)
+      // auth_token from localStorage is sent as Authorization header for every apiCall
+      // Extended timeout (8s) prevents false-positive logout on slow connections / cold-start servers
       const safeTimeout = (ms) => new Promise(resolve => setTimeout(() => resolve(null), ms));
-      Promise.race([apiCall('/api/session'), safeTimeout(4000)]).then(result => {
+      Promise.race([apiCall('/api/session'), safeTimeout(8000)]).then(result => {
         if (!result) return; // timeout or network error, keep cached data
         if (result.authenticated && result.user) {
           currentUser = result.user;
@@ -80,10 +85,20 @@ async function requireAuth() {
           // Init push notifications after auth confirmed
           setTimeout(initPushNotifications, 3000);
         } else if (result.authenticated === false) {
-          window.localStorage.removeItem('cached_user');
-          window.localStorage.removeItem('auth_token');
-          window.localStorage.removeItem('e2ee_private_key');
-          window.location.href = 'login.html';
+          // Retry once with timeout before redirecting — server may have been cold-starting
+          Promise.race([apiCall('/api/session'), safeTimeout(6000)]).then(retryResult => {
+            if (retryResult && retryResult.authenticated && retryResult.user) {
+              currentUser = retryResult.user;
+              window.localStorage.setItem('cached_user', JSON.stringify(retryResult.user));
+              if (retryResult.token) window.localStorage.setItem('auth_token', retryResult.token);
+              updateHeaderAvatar();
+            } else {
+              window.localStorage.removeItem('cached_user');
+              window.localStorage.removeItem('auth_token');
+              window.localStorage.removeItem('e2ee_private_key');
+              window.location.replace('login.html');
+            }
+          }).catch(() => {});
         }
       }).catch(() => {}); // suppress any unhandled rejections — keep cached user if network fails
       
