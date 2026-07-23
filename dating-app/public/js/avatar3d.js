@@ -28,6 +28,16 @@ function initAvatarScene(containerId, profiles) {
   currentCenterIndex = 0;
   targetIndex = 0;
 
+  // Preload all avatar images immediately to prevent flashing on swipe
+  profiles.forEach(p => {
+    if (p.avatar && typeof p.avatar === 'object') {
+      if (p.avatar.idle) { const img = new Image(); img.src = p.avatar.idle; }
+      if (p.avatar.wave) { const img = new Image(); img.src = p.avatar.wave; }
+    } else if (p.avatar) {
+      const img = new Image(); img.src = `/avatars/${p.avatar}.png`;
+    }
+  });
+
   sceneContainer.innerHTML = '';
   sceneContainer.style.cssText = `
     position: relative;

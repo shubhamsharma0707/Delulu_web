@@ -218,13 +218,13 @@ function initRealtimeStream() {
     stopPollingFallback();
     stopStatusPollingFallback();
 
-    // Resync connection state once when reconnecting to capture missed game actions
-    if (isReconnecting) {
-      console.log('[SSE] Reconnected. Fetching latest chat info to resync state.');
-      // Queue via helper to coalesce with any visibilitychange or socket connect call that's also triggering
-      scheduleChatInfoRefresh();
-      isReconnecting = false;
+    // Resync connection state & fetch message delta when connecting/reconnecting
+    console.log('[SSE] Stream connected. Syncing connection info & message state.');
+    scheduleChatInfoRefresh();
+    if (currentConnId && typeof loadMessages === 'function') {
+      loadMessages(currentConnId, true).catch(() => {});
     }
+    isReconnecting = false;
   };
 
   eventSource.onmessage = (event) => {
@@ -925,8 +925,21 @@ async function initializeChat() {
 
     try {
       voiceStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      audioChunks = [];
-      mediaRecorder = new MediaRecorder(voiceStream);
+      let options = {};
+      const mimeTypes = [
+        'audio/mp4',
+        'audio/aac',
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/ogg'
+      ];
+      for (const mime of mimeTypes) {
+        if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(mime)) {
+          options = { mimeType: mime };
+          break;
+        }
+      }
+      mediaRecorder = new MediaRecorder(voiceStream, options);
       
       mediaRecorder.ondataavailable = (event) => {
         audioChunks.push(event.data);
@@ -1187,7 +1200,23 @@ function scrollToBottom(smooth = false) {
     // With flex-col-reverse, scrollTop=0 shows the visual top (oldest messages).
     // We want the visual bottom (newest messages) — scrollHeight achieves that.
     cont.scrollTo({ top: cont.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
+    
+    // Attach load listeners to async images so height expansion re-scrolls to bottom
+    cont.querySelectorAll('img:not([data-scroll-handled])').forEach(img => {
+      img.dataset.scrollHandled = '1';
+      if (!img.complete) {
+        img.addEventListener('load', () => {
+          cont.scrollTo({ top: cont.scrollHeight, behavior: 'auto' });
+        }, { once: true });
+      }
+    });
   }
+}
+
+if (typeof window !== 'undefined' && window.visualViewport) {
+  window.visualViewport.addEventListener('resize', () => {
+    scrollToBottom(false);
+  });
 }
 
 let isPartnerOnline = false;
