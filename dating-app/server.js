@@ -286,6 +286,56 @@ function invalidateCache(userId) {
   sessionCache.delete(userId);
 }
 
+// ===== Connection Auth Cache (reduces Firestore reads on hot message paths) =====
+// Every message send/read/reaction calls connectionOps.getConnection() to verify
+// the user belongs to the connection. This cache remembers recent verifications
+// so repeated calls within 30 seconds skip the Firestore read entirely.
+// Cache is invalidated immediately when connection status changes (end, reveal, etc.)
+const connectionAuthCache = new Map();
+const CONNECTION_AUTH_TTL = 30 * 1000; // 30 seconds
+
+function getCachedConnectionAuth(connectionId, userId) {
+  const key = `${connectionId}:${userId}`;
+  const cached = connectionAuthCache.get(key);
+  if (cached && Date.now() - cached.timestamp < CONNECTION_AUTH_TTL) {
+    return cached.data; // Returns the connection object
+  }
+  return null;
+}
+
+function setCachedConnectionAuth(connectionId, userId, connData) {
+  const key = `${connectionId}:${userId}`;
+  connectionAuthCache.set(key, { data: connData, timestamp: Date.now() });
+  // Hard cap at 2000 entries
+  if (connectionAuthCache.size > 2000) {
+    const oldest = connectionAuthCache.keys().next().value;
+    if (oldest) connectionAuthCache.delete(oldest);
+  }
+}
+
+function evictConnectionAuth(connectionId) {
+  // Evict all cache entries for a given connection (both users)
+  for (const [key] of connectionAuthCache) {
+    if (key.startsWith(`${connectionId}:`)) {
+      connectionAuthCache.delete(key);
+    }
+  }
+}
+
+// Helper to get connection with auth cache — replaces raw getConnection calls
+// on hot message paths (send, read, react, delete). Falls back to the full
+// getConnection() on cache miss.
+async function getCachedConnection(connectionId, userId) {
+  const cached = getCachedConnectionAuth(connectionId, userId);
+  if (cached) return cached;
+  
+  const conn = await connectionOps.getConnection(connectionId, userId);
+  if (conn && !conn._dataIntegrityError) {
+    setCachedConnectionAuth(connectionId, userId, conn);
+  }
+  return conn;
+}
+
 // Session middleware — using memorystore (pure JS, no native compilation)
 // ===== Session Store (Supabase Postgres — survives server restarts) =====
 // Uses connect-pg-simple with Supabase's Postgres connection string.
@@ -1406,6 +1456,7 @@ app.get('/api/user/stream', requireAuth, (req, res) => {
 app.post('/api/connections/end', requireAuth, async (req, res) => {
   const { connection_id } = req.body;
   if (!connection_id) return res.status(400).json({ error: 'Missing connection id' });
+  evictConnectionAuth(connection_id); // Invalidate auth cache immediately
   const result = await connectionOps.endConnection(connection_id, req.session.userId);
   if (result.error) return res.status(400).json(result);
 
@@ -1424,13 +1475,12 @@ app.post('/api/connections/end', requireAuth, async (req, res) => {
   });
 
   res.json(result);
-});
-
-// Submit face reveal (Day 10)
-app.post('/api/connections/face-reveal', requireAuth, async (req, res) => {
-  const { connection_id } = req.body;
-  if (!connection_id) return res.status(400).json({ error: 'Missing connection id' });
-  const result = await connectionOps.submitFaceReveal(connection_id, req.session.userId);
+});  // Submit face reveal (Day 10)
+  app.post('/api/connections/face-reveal', requireAuth, async (req, res) => {
+    const { connection_id } = req.body;
+    if (!connection_id) return res.status(400).json({ error: 'Missing connection id' });
+    evictConnectionAuth(connection_id); // Invalidate auth cache — status changing
+    const result = await connectionOps.submitFaceReveal(connection_id, req.session.userId);
   if (result.error) return res.status(400).json(result);
   
   if (result.bothRevealed) {
@@ -1443,13 +1493,12 @@ app.post('/api/connections/face-reveal', requireAuth, async (req, res) => {
   }
 
   res.json(result);
-});
-
-// Decline face reveal
-app.post('/api/connections/decline-face-reveal', requireAuth, async (req, res) => {
-  const { connection_id } = req.body;
-  if (!connection_id) return res.status(400).json({ error: 'Missing connection id' });
-  const result = await connectionOps.declineFaceReveal(connection_id, req.session.userId);
+});  // Decline face reveal
+  app.post('/api/connections/decline-face-reveal', requireAuth, async (req, res) => {
+    const { connection_id } = req.body;
+    if (!connection_id) return res.status(400).json({ error: 'Missing connection id' });
+    evictConnectionAuth(connection_id); // Invalidate auth cache
+    const result = await connectionOps.declineFaceReveal(connection_id, req.session.userId);
   if (result.error) return res.status(400).json(result);
   
   // A decline is a decision, not an implicit chat deletion. The other person is
@@ -1657,7 +1706,7 @@ app.post('/api/messages/send', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'Missing connection_id or content' });
   }
 
-  const conn = await connectionOps.getConnection(connection_id, req.session.userId);
+  const conn = await getCachedConnection(connection_id, req.session.userId);
   if (conn && conn._dataIntegrityError) {
     return res.status(410).json({ error: 'This chat is no longer available — one of the accounts involved no longer exists.' });
   }

@@ -15,8 +15,8 @@ let hasUnreadMessagesInView = false;
 let lastMessageTimestamp = null;
 let hasLoadedInitialMessages = false;
 let pollingTimeout = null;
-let pollInterval = 8000;
-const maxInterval = 30000;
+let pollInterval = 3000;
+const maxInterval = 8000;
 
 // SSE realtime stream for connection state and message nudges.
 // It keeps chat updates instant while avoiding repeated full HTTP polling.
@@ -39,7 +39,7 @@ function resetIdleTimer() {
   if (isIdle) {
     isIdle = false;
     console.log('User active — resuming polling fallback');
-    pollInterval = 8000;
+    pollInterval = 3000;
     scheduleNextPoll();
   }
 }
@@ -50,8 +50,9 @@ function resetIdleTimer() {
 });
 
 function checkUserIdle() {
-  // Idle after 60 seconds of no keyboard/mouse/touch activity
-  if (Date.now() - lastActivityTime > 60000) {
+  // Idle after 30 seconds of no keyboard/mouse/touch activity — shorter threshold
+  // reduces the window where incoming messages are delayed by backed-off polling
+  if (Date.now() - lastActivityTime > 30000) {
     isIdle = true;
     return true;
   }
@@ -154,17 +155,17 @@ function scheduleNextPoll() {
   pollingTimeout = setTimeout(async () => {
     if (_pollInFlight) return;
     const hasNewMessages = await runDeltaSyncNow();
-    // Polling backoff: reset to 8s on activity, double up to 30s on idle
+    // Aggressive polling: reset to 3s on any activity, max 8s on prolonged silence
     pollInterval = hasNewMessages
-      ? 8000
-      : Math.min(pollInterval * 2, maxInterval);
+      ? 3000
+      : Math.min(pollInterval * 1.5, maxInterval);
     scheduleNextPoll();
   }, pollInterval);
 }
 
 function startPollingFallback() {
   if (socket && socket.connected) return;
-  pollInterval = 8000;
+  pollInterval = 3000; // Start fast — 3s instead of 8s
   scheduleNextPoll();
 }
 
@@ -274,6 +275,8 @@ function initRealtimeStream() {
         // Fallback: old-style SSE with no embedded message — do a delta fetch
         scheduleDeltaSyncSoon();
       }
+      // Reset poll interval on any incoming message activity — ensures polling stays fast
+      pollInterval = 3000;
     } else if (streamEvent.type === 'read') {
       // Instantly update seen ticks without any extra fetch
       if (streamEvent.readAt) {
@@ -306,12 +309,12 @@ function initRealtimeStream() {
   };
 
   eventSource.onerror = () => {
-    console.warn('[SSE] EventSource disconnected. Falling back to HTTP status polling.');
+    console.warn('[SSE] EventSource disconnected. Falling back to HTTP polling.');
     
     streamReady = false;
     isReconnecting = true;
     
-    // Start HTTP polling fallback so states update in the interim
+    // Start HTTP polling fallback immediately — with aggressive 3s base interval
     startPollingFallback();
     startStatusPollingFallback();
   };
@@ -330,7 +333,7 @@ function startStatusPollingFallback() {
   if (statusPollingTimeout) clearTimeout(statusPollingTimeout);
   if (streamReady) return;
   if (document.hidden || checkUserIdle()) {
-    statusPollingTimeout = setTimeout(startStatusPollingFallback, 6000);
+    statusPollingTimeout = setTimeout(startStatusPollingFallback, 3000);
     return;
   }
   
@@ -341,7 +344,7 @@ function startStatusPollingFallback() {
       } catch (e) {}
     }
     startStatusPollingFallback();
-  }, 6000); // Poll status every 6 seconds to ensure games and reveals sync dynamically
+  }, 3000); // Poll status every 3s (halved from 6s) for snappier game/reveal updates
 }
 
 function stopStatusPollingFallback() {
@@ -1143,6 +1146,23 @@ async function initializeChat() {
 
   // Kick off real-time event stream (SSE) for icebreaker games and status changes
   initRealtimeStream();
+
+  // ── Keep-Alive Ping ────────────────────────────────────────────────────────
+  // Prevents Render free tier from spinning down during active chat.
+  // Render spins down after 15 min of inactivity. A lightweight ping every 3
+  // minutes during active chat keeps the server warm so socket.io reconnects
+  // instantly instead of waiting for a cold start (5-10s).
+  if (!window.__chatKeepAliveStarted) {
+    window.__chatKeepAliveStarted = true;
+    const sendKeepAlive = () => {
+      if (document.hidden || !currentConnId) return;
+      apiCall('/api/connections/' + currentConnId)
+        .then(() => {}).catch(() => {});
+    };
+    window.__chatKeepAliveInterval = setInterval(sendKeepAlive, 3 * 60 * 1000); // Every 3 minutes
+    // Send one immediately so the server is warm right away
+    setTimeout(sendKeepAlive, 5000);
+  }
 }
 
 // Clean up SSE stream and audio blob URLs when navigating away.
@@ -1161,6 +1181,12 @@ function cleanupChatResources() {
     }
     currentPlayingAudio = null;
     currentPlayingBtn = null;
+  }
+  // Clear keep-alive interval so it doesn't keep running after navigation
+  if (window.__chatKeepAliveInterval) {
+    clearInterval(window.__chatKeepAliveInterval);
+    window.__chatKeepAliveInterval = null;
+    window.__chatKeepAliveStarted = false;
   }
 }
 
@@ -1188,7 +1214,7 @@ function markMessagesAsRead() {
       _readInFlight = false;
       if (_pendingReadMark) {
         _pendingReadMark = false;
-        setTimeout(markMessagesAsRead, 100);
+        setTimeout(markMessagesAsRead, 50); // halved from 100ms for snappier read receipts
       }
     });
 }
