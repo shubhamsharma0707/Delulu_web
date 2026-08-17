@@ -230,16 +230,20 @@ function isNativeAppOrigin(origin) {
 
 function isWebAppOrigin(origin) {
   if (!origin) return false;
-  // Production: only explicit APP_URL + the Render hosting domain.
+  // Production: explicit APP_URL + Railway / Render hosting domains.
   if (process.env.NODE_ENV === 'production') {
     if (process.env.APP_URL && origin === process.env.APP_URL) return true;
+    if (/^https:\/\/.+\.up\.railway\.app$/.test(origin)) return true;
+    if (/^https:\/\/.+\.railway\.app$/.test(origin)) return true;
     if (/^https:\/\/.+\.onrender\.com$/.test(origin)) return true;
     if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return true;
     return false;
   }
-  // Dev/test: localhost variants, Capacitor's http://localhost webview, APP_URL.
+  // Dev/test: localhost variants, Capacitor's http://localhost webview, APP_URL, Railway & Render.
   if (process.env.APP_URL && origin === process.env.APP_URL) return true;
   return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin) ||
+    origin.endsWith('.up.railway.app') ||
+    origin.endsWith('.railway.app') ||
     origin.endsWith('.onrender.com') ||
     origin.startsWith('http://localhost') ||
     origin.startsWith('https://localhost');
@@ -1098,7 +1102,7 @@ app.get('/api/sse-token', requireAuth, async (req, res) => {
 async function sendBrevoEmail(email, subject, htmlContent) {
   const apiKey = process.env.BREVO_API_KEY;
   if (!apiKey) {
-    throw new Error('BREVO_API_KEY is not configured on the server. Please set it in your Render settings.');
+    throw new Error('BREVO_API_KEY is not configured on the server. Please set it in your environment settings (e.g. Railway Variables).');
   }
 
   return brevoBreaker.execute(async (signal) => {
@@ -1162,7 +1166,9 @@ app.post('/api/auth/send-verification-email', otpSendLimiter, otpSendIpLimiter, 
       console.error('Failed to persist verify token (link will be replayable this cycle):', err.message);
     });
 
-    const appUrl = process.env.APP_URL || 'https://delulu-college.onrender.com';
+    const appUrl = process.env.APP_URL || 
+      (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : 
+      (process.env.RAILWAY_STATIC_URL ? `https://${process.env.RAILWAY_STATIC_URL}` : 'https://delulu-app-main-production.up.railway.app'));
     const verifyLink = `${appUrl}/login.html?token=${encodeURIComponent(fullToken)}`;
 
     const htmlContent = `
@@ -1314,7 +1320,9 @@ app.post('/api/auth/send-password-reset', otpSendLimiter, otpSendIpLimiter, asyn
       console.error('Failed to persist reset token (link will be replayable this cycle):', err.message);
     });
 
-    const appUrl = process.env.APP_URL || 'https://delulu-college.onrender.com';
+    const appUrl = process.env.APP_URL || 
+      (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : 
+      (process.env.RAILWAY_STATIC_URL ? `https://${process.env.RAILWAY_STATIC_URL}` : 'https://delulu-app-main-production.up.railway.app'));
     const resetLink = `${appUrl}/login.html?reset=1&token=${encodeURIComponent(fullToken)}&email=${encodeURIComponent(cleanEmail)}`;
 
     const htmlContent = `

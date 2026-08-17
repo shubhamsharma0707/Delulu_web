@@ -111,12 +111,16 @@ describe('Delulu API Routes & Security Tests', () => {
   });
 
   describe('Hosted Domain CORS & Concurrency Tests', () => {
-    it('should allow CORS for .onrender.com origins', async () => {
-      const res = await request(app)
+    it('should allow CORS for .onrender.com and .railway.app origins', async () => {
+      const resRender = await request(app)
         .options('/api/auth/send-verification-email')
         .set('Origin', 'https://delulu-join-now.onrender.com');
+      expect(resRender.headers['access-control-allow-origin']).toBe('https://delulu-join-now.onrender.com');
 
-      expect(res.headers['access-control-allow-origin']).toBe('https://delulu-join-now.onrender.com');
+      const resRailway = await request(app)
+        .options('/api/auth/send-verification-email')
+        .set('Origin', 'https://delulu-app-main-production.up.railway.app');
+      expect(resRailway.headers['access-control-allow-origin']).toBe('https://delulu-app-main-production.up.railway.app');
     });
 
     it('should create OTPs concurrently without Firestore transaction lock errors', async () => {

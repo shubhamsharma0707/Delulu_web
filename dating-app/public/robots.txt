@@ -19,4 +19,4 @@ Disallow: /api/
 # Android APK download (126MB binary)
 Disallow: /delulu.apk
 
-Sitemap: https://delulu-college.onrender.com/sitemap.xml
+Sitemap: https://delulu-app-main-production.up.railway.app/sitemap.xml
